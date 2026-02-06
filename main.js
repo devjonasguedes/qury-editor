@@ -29,7 +29,7 @@ async function disconnect() {
   try {
     if (current.type === 'mysql') {
       await current.client.end();
-    } else if (current.type === 'postgres') {
+    } else if (current.type === 'postgresql') {
       await current.client.end();
     }
   } finally {
@@ -52,6 +52,10 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});
 
 app.on('before-quit', () => {
   disconnect();
@@ -88,10 +92,11 @@ ipcMain.handle('connections:delete', async (_evt, name) => {
 });
 
 ipcMain.handle('db:connect', async (_evt, config) => {
-  await disconnect();
-  const type = config.type;
+  try {
+    await disconnect();
+    const type = config.type;
 
-  if (type === 'mysql') {
+    if (type === 'mysql') {
     const client = await mysql.createConnection({
       host: config.host,
       port: Number(config.port || 3306),
@@ -99,24 +104,38 @@ ipcMain.handle('db:connect', async (_evt, config) => {
       password: config.password,
       database: config.database || undefined
     });
-    current = { type, client, database: config.database || '' };
+      let dbName = config.database || '';
+      if (!dbName) {
+        const [rows] = await client.query('SELECT DATABASE() AS db');
+        dbName = rows && rows[0] && rows[0].db ? rows[0].db : '';
+      }
+    current = { type, client, database: dbName, config: { host: config.host, port: Number(config.port || 3306), user: config.user, password: config.password } };
     return { ok: true };
-  }
+    }
 
-  if (type === 'postgres') {
-    const client = new Client({
-      host: config.host,
-      port: Number(config.port || 5432),
-      user: config.user,
-      password: config.password,
-      database: config.database || undefined
-    });
-    await client.connect();
-    current = { type, client, database: config.database || '' };
+    if (type === 'postgresql') {
+      const client = new Client({
+        host: config.host,
+        port: Number(config.port || 5432),
+        user: config.user,
+        password: config.password,
+        database: config.database || undefined
+      });
+      await client.connect();
+      let dbName = config.database || '';
+      if (!dbName) {
+        const res = await client.query('SELECT current_database() AS db');
+        dbName = res && res.rows && res.rows[0] && res.rows[0].db ? res.rows[0].db : '';
+      }
+    current = { type, client, database: dbName, config: { host: config.host, port: Number(config.port || 5432), user: config.user, password: config.password } };
     return { ok: true };
-  }
+    }
 
-  return { ok: false, error: 'Tipo de banco não suportado.' };
+    return { ok: false, error: 'Tipo de banco não suportado.' };
+  } catch (err) {
+    const message = err && err.message ? err.message : 'Erro ao conectar.';
+    return { ok: false, error: message };
+  }
 });
 
 ipcMain.handle('db:disconnect', async () => {
@@ -142,7 +161,7 @@ ipcMain.handle('db:listTables', async () => {
     return { ok: true, rows };
   }
 
-  if (current.type === 'postgres') {
+  if (current.type === 'postgresql') {
     const res = await current.client.query(
       "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_type, table_name"
     );
@@ -152,24 +171,92 @@ ipcMain.handle('db:listTables', async () => {
   return { ok: false, error: 'Tipo de banco não suportado.' };
 });
 
-ipcMain.handle('db:runQuery', async (_evt, sql) => {
+ipcMain.handle('db:listDatabases', async () => {
   if (!current) return { ok: false, error: 'Não conectado.' };
-  if (!sql || !sql.trim()) return { ok: false, error: 'Query vazia.' };
 
   if (current.type === 'mysql') {
-    const [rows] = await current.client.query(sql);
-    return { ok: true, rows };
+    const [rows] = await current.client.query('SHOW DATABASES');
+    const dbs = rows
+      .map((r) => r.Database)
+      .filter((name) => !['mysql', 'information_schema', 'performance_schema', 'sys'].includes(name));
+    return { ok: true, databases: dbs, current: current.database || '' };
   }
 
-  if (current.type === 'postgres') {
-    const res = await current.client.query(sql);
-    return { ok: true, rows: res.rows };
+  if (current.type === 'postgresql') {
+    const res = await current.client.query(
+      "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
+    );
+    const dbs = res.rows.map((r) => r.datname);
+    return { ok: true, databases: dbs, current: current.database || '' };
   }
 
   return { ok: false, error: 'Tipo de banco não suportado.' };
 });
 
+ipcMain.handle('db:useDatabase', async (_evt, name) => {
+  if (!current) return { ok: false, error: 'Não conectado.' };
+  if (!name) return { ok: false, error: 'Database inválido.' };
+
+  if (current.type === 'mysql') {
+    await current.client.changeUser({ database: name });
+    current.database = name;
+    return { ok: true };
+  }
+
+  if (current.type === 'postgresql') {
+    const cfg = current.config || current.client.connectionParameters || {};
+    const client = new Client({
+      host: cfg.host,
+      port: cfg.port,
+      user: cfg.user,
+      password: cfg.password,
+      database: name
+    });
+    await client.connect();
+    await current.client.end();
+    current.client = client;
+    current.database = name;
+    return { ok: true };
+  }
+
+  return { ok: false, error: 'Tipo de banco não suportado.' };
+});
+
+ipcMain.handle('db:runQuery', async (_evt, sql) => {
+  const MAX_IPC_ROWS = 5000;
+  try {
+    if (!current) return { ok: false, error: 'Não conectado.' };
+    if (!sql || !sql.trim()) return { ok: false, error: 'Query vazia.' };
+
+    if (current.type === 'mysql') {
+      const [rows] = await current.client.query(sql);
+      let payload = rows;
+      if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[0])) {
+        payload = rows[rows.length - 1];
+      } else if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].affectedRows !== undefined) {
+        payload = [];
+      }
+      const arr = payload || [];
+      const truncated = arr.length > MAX_IPC_ROWS;
+      return { ok: true, rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr, totalRows: arr.length, truncated };
+    }
+
+    if (current.type === 'postgresql') {
+      const res = await current.client.query(sql);
+      const arr = res.rows || [];
+      const truncated = arr.length > MAX_IPC_ROWS;
+      return { ok: true, rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr, totalRows: arr.length, truncated };
+    }
+
+    return { ok: false, error: 'Tipo de banco não suportado.' };
+  } catch (err) {
+    const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao executar query.';
+    return { ok: false, error: message };
+  }
+});
+
 ipcMain.handle('dialog:error', async (_evt, message) => {
+  console.log('[main] dialog:error called with:', message);
   if (mainWindow) {
     dialog.showErrorBox('Erro', message || 'Erro desconhecido');
   }

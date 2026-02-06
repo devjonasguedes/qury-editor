@@ -10,6 +10,8 @@ const database = byId('database');
 const saveName = byId('saveName');
 const connectBtn = byId('connectBtn');
 const saveBtn = byId('saveBtn');
+const clearFormBtn = byId('clearFormBtn');
+const cancelEditBtn = byId('cancelEditBtn');
 const savedList = byId('savedList');
 const tableList = byId('tableList');
 const tableSearch = byId('tableSearch');
@@ -20,22 +22,44 @@ const resultsPanel = byId('resultsPanel');
 const exitBtn = byId('exitBtn');
 const connectScreen = byId('connectScreen');
 const mainScreen = byId('mainScreen');
-const lineNumbers = byId('lineNumbers');
-const queryHighlight = byId('queryHighlight');
 const querySpinner = byId('querySpinner');
 const tabBar = byId('tabBar');
+const newTabBtn = byId('newTabBtn');
+const connectSpinner = byId('connectSpinner');
+const dbSelect = byId('dbSelect');
+const formatBtn = byId('formatBtn');
+const runSelectionBtn = byId('runSelectionBtn');
 
 let isConnected = false;
 const MAX_RENDER_ROWS = 2000;
 let currentSort = { column: null, direction: 'asc' };
 let isLoading = false;
+let isConnecting = false;
 let tabs = [];
 let activeTabId = null;
 let tabCounter = 1;
+let editor = null;
+let isSettingEditor = false;
+let isEditingConnection = false;
 
 function setStatus(text, ok) {
   connStatus.textContent = text;
   connStatus.style.color = ok ? '#22c55e' : '#fbbf24';
+}
+
+function setEditMode(enabled) {
+  isEditingConnection = enabled;
+  if (cancelEditBtn) cancelEditBtn.classList.toggle('hidden', !enabled);
+}
+
+function resetConnectionForm() {
+  dbType.value = 'mysql';
+  host.value = 'localhost';
+  port.value = '';
+  user.value = '';
+  password.value = '';
+  database.value = '';
+  saveName.value = '';
 }
 
 function setScreen(connected) {
@@ -43,22 +67,31 @@ function setScreen(connected) {
     connectScreen.classList.add('hidden');
     mainScreen.classList.remove('hidden');
     exitBtn.classList.remove('hidden');
+    if (dbSelect) dbSelect.classList.remove('hidden');
+    if (editor) {
+      setTimeout(() => editor.refresh(), 0);
+    }
   } else {
     connectScreen.classList.remove('hidden');
     mainScreen.classList.add('hidden');
     exitBtn.classList.add('hidden');
+    if (dbSelect) dbSelect.classList.add('hidden');
   }
 }
 
-function buildTable(rows) {
+function buildTable(rows, totalRows) {
   resultsTable.innerHTML = '';
   resultsTable.className = '';
-  if (!rows || rows.length === 0) {
+  if (!Array.isArray(rows) || rows.length === 0) {
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
     return;
   }
 
   const limitedRows = rows.slice(0, MAX_RENDER_ROWS);
+  if (!limitedRows[0] || typeof limitedRows[0] !== 'object') {
+    resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+    return;
+  }
   const columns = Object.keys(limitedRows[0]);
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
@@ -87,9 +120,10 @@ function buildTable(rows) {
   });
   resultsTable.appendChild(tbody);
 
-  if (rows.length > MAX_RENDER_ROWS) {
+  const total = totalRows || rows.length;
+  if (total > MAX_RENDER_ROWS) {
     const note = document.createElement('caption');
-    note.textContent = `Mostrando ${MAX_RENDER_ROWS} de ${rows.length} linhas. Use LIMIT para reduzir.`;
+    note.textContent = `Mostrando ${MAX_RENDER_ROWS} de ${total} linhas. Use LIMIT para reduzir.`;
     note.style.captionSide = 'bottom';
     note.style.padding = '6px 8px';
     note.style.color = '#666';
@@ -104,6 +138,7 @@ function getActiveTab() {
 function renderTabBar() {
   if (!tabBar) return;
   tabBar.innerHTML = '';
+  if (newTabBtn) tabBar.appendChild(newTabBtn);
   tabs.forEach((tab) => {
     const el = document.createElement('div');
     el.className = 'tab' + (tab.id === activeTabId ? ' active' : '');
@@ -111,7 +146,7 @@ function renderTabBar() {
 
     const close = document.createElement('span');
     close.className = 'tab-close';
-    close.textContent = '×';
+    close.innerHTML = '<i class="bi bi-x"></i>';
     close.addEventListener('click', (event) => {
       event.stopPropagation();
       closeTab(tab.id);
@@ -130,13 +165,11 @@ function setActiveTab(tabId) {
   renderTabBar();
   const tab = getActiveTab();
   if (!tab) {
-    query.value = '';
-    updateEditor();
+    setQueryValue('');
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
     return;
   }
-  query.value = tab.query || '';
-  updateEditor();
+  setQueryValue(tab.query || '');
   if (tab.rows) {
     buildTable(tab.rows);
   } else {
@@ -164,7 +197,7 @@ function closeTab(tabId) {
   if (wasActive) {
     const next = tabs[idx] || tabs[idx - 1] || tabs[0] || null;
     if (next) setActiveTab(next.id);
-    else setActiveTab(null);
+    else createTab(`Query ${tabCounter++}`, '');
   } else {
     renderTabBar();
   }
@@ -216,117 +249,322 @@ function setLoading(loading) {
   if (querySpinner) querySpinner.classList.toggle('hidden', !loading);
   if (resultsPanel) resultsPanel.classList.toggle('loading', loading);
   if (loading) showSkeleton();
+  updateRunAvailability();
 }
 
-function updateLineNumbers() {
-  if (!lineNumbers) return;
-  const count = Math.max(1, query.value.split('\n').length);
-  const numbers = Array.from({ length: count }, (_, i) => String(i + 1)).join('\n');
-  lineNumbers.textContent = numbers;
+function setConnecting(loading) {
+  isConnecting = loading;
+  if (connectSpinner) connectSpinner.classList.toggle('hidden', !loading);
+  if (connectBtn) connectBtn.disabled = loading;
+  if (saveBtn) saveBtn.disabled = loading;
+  if (clearFormBtn) clearFormBtn.disabled = loading;
+  if (cancelEditBtn) cancelEditBtn.disabled = loading;
+  if (dbSelect) dbSelect.disabled = loading;
+  updateRunAvailability();
 }
 
-function escapeHtml(text) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function highlightSQL(input) {
-  const keywords = new Set([
-    'select','from','where','and','or','insert','into','values','update','set','delete','create','table',
-    'alter','drop','join','left','right','inner','outer','group','by','order','limit','offset','as',
-    'distinct','on','having','union','all','case','when','then','else','end','null','is','not','in',
-    'exists','like','between','primary','key','foreign','references','index','view','database'
-  ]);
-
-  let i = 0;
-  let out = '';
-  while (i < input.length) {
-    const ch = input[i];
-
-    if (ch === '-' && input[i + 1] === '-') {
-      let j = i + 2;
-      while (j < input.length && input[j] !== '\n') j++;
-      const comment = escapeHtml(input.slice(i, j));
-      out += `<span class="tok-comment">${comment}</span>`;
-      i = j;
-      continue;
-    }
-
-    if (ch === '/' && input[i + 1] === '*') {
-      let j = i + 2;
-      while (j < input.length && !(input[j] === '*' && input[j + 1] === '/')) j++;
-      j = Math.min(j + 2, input.length);
-      const comment = escapeHtml(input.slice(i, j));
-      out += `<span class="tok-comment">${comment}</span>`;
-      i = j;
-      continue;
-    }
-
-    if (ch === '\'' || ch === '"') {
-      const quote = ch;
-      let j = i + 1;
-      while (j < input.length) {
-        if (input[j] === quote) {
-          if (input[j + 1] === quote) {
-            j += 2;
-            continue;
-          }
-          j++;
-          break;
-        }
-        j++;
-      }
-      const str = escapeHtml(input.slice(i, j));
-      out += `<span class="tok-string">${str}</span>`;
-      i = j;
-      continue;
-    }
-
-    if (/[0-9]/.test(ch)) {
-      let j = i + 1;
-      while (j < input.length && /[0-9.]/.test(input[j])) j++;
-      const num = escapeHtml(input.slice(i, j));
-      out += `<span class="tok-number">${num}</span>`;
-      i = j;
-      continue;
-    }
-
-    if (/[A-Za-z_]/.test(ch)) {
-      let j = i + 1;
-      while (j < input.length && /[A-Za-z0-9_$]/.test(input[j])) j++;
-      const word = input.slice(i, j);
-      const lower = word.toLowerCase();
-      if (keywords.has(lower)) {
-        out += `<span class="tok-keyword">${escapeHtml(word)}</span>`;
-      } else {
-        out += escapeHtml(word);
-      }
-      i = j;
-      continue;
-    }
-
-    out += escapeHtml(ch);
-    i++;
+async function refreshDatabases() {
+  if (!dbSelect) return;
+  const res = await window.api.listDatabases();
+  if (!res.ok) {
+    await window.api.showError(res.error || 'Erro ao listar databases.');
+    return;
   }
-  return out;
+  dbSelect.innerHTML = '';
+  res.databases.forEach((name) => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    if (res.current && res.current === name) opt.selected = true;
+    dbSelect.appendChild(opt);
+  });
+
+  if ((!res.current || !dbSelect.value) && res.databases.length > 0) {
+    dbSelect.value = res.databases[0];
+    const useRes = await window.api.useDatabase(dbSelect.value);
+    if (!useRes.ok) {
+      await window.api.showError(useRes.error || 'Erro ao selecionar database.');
+    }
+  }
 }
 
-function updateHighlight() {
-  if (!queryHighlight) return;
-  queryHighlight.innerHTML = highlightSQL(query.value || '');
+async function connectWithLoading(config) {
+  if (isConnecting) return { ok: false, error: 'Conexão em andamento.' };
+  setConnecting(true);
+  try {
+    return await window.api.connect(config);
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : 'Erro ao conectar.' };
+  } finally {
+    setConnecting(false);
+  }
 }
 
-function updateEditor() {
-  updateLineNumbers();
-  updateHighlight();
+function initEditor() {
+  if (!window.CodeMirror || !query) return;
+  editor = window.CodeMirror.fromTextArea(query, {
+    mode: 'text/x-sql',
+    lineNumbers: true,
+    indentWithTabs: true,
+    tabSize: 2,
+    indentUnit: 2,
+    lineWrapping: false,
+    autofocus: true,
+    extraKeys: {
+      'Ctrl-Enter': () => {
+        ensureActiveTab();
+        const full = getQueryValue();
+        if (hasMultipleStatementsWithSelect(full)) {
+          window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+          return;
+        }
+        safeRunQueries(full).catch(() => {});
+      },
+      'Cmd-Enter': () => {
+        ensureActiveTab();
+        const full = getQueryValue();
+        if (hasMultipleStatementsWithSelect(full)) {
+          window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+          return;
+        }
+        safeRunQueries(full).catch(() => {});
+      },
+      'Shift-Enter': () => {
+        ensureActiveTab();
+        const sql = getSelectionOrStatement();
+        if (!sql) return;
+        safeRunQueries(sql).catch(() => {});
+      },
+      'Shift-Alt-F': () => {
+        formatSQL();
+      },
+      'Cmd-T': () => {
+        createTab(`Query ${tabCounter++}`, '');
+      }
+    }
+  });
+
+  editor.on('change', () => {
+    if (isSettingEditor) return;
+    const tab = getActiveTab();
+    if (tab) tab.query = editor.getValue();
+    updateRunAvailability();
+  });
+
 }
+
+function getQueryValue() {
+  return editor ? editor.getValue() : query.value;
+}
+
+function getSelectedQuery() {
+  if (editor) {
+    const selection = editor.getSelection();
+    return selection && selection.trim() ? selection : null;
+  }
+  return null;
+}
+
+function getSelectionOrStatement() {
+  if (!editor) return null;
+  const selection = editor.getSelection();
+  if (selection && selection.trim()) return selection;
+
+  const doc = editor.getDoc();
+  const cursor = doc.getCursor();
+  const fullText = doc.getValue();
+  const cursorIndex = doc.indexFromPos(cursor);
+
+  // Use splitStatements to properly parse, then find which statement the cursor is in
+  const statements = splitStatements(fullText);
+  if (statements.length <= 1) {
+    const stmt = (statements[0] || '').trim();
+    return stmt || null;
+  }
+
+  // Map each statement back to its position in the original text
+  let searchFrom = 0;
+  for (const stmt of statements) {
+    const idx = fullText.indexOf(stmt, searchFrom);
+    if (idx === -1) continue;
+    const stmtEnd = idx + stmt.length;
+    // Find the semicolon after this statement (if any)
+    const semiPos = fullText.indexOf(';', stmtEnd);
+    const blockEnd = semiPos !== -1 ? semiPos + 1 : stmtEnd;
+    if (cursorIndex >= idx && cursorIndex <= blockEnd) {
+      return stmt.trim() || null;
+    }
+    searchFrom = stmtEnd;
+  }
+
+  // Fallback: return the last statement if cursor is past all statements
+  const last = statements[statements.length - 1].trim();
+  return last || null;
+}
+
+function splitStatements(sql) {
+  const statements = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      current += ch;
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+
+    if (inBlockComment) {
+      current += ch;
+      if (ch === '*' && next === '/') {
+        current += next;
+        i++;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inBacktick) {
+      if (ch === '-' && next === '-') {
+        inLineComment = true;
+        current += ch + next;
+        i++;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        current += ch + next;
+        i++;
+        continue;
+      }
+    }
+
+    if (!inDouble && !inBacktick && ch === "'") {
+      if (inSingle && next === "'") {
+        current += ch + next;
+        i++;
+        continue;
+      }
+      inSingle = !inSingle;
+      current += ch;
+      continue;
+    }
+
+    if (!inSingle && !inBacktick && ch === '"') {
+      if (inDouble && next === '"') {
+        current += ch + next;
+        i++;
+        continue;
+      }
+      inDouble = !inDouble;
+      current += ch;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && ch === '`') {
+      inBacktick = !inBacktick;
+      current += ch;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inBacktick && ch === ';') {
+      const stmt = current.trim();
+      if (stmt) statements.push(stmt);
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
+function stripLeadingComments(sql) {
+  let s = sql;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    s = s.trimStart();
+    if (s.startsWith('--')) {
+      const idx = s.indexOf('\n');
+      s = idx === -1 ? '' : s.slice(idx + 1);
+      changed = true;
+      continue;
+    }
+    if (s.startsWith('/*')) {
+      const idx = s.indexOf('*/');
+      s = idx === -1 ? '' : s.slice(idx + 2);
+      changed = true;
+    }
+  }
+  return s.trimStart();
+}
+
+function firstDmlKeyword(sql) {
+  const s = stripLeadingComments(sql).toLowerCase();
+  if (!s) return '';
+  if (s.startsWith('with')) {
+    const match = s.match(/\b(select|update|insert|delete)\b/);
+    return match ? match[1] : '';
+  }
+  const match = s.match(/^(select|update|insert|delete)\b/);
+  return match ? match[1] : '';
+}
+
+function hasMultipleStatementsWithSelect(sqlText) {
+  const statements = splitStatements(sqlText);
+  if (statements.length <= 1) return false;
+  return statements.some((stmt) => firstDmlKeyword(stmt) === 'select');
+}
+
+function updateRunAvailability() {
+  if (!runBtn) return;
+  const sqlText = getQueryValue();
+  const blocked = hasMultipleStatementsWithSelect(sqlText);
+  runBtn.disabled = blocked || isLoading || isConnecting;
+}
+
+function setQueryValue(value) {
+  if (editor) {
+    isSettingEditor = true;
+    editor.setValue(value || '');
+    editor.focus();
+    isSettingEditor = false;
+  } else {
+    query.value = value || '';
+  }
+  updateRunAvailability();
+}
+
+function formatSQL() {
+  if (!window.sqlFormatter || !window.sqlFormatter.format) {
+    window.api.showError('Formatador SQL não disponível.');
+    return;
+  }
+  const source = getQueryValue();
+  if (!source.trim()) return;
+  const language = dbType.value === 'postgres' ? 'postgresql' : 'mysql';
+  const formatted = window.sqlFormatter.format(source, { language });
+  setQueryValue(formatted);
+  const tab = getActiveTab();
+  if (tab) tab.query = formatted;
+}
+
 
 function quoteIdentifier(name) {
   if (!name) return name;
   const parts = String(name).split('.');
-  if (dbType.value === 'postgres') {
+  if (dbType.value === 'postgresql') {
     return parts.map((p) => (p.startsWith('"') ? p : `"${p.replace(/"/g, '""')}"`)).join('.');
   }
   return parts.map((p) => (p.startsWith('`') ? p : `\`${p.replace(/`/g, '``')}\``)).join('.');
@@ -367,14 +605,13 @@ async function applySort(column) {
     currentSort.direction = 'asc';
   }
 
-  const sql = buildOrderBy(query.value, column, currentSort.direction);
-  query.value = sql;
-  updateEditor();
+  const sql = buildOrderBy(getQueryValue(), column, currentSort.direction);
+  setQueryValue(sql);
   await runQuery(sql);
 }
 
 function tableQuery(schema, table) {
-  if (dbType.value === 'postgres') {
+  if (dbType.value === 'postgresql') {
     return `SELECT * FROM "${schema}"."${table}" LIMIT 500;`;
   }
   if (schema) {
@@ -399,6 +636,12 @@ function getField(row, candidates) {
 }
 
 let tableCache = [];
+function resetTableState() {
+  tableCache = [];
+  tableList.innerHTML = '';
+  if (tableSearch) tableSearch.value = '';
+  resultsTable.innerHTML = '';
+}
 
 function typeLabel(rawType) {
   const type = String(rawType || '').toUpperCase();
@@ -512,7 +755,7 @@ function renderTableTree(filterText) {
         const leaf = createLeaf(name, 2, async () => {
           const sql = tableQuery(schema, name);
           createTab(`${schema}.${name}`, sql);
-          updateEditor();
+          setQueryValue(sql);
           await runQuery(sql);
         });
         groupNode.children.appendChild(leaf);
@@ -523,6 +766,7 @@ function renderTableTree(filterText) {
 
 async function refreshTables() {
   tableList.innerHTML = '';
+  tableCache = [];
   const res = await window.api.listTables();
   if (!res.ok) {
     await window.api.showError(res.error || 'Erro ao listar tabelas.');
@@ -561,18 +805,106 @@ async function runQuery(sql) {
     return;
   }
   tab.rows = res.rows;
-  buildTable(res.rows);
+  buildTable(res.rows, res.totalRows);
+}
+
+async function runQueriesSequential(sqlText) {
+  const statements = splitStatements(sqlText);
+  if (statements.length === 0) {
+    await window.api.showError('Query vazia.');
+    return false;
+  }
+  if (statements.length === 1) {
+    await runQuery(statements[0]);
+    return true;
+  }
+
+  if (isLoading) return;
+  const tab = ensureActiveTab();
+  tab.query = sqlText;
+
+  const prevHtml = resultsTable.innerHTML;
+  const prevClass = resultsTable.className;
+  setLoading(true);
+  let lastRows = null;
+  let lastTotalRows = 0;
+  try {
+    for (const stmt of statements) {
+      const res = await window.api.runQuery(stmt);
+      if (!res || !res.ok) {
+        throw new Error((res && res.error) || 'Erro ao executar query.');
+      }
+      lastRows = res.rows;
+      lastTotalRows = res.totalRows || 0;
+    }
+  } catch (err) {
+    resultsTable.innerHTML = prevHtml;
+    resultsTable.className = prevClass;
+    await window.api.showError(err && err.message ? err.message : 'Erro ao executar query.');
+    return false;
+  } finally {
+    setLoading(false);
+  }
+
+  if (lastRows) {
+    tab.rows = lastRows;
+    buildTable(lastRows, lastTotalRows);
+  } else {
+    resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+  }
+  return true;
+}
+
+async function safeRunQueries(sqlText) {
+  try {
+    return await runQueriesSequential(sqlText);
+  } catch (err) {
+    await window.api.showError(err && err.message ? err.message : 'Erro ao executar query.');
+    return false;
+  }
 }
 
 async function refreshSaved() {
   const list = await window.api.listSavedConnections();
   savedList.innerHTML = '';
   list.forEach((entry) => {
-    const li = document.createElement('li');
-    li.textContent = entry.name;
+    const item = document.createElement('div');
+    item.className = 'saved-item';
 
-    li.addEventListener('click', async () => {
-      const res = await window.api.connect({
+    const info = document.createElement('div');
+    info.className = 'saved-info';
+
+    const title = document.createElement('div');
+    title.className = 'saved-title';
+    title.textContent = entry.name;
+
+    const meta = document.createElement('div');
+    meta.className = 'saved-meta';
+    meta.textContent = `${entry.type} • ${entry.host}:${entry.port || ''}${entry.database ? ` • ${entry.database}` : ''}`;
+
+    info.appendChild(title);
+    info.appendChild(meta);
+    item.appendChild(info);
+
+    const actions = document.createElement('div');
+    actions.className = 'saved-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'icon-btn';
+    editBtn.innerHTML = '<i class="bi bi-pencil"></i>';
+    editBtn.title = 'Editar';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'icon-btn';
+    deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
+    deleteBtn.title = 'Excluir';
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+    item.appendChild(actions);
+
+    info.addEventListener('click', async () => {
+      const res = await connectWithLoading({
         type: entry.type,
         host: entry.host || 'localhost',
         port: entry.port || undefined,
@@ -588,18 +920,30 @@ async function refreshSaved() {
       isConnected = true;
       setStatus('Conectado', true);
       setScreen(true);
+      resetTableState();
+      await refreshDatabases();
       await refreshTables();
     });
 
-    li.addEventListener('contextmenu', async (event) => {
-      event.preventDefault();
+    editBtn.addEventListener('click', () => {
+      dbType.value = entry.type;
+      host.value = entry.host;
+      port.value = entry.port || '';
+      user.value = entry.user || '';
+      password.value = entry.password || '';
+      database.value = entry.database || '';
+      saveName.value = entry.name;
+      setEditMode(true);
+    });
+
+    deleteBtn.addEventListener('click', async () => {
       const confirmed = confirm(`Remover conexão "${entry.name}"?`);
       if (!confirmed) return;
       await window.api.deleteConnection(entry.name);
       await refreshSaved();
     });
 
-    savedList.appendChild(li);
+    savedList.appendChild(item);
   });
 }
 
@@ -613,7 +957,7 @@ connectBtn.addEventListener('click', async () => {
     database: database.value || ''
   };
 
-  const res = await window.api.connect(config);
+  const res = await connectWithLoading(config);
   if (!res.ok) {
     await window.api.showError(res.error || 'Erro ao conectar.');
     return;
@@ -621,6 +965,8 @@ connectBtn.addEventListener('click', async () => {
   isConnected = true;
   setStatus('Conectado', true);
   setScreen(true);
+  resetTableState();
+  await refreshDatabases();
   await refreshTables();
 });
 
@@ -642,6 +988,17 @@ saveBtn.addEventListener('click', async () => {
 
   await window.api.saveConnection(entry);
   await refreshSaved();
+  setEditMode(false);
+});
+
+cancelEditBtn.addEventListener('click', () => {
+  resetConnectionForm();
+  setEditMode(false);
+});
+
+clearFormBtn.addEventListener('click', () => {
+  resetConnectionForm();
+  setEditMode(false);
 });
 
 exitBtn.addEventListener('click', async () => {
@@ -649,42 +1006,50 @@ exitBtn.addEventListener('click', async () => {
   isConnected = false;
   setStatus('Desconectado', false);
   setScreen(false);
-  tableList.innerHTML = '';
-  resultsTable.innerHTML = '';
+  resetTableState();
+  if (dbSelect) dbSelect.innerHTML = '';
   tabs = [];
   activeTabId = null;
+  tabCounter = 1;
   renderTabBar();
-  query.value = '';
-  updateEditor();
+  setQueryValue('');
+  createTab(`Query ${tabCounter++}`, '');
 });
 
 runBtn.addEventListener('click', async () => {
   ensureActiveTab();
-  const sql = query.value;
-  await runQuery(sql);
+  const full = getQueryValue();
+  if (hasMultipleStatementsWithSelect(full)) {
+    await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+    return;
+  }
+  await safeRunQueries(full);
+});
+
+runSelectionBtn.addEventListener('click', async () => {
+  ensureActiveTab();
+  const sql = getSelectionOrStatement();
+  if (!sql) {
+    await window.api.showError('Selecione um trecho ou posicione o cursor em uma instrução.');
+    return;
+  }
+  try {
+    await safeRunQueries(sql);
+  } catch (err) {
+    await window.api.showError(err && err.message ? err.message : 'Erro ao executar seleção.');
+  }
 });
 
 query.addEventListener('keydown', async (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault();
     ensureActiveTab();
-    await runQuery(query.value);
-  }
-});
-
-query.addEventListener('input', () => {
-  const tab = getActiveTab();
-  if (tab) tab.query = query.value;
-  updateEditor();
-});
-
-query.addEventListener('scroll', () => {
-  if (lineNumbers) {
-    lineNumbers.scrollTop = query.scrollTop;
-  }
-  if (queryHighlight) {
-    queryHighlight.scrollTop = query.scrollTop;
-    queryHighlight.scrollLeft = query.scrollLeft;
+    const full = getQueryValue();
+    if (hasMultipleStatementsWithSelect(full)) {
+      await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+      return;
+    }
+    await safeRunQueries(full);
   }
 });
 
@@ -692,7 +1057,33 @@ tableSearch.addEventListener('input', () => {
   renderTableTree(tableSearch.value);
 });
 
+newTabBtn.addEventListener('click', () => {
+  createTab(`Query ${tabCounter++}`, '');
+});
+
+formatBtn.addEventListener('click', () => {
+  formatSQL();
+});
+
+dbSelect.addEventListener('change', async () => {
+  const name = dbSelect.value;
+  if (!name) return;
+  setConnecting(true);
+  const res = await window.api.useDatabase(name);
+  setConnecting(false);
+  if (!res.ok) {
+    await window.api.showError(res.error || 'Erro ao trocar database.');
+    return;
+  }
+  resetTableState();
+  await refreshTables();
+});
+
 setStatus('Desconectado', false);
 setScreen(false);
 refreshSaved();
-updateEditor();
+initEditor();
+setQueryValue('');
+resetConnectionForm();
+setEditMode(false);
+createTab(`Query ${tabCounter++}`, '');

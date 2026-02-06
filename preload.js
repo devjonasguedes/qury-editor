@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   connect: (config) => ipcRenderer.invoke('db:connect', config),
   disconnect: () => ipcRenderer.invoke('db:disconnect'),
   listTables: () => ipcRenderer.invoke('db:listTables'),
+  listDatabases: () => ipcRenderer.invoke('db:listDatabases'),
+  useDatabase: (name) => ipcRenderer.invoke('db:useDatabase', name),
   runQuery: (sql) => ipcRenderer.invoke('db:runQuery', sql),
   showError: (message) => ipcRenderer.invoke('dialog:error', message)
 });

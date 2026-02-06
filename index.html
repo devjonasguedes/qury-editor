@@ -28,13 +28,25 @@
       <section class="main hidden" id="mainScreen">
         <div class="sidebar-shell" id="sidebarShell">
           <div class="sidebar-menu">
-            <button id="sidebarTreeBtn" class="sidebar-icon active" title="Tree View">
+            <button
+              id="sidebarTreeBtn"
+              class="sidebar-icon active"
+              title="Tree View"
+            >
               <i class="bi bi-diagram-3"></i>
             </button>
-            <button id="sidebarHistoryBtn" class="sidebar-icon" title="Histórico">
+            <button
+              id="sidebarHistoryBtn"
+              class="sidebar-icon"
+              title="Histórico"
+            >
               <i class="bi bi-clock-history"></i>
             </button>
-            <button id="sidebarSnippetsBtn" class="sidebar-icon" title="Snippets">
+            <button
+              id="sidebarSnippetsBtn"
+              class="sidebar-icon"
+              title="Snippets"
+            >
               <i class="bi bi-bookmark-star"></i>
             </button>
           </div>
@@ -42,17 +54,22 @@
             <div id="tablePanel" class="sidebar-panel">
               <div class="panel-title with-actions">
                 <span>Database</span>
-                <button id="refreshSchemaBtn" class="icon-btn mini" title="Atualizar schema">
+                <button
+                  id="refreshSchemaBtn"
+                  class="icon-btn mini"
+                  title="Atualizar schema"
+                >
                   <i class="bi bi-arrow-clockwise"></i>
                 </button>
               </div>
               <div class="table-search">
                 <i class="bi bi-search"></i>
-                <input
-                  id="tableSearch"
-                  placeholder="Search tables..."
-                />
-                <button id="tableSearchClear" class="table-search-clear" title="Limpar">
+                <input id="tableSearch" placeholder="Search tables..." />
+                <button
+                  id="tableSearchClear"
+                  class="table-search-clear"
+                  title="Limpar"
+                >
                   <i class="bi bi-x"></i>
                 </button>
               </div>
@@ -65,7 +82,11 @@
             <div id="snippetsPanel" class="sidebar-panel hidden">
               <div class="panel-title with-actions">
                 <span>Snippets</span>
-                <button id="addSnippetBtn" class="icon-btn mini" title="Salvar snippet">
+                <button
+                  id="addSnippetBtn"
+                  class="icon-btn mini"
+                  title="Salvar snippet"
+                >
                   <i class="bi bi-plus-lg"></i>
                 </button>
               </div>
@@ -81,14 +102,20 @@
               <div class="onboard-header">
                 <div>
                   <div class="connect-title">Bem-vindo</div>
-                  <div class="connect-subtitle">Conecte-se rapidamente ou escolha uma conexão salva.</div>
+                  <div class="connect-subtitle">
+                    Conecte-se rapidamente ou escolha uma conexão salva.
+                  </div>
                 </div>
                 <div class="welcome-actions">
-                  <button id="quickConnectBtn" class="secondary">Conexão rápida</button>
+                  <button id="quickConnectBtn" class="secondary">
+                    Conexão rápida
+                  </button>
                   <button id="openConnectModalBtn">Nova conexão</button>
                 </div>
               </div>
-              <div class="welcome-note">Conexão rápida não fica salva após desconectar.</div>
+              <div class="welcome-note">
+                Conexão rápida não fica salva após desconectar.
+              </div>
               <div class="onboard-grid">
                 <div class="saved-card">
                   <div class="saved-header">Conexões salvas</div>
@@ -121,7 +148,6 @@
                   >
                     <i class="bi bi-lightning-charge-fill"></i>
                   </button>
-                  <button
                   <button
                     id="runSelectionBtn"
                     class="icon-btn run-selection-btn"
@@ -265,7 +291,9 @@
           <div class="connect-panel">
             <div class="connect-header">
               <div>
-                <div id="connectModalTitle" class="connect-title">Nova conexão</div>
+                <div id="connectModalTitle" class="connect-title">
+                  Nova conexão
+                </div>
                 <div id="connectModalSubtitle" class="connect-subtitle">
                   Preencha os dados para conectar ao banco.
                 </div>
@@ -310,7 +338,11 @@
 
               <div class="field span-2">
                 <div class="connect-tabs">
-                  <button id="tabDirectBtn" class="connect-tab active" type="button">
+                  <button
+                    id="tabDirectBtn"
+                    class="connect-tab active"
+                    type="button"
+                  >
                     Direta
                   </button>
                   <button id="tabSshBtn" class="connect-tab" type="button">
@@ -350,7 +382,11 @@
 
                 <div class="field span-2">
                   <label>SSH Private Key</label>
-                  <textarea id="sshPrivateKey" rows="4" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+                  <textarea
+                    id="sshPrivateKey"
+                    rows="4"
+                    placeholder="-----BEGIN PRIVATE KEY-----"
+                  ></textarea>
                 </div>
 
                 <div class="field">
@@ -390,7 +426,9 @@
             <div class="connect-header">
               <div>
                 <div class="connect-title">Salvar snippet</div>
-                <div class="connect-subtitle">Guarde sua query para reutilizar depois.</div>
+                <div class="connect-subtitle">
+                  Guarde sua query para reutilizar depois.
+                </div>
               </div>
               <button id="snippetCloseBtn" class="icon-btn" title="Fechar">
                 <i class="bi bi-x"></i>
@@ -398,11 +436,18 @@
             </div>
             <div class="field">
               <label>Nome do snippet</label>
-              <input id="snippetNameInput" placeholder="ex: Pedidos pendentes" />
+              <input
+                id="snippetNameInput"
+                placeholder="ex: Pedidos pendentes"
+              />
             </div>
             <div class="field">
               <label>Query</label>
-              <textarea id="snippetQueryInput" rows="6" placeholder="SELECT ..."></textarea>
+              <textarea
+                id="snippetQueryInput"
+                rows="6"
+                placeholder="SELECT ..."
+              ></textarea>
             </div>
             <div class="actions end">
               <button id="snippetCancelBtn" class="secondary">Cancelar</button>

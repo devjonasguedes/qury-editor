@@ -7,6 +7,9 @@ import 'codemirror/addon/hint/show-hint.js';
 import 'codemirror/addon/hint/sql-hint.js';
 import { format as formatSql } from 'sql-formatter';
 
+import { createHistoryManager } from './renderer/history.js';
+import { createSnippetsManager } from './renderer/snippets.js';
+
 import {
   splitStatements,
   stripLeadingComments,
@@ -128,24 +131,29 @@ let editor = null;
 let snippetEditor = null;
 let isSettingEditor = false;
 let isEditingConnection = false;
-let pendingSnippetSql = '';
-let editingSnippetId = null;
 let searchTimer = null;
 let treeExpanded = {};
 let selectedCell = null;
 let selectedRow = null;
 let selectedCellEl = null;
 let selectedRowEl = null;
+let historyManager;
+let snippetsManager;
+const api = window.api;
+const showErrorFallback = async (message) => {
+  console.error('API indisponível:', message);
+  if (message) {
+    alert(message);
+  }
+};
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const SIDEBAR_KEY = 'sqlEditor.sidebarWidth';
 const THEME_KEY = 'sqlEditor.theme';
-const HISTORY_KEY = 'sqlEditor.queryHistory';
 const SIDEBAR_VIEW_KEY = 'sqlEditor.sidebarView';
 const TIMEOUT_KEY = 'sqlEditor.queryTimeout';
 const TABS_KEY = 'sqlEditor.tabsState';
 const TREE_STATE_KEY = 'sqlEditor.treeState';
 const EDITOR_HEIGHT_KEY = 'sqlEditor.editorHeight';
-const SNIPPETS_KEY = 'sqlEditor.snippets';
 const SQL_KEYWORDS = [
   'SELECT',
   'FROM',
@@ -286,10 +294,10 @@ function setCurrentConnection(entry) {
   currentHistoryKey = buildConnectionKey(currentConnection);
   treeExpanded = readTreeState();
   if (historyPanel && !historyPanel.classList.contains('hidden')) {
-    renderHistoryList();
+    historyManager.renderHistoryList();
   }
   if (snippetsPanel && !snippetsPanel.classList.contains('hidden')) {
-    renderSnippetsList();
+    snippetsManager.renderSnippetsList();
   }
 }
 
@@ -413,350 +421,6 @@ function restoreTabsState() {
   return false;
 }
 
-function historyStorageKey() {
-  if (!currentHistoryKey) return null;
-  return `${HISTORY_KEY}:${currentHistoryKey}`;
-}
-
-function readHistory() {
-  try {
-    const key = historyStorageKey();
-    if (!key) return [];
-    const raw = localStorage.getItem(key);
-    const data = JSON.parse(raw || '[]');
-    return Array.isArray(data) ? data : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-function writeHistory(list) {
-  try {
-    const key = historyStorageKey();
-    if (!key) return;
-    localStorage.setItem(key, JSON.stringify(list));
-  } catch (_) {
-    // ignore
-  }
-}
-
-function recordHistory(sqlText) {
-  if (!currentHistoryKey) return;
-  const text = String(sqlText || '').trim();
-  if (!text) return;
-  const list = readHistory();
-  const key = text.replace(/\s+/g, ' ');
-  const next = list.filter((item) => item && item.sql !== key);
-  next.unshift({ sql: key, ts: Date.now() });
-  writeHistory(next.slice(0, 50));
-  renderHistoryList();
-}
-
-function renderHistoryList() {
-  if (!historyList) return;
-  if (!currentHistoryKey) {
-    historyList.innerHTML = '';
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'Conecte para ver o histórico.';
-    historyList.appendChild(empty);
-    return;
-  }
-  const list = readHistory();
-  historyList.innerHTML = '';
-  if (!list || list.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'Nenhuma query executada.';
-    historyList.appendChild(empty);
-    return;
-  }
-  list.forEach((entry) => {
-    const item = document.createElement('div');
-    item.className = 'history-item';
-
-    const title = document.createElement('div');
-    title.className = 'history-title';
-    title.textContent = entry.sql.split('\n')[0];
-
-    const meta = document.createElement('div');
-    meta.className = 'history-meta';
-    const when = new Date(entry.ts || Date.now());
-    meta.textContent = when.toLocaleString();
-
-    item.appendChild(title);
-    item.appendChild(meta);
-
-    item.addEventListener('click', () => {
-      const sql = entry.sql || '';
-      if (!sql) return;
-      const tab = getActiveTab();
-      if (!tab || (isTableTab(tab) && !isTableEditor(tab))) {
-        createTab(`Query ${tabCounter++}`, sql);
-        setQueryValue(sql);
-        return;
-      }
-      setQueryValue(sql);
-      if (tab) tab.query = sql;
-    });
-
-    historyList.appendChild(item);
-  });
-}
-
-function snippetsStorageKey() {
-  if (!currentHistoryKey) return null;
-  return `${SNIPPETS_KEY}:${currentHistoryKey}`;
-}
-
-function readSnippets() {
-  try {
-    const key = snippetsStorageKey();
-    if (!key) return [];
-    const raw = localStorage.getItem(key);
-    const data = JSON.parse(raw || '[]');
-    return Array.isArray(data) ? data : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-function writeSnippets(list) {
-  try {
-    const key = snippetsStorageKey();
-    if (!key) return;
-    localStorage.setItem(key, JSON.stringify(list));
-  } catch (_) {
-    // ignore
-  }
-}
-
-function loadSnippetSql(sqlText) {
-  const trimmed = String(sqlText || '').trim();
-  if (!trimmed) return;
-  let tab = getActiveTab();
-  if (!tab || (isTableTab(tab) && !isTableEditor(tab))) {
-    tab = createTab(`Query ${tabCounter++}`, trimmed);
-    setQueryValue(trimmed);
-    return;
-  }
-  setQueryValue(trimmed);
-  if (tab) tab.query = trimmed;
-  updateRunAvailability();
-  scheduleSaveTabs();
-}
-
-async function runSnippetSql(sqlText) {
-  const trimmed = String(sqlText || '').trim();
-  if (!trimmed) return;
-  let tab = getActiveTab();
-  if (!tab || (isTableTab(tab) && !isTableEditor(tab))) {
-    tab = createTab(`Query ${tabCounter++}`, trimmed);
-  }
-  setQueryValue(trimmed);
-  if (tab) tab.query = trimmed;
-  updateRunAvailability();
-  scheduleSaveTabs();
-  if (isReadOnlyViolation(trimmed)) {
-    await window.api.showError('Conexão em modo somente leitura. Comandos de escrita estão bloqueados.');
-    return;
-  }
-  if (hasMultipleStatementsWithSelect(trimmed)) {
-    await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
-    return;
-  }
-  const ok = await safeRunQueries(trimmed);
-  if (ok) enableQueryFilter(tab, trimmed);
-  if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(trimmed))) {
-    await runTableTabQuery(tab);
-  }
-}
-
-function renderSnippetsList() {
-  if (!snippetsList) return;
-  if (!currentHistoryKey) {
-    snippetsList.innerHTML = '';
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'Conecte para ver os snippets.';
-    snippetsList.appendChild(empty);
-    return;
-  }
-  const list = readSnippets();
-  snippetsList.innerHTML = '';
-  if (!list || list.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'Nenhum snippet salvo.';
-    snippetsList.appendChild(empty);
-    return;
-  }
-  list.forEach((entry) => {
-    const item = document.createElement('div');
-    item.className = 'snippet-item';
-
-    const info = document.createElement('div');
-    info.className = 'snippet-info';
-
-    const title = document.createElement('div');
-    title.className = 'snippet-title';
-    title.textContent = entry.name || 'Snippet';
-
-    const sql = document.createElement('div');
-    sql.className = 'snippet-sql';
-    sql.textContent = (entry.sql || '').split('\n')[0] || '';
-
-    info.appendChild(title);
-    info.appendChild(sql);
-
-    const actions = document.createElement('div');
-    actions.className = 'snippet-actions';
-
-    const runSnippetBtn = document.createElement('button');
-    runSnippetBtn.className = 'icon-btn mini';
-    runSnippetBtn.title = 'Executar snippet';
-    runSnippetBtn.innerHTML = '<i class="bi bi-lightning-charge"></i>';
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'icon-btn mini';
-    editBtn.title = 'Editar snippet';
-    editBtn.innerHTML = '<i class="bi bi-pencil"></i>';
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'icon-btn mini';
-    deleteBtn.title = 'Excluir snippet';
-    deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
-
-    actions.appendChild(runSnippetBtn);
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
-
-    info.addEventListener('click', () => {
-      loadSnippetSql(entry.sql || '');
-    });
-
-    runSnippetBtn.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      await runSnippetSql(entry.sql || '');
-    });
-
-    editBtn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      openSnippetModal({
-        id: entry.id || null,
-        name: entry.name || '',
-        sql: entry.sql || ''
-      });
-    });
-
-    deleteBtn.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      const confirmed = confirm(`Remover o snippet "${entry.name || 'Snippet'}"?`);
-      if (!confirmed) return;
-      const next = list.filter((item) => {
-        if (!item) return false;
-        if (entry.id) return item.id !== entry.id;
-        return !(item.name === entry.name && item.sql === entry.sql);
-      });
-      writeSnippets(next);
-      renderSnippetsList();
-    });
-
-    item.appendChild(info);
-    item.appendChild(actions);
-    snippetsList.appendChild(item);
-  });
-}
-
-function openSnippetModal({ sql = '', name = '', id = null } = {}) {
-  if (!snippetModal) return;
-  pendingSnippetSql = sql;
-  editingSnippetId = id;
-  if (snippetNameInput) {
-    snippetNameInput.value = name;
-    setTimeout(() => {
-      snippetNameInput.focus();
-      snippetNameInput.select();
-    }, 0);
-  }
-  if (snippetEditor) {
-    snippetEditor.setValue(sql || '');
-    setTimeout(() => snippetEditor.refresh(), 0);
-  } else if (snippetQueryInput) {
-    snippetQueryInput.value = sql || '';
-  }
-  snippetModal.classList.remove('hidden');
-}
-
-function closeSnippetModal() {
-  if (!snippetModal) return;
-  snippetModal.classList.add('hidden');
-  pendingSnippetSql = '';
-  editingSnippetId = null;
-}
-
-function saveSnippetFromModal() {
-  if (!currentHistoryKey) return;
-  const name = snippetNameInput ? snippetNameInput.value.trim() : '';
-  if (!name) {
-    window.api.showError('Informe um nome para o snippet.');
-    return;
-  }
-  const sqlSource = snippetEditor
-    ? snippetEditor.getValue()
-    : snippetQueryInput
-      ? snippetQueryInput.value
-      : pendingSnippetSql;
-  const sql = String(sqlSource || '').trim();
-  if (!sql) {
-    window.api.showError('Snippet sem query.');
-    return;
-  }
-  const list = readSnippets();
-  const existingIndex = list.findIndex((item) => item && item.name === name);
-  const isEditing = !!editingSnippetId;
-  const editingIndex = isEditing
-    ? list.findIndex((item) => item && item.id === editingSnippetId)
-    : -1;
-  if (isEditing && editingIndex >= 0) {
-    const existing = list[editingIndex];
-    list.splice(editingIndex, 1);
-    const updated = {
-      id: existing.id,
-      name,
-      sql,
-      ts: Date.now()
-    };
-    if (existingIndex >= 0 && existingIndex !== editingIndex) {
-      const overwrite = confirm(`Já existe um snippet "${name}". Deseja substituir?`);
-      if (!overwrite) {
-        list.splice(editingIndex, 0, existing);
-        return;
-      }
-      list.splice(existingIndex, 1);
-    }
-    list.unshift(updated);
-    writeSnippets(list.slice(0, 100));
-    renderSnippetsList();
-    closeSnippetModal();
-    return;
-  }
-  if (existingIndex >= 0) {
-    const overwrite = confirm(`Já existe um snippet "${name}". Deseja substituir?`);
-    if (!overwrite) return;
-    list.splice(existingIndex, 1);
-  }
-  list.unshift({
-    id: `snip-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    name,
-    sql,
-    ts: Date.now()
-  });
-  writeSnippets(list.slice(0, 100));
-  renderSnippetsList();
-  closeSnippetModal();
-}
-
 function setSidebarView(view) {
   const next = view === 'history' ? 'history' : view === 'snippets' ? 'snippets' : 'tree';
   localStorage.setItem(SIDEBAR_VIEW_KEY, next);
@@ -766,8 +430,8 @@ function setSidebarView(view) {
   if (sidebarTreeBtn) sidebarTreeBtn.classList.toggle('active', next === 'tree');
   if (sidebarHistoryBtn) sidebarHistoryBtn.classList.toggle('active', next === 'history');
   if (sidebarSnippetsBtn) sidebarSnippetsBtn.classList.toggle('active', next === 'snippets');
-  if (next === 'history') renderHistoryList();
-  if (next === 'snippets') renderSnippetsList();
+  if (next === 'history') historyManager.renderHistoryList();
+  if (next === 'snippets') snippetsManager.renderSnippetsList();
 }
 
 function applyTheme(theme) {
@@ -1345,6 +1009,11 @@ function createTab(title, queryText, options = {}) {
   return tab;
 }
 
+function createNewQueryTab(queryText) {
+  const title = `Query ${tabCounter++}`;
+  return createTab(title, queryText);
+}
+
 function closeTab(tabId) {
   const idx = tabs.findIndex((t) => t.id === tabId);
   if (idx === -1) return;
@@ -1453,6 +1122,7 @@ function writeRecentConnections(list) {
     // ignore
   }
 }
+
 
 function makeRecentKey(entry) {
   const ro = isEntryReadOnly(entry);
@@ -1745,13 +1415,13 @@ function initSnippetEditor() {
     autofocus: false,
     extraKeys: {
       'Ctrl-Enter': () => {
-        saveSnippetFromModal();
+        if (snippetsManager) snippetsManager.saveSnippetFromModal();
       },
       'Cmd-Enter': () => {
-        saveSnippetFromModal();
+        if (snippetsManager) snippetsManager.saveSnippetFromModal();
       },
       'Esc': () => {
-        closeSnippetModal();
+        if (snippetsManager) snippetsManager.closeSnippetModal();
       },
       'Ctrl-Space': () => {
         triggerAutocomplete(snippetEditor);
@@ -2180,7 +1850,7 @@ async function runQuery(sql, options = {}) {
   }
   tab.rows = res.rows;
   buildTable(res.rows, res.totalRows);
-  recordHistory(sql);
+  historyManager.recordHistory(sql);
   const duration = performance.now() - start;
   setQueryStatus({ state: 'success', duration });
 }
@@ -2255,6 +1925,47 @@ async function safeRunQueries(sqlText) {
     return false;
   }
 }
+
+historyManager = createHistoryManager({
+  historyList,
+  getCurrentHistoryKey: () => currentHistoryKey,
+  getActiveTab,
+  isTableTab,
+  isTableEditor,
+  createNewQueryTab,
+  setQueryValue
+});
+
+snippetsManager = createSnippetsManager({
+  snippetsList,
+  addSnippetBtn,
+  snippetModal,
+  snippetModalBackdrop,
+  snippetCloseBtn,
+  snippetCancelBtn,
+  snippetSaveBtn,
+  snippetNameInput,
+  snippetQueryInput,
+  getSnippetEditor: () => snippetEditor,
+  getCurrentHistoryKey: () => currentHistoryKey,
+  getQueryValue,
+  getActiveTab,
+  isTableTab,
+  isTableEditor,
+  createNewQueryTab,
+  setQueryValue,
+  updateRunAvailability,
+  scheduleSaveTabs,
+  enableQueryFilter,
+  safeRunQueries,
+  runTableTabQuery,
+  isReadOnlyViolation,
+  hasMultipleStatementsWithSelect,
+  hasNonSelect,
+  splitStatements,
+  showError: api ? api.showError : showErrorFallback
+});
+snippetsManager.bindEvents();
 
 async function refreshSaved() {
   const list = await window.api.listSavedConnections();
@@ -2791,20 +2502,6 @@ dbSelect.addEventListener('change', async () => {
   await refreshTables();
 });
 
-setStatus('Desconectado', false);
-setScreen(false);
-refreshSaved();
-renderRecentList();
-initEditor();
-initSnippetEditor();
-loadSidebarWidth();
-initSidebarResizer();
-initEditorResizer();
-setQueryValue('');
-resetConnectionForm();
-setEditMode(false);
-createTab(`Query ${tabCounter++}`, '');
-
 if (themeToggle) {
   themeToggle.addEventListener('click', () => {
     toggleTheme();
@@ -2812,8 +2509,6 @@ if (themeToggle) {
 }
 
 if (timeoutSelect) {
-  const savedTimeout = localStorage.getItem(TIMEOUT_KEY);
-  if (savedTimeout) timeoutSelect.value = savedTimeout;
   timeoutSelect.addEventListener('change', () => {
     localStorage.setItem(TIMEOUT_KEY, timeoutSelect.value);
   });
@@ -2859,59 +2554,30 @@ if (refreshSchemaBtn) {
   });
 }
 
-if (addSnippetBtn) {
-  addSnippetBtn.addEventListener('click', async () => {
-    if (!currentHistoryKey) {
-      await window.api.showError('Conecte para salvar snippets.');
-      return;
-    }
-    const sqlText = getQueryValue();
-    const trimmed = String(sqlText || '').trim();
-    if (!trimmed) {
-      await window.api.showError('Digite uma query para salvar como snippet.');
-      return;
-    }
-    const suggestion = trimmed.split('\n')[0].slice(0, 40);
-    openSnippetModal({ sql: trimmed, name: suggestion });
-  });
+async function bootstrap() {
+  setStatus('Desconectado', false);
+  setScreen(false);
+  if (!api) {
+    console.error('API do preload não encontrada. Verifique o caminho do preload.');
+    return;
+  }
+  refreshSaved();
+  renderRecentList();
+  initEditor();
+  initSnippetEditor();
+  loadSidebarWidth();
+  initSidebarResizer();
+  initEditorResizer();
+  setQueryValue('');
+  resetConnectionForm();
+  setEditMode(false);
+  createTab(`Query ${tabCounter++}`, '');
+  if (timeoutSelect) {
+    const savedTimeout = localStorage.getItem(TIMEOUT_KEY);
+    if (savedTimeout) timeoutSelect.value = savedTimeout;
+  }
+  applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  setSidebarView(localStorage.getItem(SIDEBAR_VIEW_KEY) || 'tree');
 }
 
-if (snippetSaveBtn) {
-  snippetSaveBtn.addEventListener('click', () => {
-    saveSnippetFromModal();
-  });
-}
-
-if (snippetCancelBtn) {
-  snippetCancelBtn.addEventListener('click', () => {
-    closeSnippetModal();
-  });
-}
-
-if (snippetCloseBtn) {
-  snippetCloseBtn.addEventListener('click', () => {
-    closeSnippetModal();
-  });
-}
-
-if (snippetModalBackdrop) {
-  snippetModalBackdrop.addEventListener('click', () => {
-    closeSnippetModal();
-  });
-}
-
-if (snippetNameInput) {
-  snippetNameInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      saveSnippetFromModal();
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeSnippetModal();
-    }
-  });
-}
-
-applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
-setSidebarView(localStorage.getItem(SIDEBAR_VIEW_KEY) || 'tree');
+bootstrap();

@@ -377,21 +377,39 @@ async function disconnect() {
 }
 
 function createWindow() {
+  const preloadCandidates = [
+    process.env.ELECTRON_PRELOAD,
+    path.join(__dirname, '../preload/index.js'),
+    path.join(__dirname, 'preload.js')
+  ].filter(Boolean);
+  const resolvedPreload = preloadCandidates.find((candidate) => fs.existsSync(candidate));
+  if (!resolvedPreload) {
+    console.error(
+      'Preload script not found. Tried:',
+      preloadCandidates.join(', ')
+    );
+  }
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: resolvedPreload,
       contextIsolation: true,
       nodeIntegration: false
     }
   });
 
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devServerUrl) {
-    mainWindow.loadURL(devServerUrl);
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL || process.env.VITE_DEV_SERVER_URL;
+  const rendererIndex = path.join(__dirname, '../renderer/index.html');
+  if (rendererUrl) {
+    mainWindow.loadURL(rendererUrl);
+  } else if (fs.existsSync(rendererIndex)) {
+    mainWindow.loadFile(rendererIndex);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    dialog.showErrorBox(
+      'Build não encontrado',
+      'Execute "npm run build" antes de rodar em produção, ou use "npm run dev" no desenvolvimento.'
+    );
   }
 }
 

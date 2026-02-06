@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQL GUI</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">SQL GUI</div>
+        <div class="status-area">
+          <div class="conn-status" id="connStatus">Desconectado</div>
+          <button id="exitBtn" class="secondary hidden">Sair</button>
+        </div>
+      </header>
+
+      <section class="connect-panel" id="connectScreen">
+        <div class="row">
+          <label>Tipo</label>
+          <select id="dbType">
+            <option value="mysql">MySQL</option>
+            <option value="postgres">Postgres</option>
+          </select>
+
+          <label>Host</label>
+          <input id="host" placeholder="localhost" />
+
+          <label>Porta</label>
+          <input id="port" placeholder="3306 / 5432" />
+
+          <label>Usuário</label>
+          <input id="user" />
+
+          <label>Senha</label>
+          <input id="password" type="password" />
+
+          <label>Database</label>
+          <input id="database" placeholder="opcional" />
+
+          <label>Nome p/ salvar</label>
+          <input id="saveName" placeholder="ex: Produção" />
+
+          <div class="actions">
+            <button id="connectBtn">Conectar</button>
+            <button id="saveBtn">Salvar</button>
+            <button id="disconnectBtn" class="secondary">Desconectar</button>
+          </div>
+        </div>
+
+        <div class="saved">
+          <div class="saved-header">Conexões salvas</div>
+          <ul id="savedList"></ul>
+        </div>
+      </section>
+
+      <section class="main hidden" id="mainScreen">
+        <aside class="tables">
+          <div class="panel-title">Tabelas <span id="schemaName"></span></div>
+          <input id="tableSearch" class="table-search" placeholder="Buscar tabela" />
+          <ul id="tableList"></ul>
+        </aside>
+
+        <div class="workspace">
+          <div class="query-bar">
+            <textarea id="query" placeholder="Digite sua query SQL"></textarea>
+            <button id="runBtn">Executar</button>
+          </div>
+          <div class="results">
+            <table id="resultsTable"></table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

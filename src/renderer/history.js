@@ -1,3 +1,5 @@
+import { createScopedStorage } from './storage.js';
+
 const HISTORY_KEY = 'sqlEditor.queryHistory';
 
 export function createHistoryManager({
@@ -9,32 +11,14 @@ export function createHistoryManager({
   createNewQueryTab,
   setQueryValue
 }) {
-  function historyStorageKey() {
-    const key = getCurrentHistoryKey();
-    if (!key) return null;
-    return `${HISTORY_KEY}:${key}`;
-  }
+  const historyStore = createScopedStorage(HISTORY_KEY, getCurrentHistoryKey);
 
   function readHistory() {
-    try {
-      const key = historyStorageKey();
-      if (!key) return [];
-      const raw = localStorage.getItem(key);
-      const data = JSON.parse(raw || '[]');
-      return Array.isArray(data) ? data : [];
-    } catch (_) {
-      return [];
-    }
+    return historyStore.readList([]);
   }
 
   function writeHistory(list) {
-    try {
-      const key = historyStorageKey();
-      if (!key) return;
-      localStorage.setItem(key, JSON.stringify(list));
-    } catch (_) {
-      // ignore
-    }
+    historyStore.writeList(list);
   }
 
   function recordHistory(sqlText) {

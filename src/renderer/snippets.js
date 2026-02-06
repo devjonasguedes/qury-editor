@@ -1,3 +1,5 @@
+import { createScopedStorage } from './storage.js';
+
 const SNIPPETS_KEY = 'sqlEditor.snippets';
 
 export function createSnippetsManager({
@@ -32,32 +34,14 @@ export function createSnippetsManager({
   let pendingSnippetSql = '';
   let editingSnippetId = null;
 
-  function snippetsStorageKey() {
-    const key = getCurrentHistoryKey();
-    if (!key) return null;
-    return `${SNIPPETS_KEY}:${key}`;
-  }
+  const snippetsStore = createScopedStorage(SNIPPETS_KEY, getCurrentHistoryKey);
 
   function readSnippets() {
-    try {
-      const key = snippetsStorageKey();
-      if (!key) return [];
-      const raw = localStorage.getItem(key);
-      const data = JSON.parse(raw || '[]');
-      return Array.isArray(data) ? data : [];
-    } catch (_) {
-      return [];
-    }
+    return snippetsStore.readList([]);
   }
 
   function writeSnippets(list) {
-    try {
-      const key = snippetsStorageKey();
-      if (!key) return;
-      localStorage.setItem(key, JSON.stringify(list));
-    } catch (_) {
-      // ignore
-    }
+    snippetsStore.writeList(list);
   }
 
   function loadSnippetSql(sqlText) {

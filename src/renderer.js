@@ -9,6 +9,22 @@ import { format as formatSql } from 'sql-formatter';
 
 import { createHistoryManager } from './renderer/history.js';
 import { createSnippetsManager } from './renderer/snippets.js';
+import { createQueryRunner } from './renderer/queryRunner.js';
+import { createResultsRenderer } from './renderer/resultsRenderer.js';
+import { removeKeysByPrefix, readJson, writeJson } from './renderer/storage.js';
+import { createTabsStateManager } from './renderer/tabsState.js';
+import { createTableSearch } from './renderer/tableSearch.js';
+import {
+  buildConnectionBaseKey,
+  buildConnectionKey,
+  connectionTitle,
+  getEntrySshConfig,
+  isEntryReadOnly,
+  isEntrySsh,
+  makeRecentKey,
+  normalizeKeyToBase
+} from './renderer/connectionUtils.js';
+import { getField, normalizeName } from './utils.js';
 
 import {
   splitStatements,
@@ -24,7 +40,6 @@ window.CodeMirror = CodeMirror;
 
 const byId = (id) => document.getElementById(id);
 
-const connStatus = byId('connStatus');
 const dbType = byId('dbType');
 const host = byId('host');
 const port = byId('port');
@@ -62,6 +77,7 @@ const mainScreen = byId('mainScreen');
 const welcomeScreen = byId('welcomeScreen');
 const querySpinner = byId('querySpinner');
 const tabBar = byId('tabBar');
+const connTabs = byId('connTabs');
 const newTabBtn = byId('newTabBtn');
 const connectSpinner = byId('connectSpinner');
 const dbSelect = byId('dbSelect');
@@ -78,6 +94,7 @@ const queryStatus = byId('queryStatus');
 const openConnectModalBtn = byId('openConnectModalBtn');
 const quickConnectBtn = byId('quickConnectBtn');
 const closeConnectModalBtn = byId('closeConnectModalBtn');
+const homeBtn = byId('homeBtn');
 const connectModal = byId('connectModal');
 const connectModalBackdrop = byId('connectModalBackdrop');
 const connectModalTitle = byId('connectModalTitle');
@@ -108,12 +125,23 @@ const snippetNameInput = byId('snippetNameInput');
 const snippetQueryInput = byId('snippetQueryInput');
 const stopBtn = byId('stopBtn');
 const refreshSchemaBtn = byId('refreshSchemaBtn');
+const tableSettingsBtn = byId('tableSettingsBtn');
 const tableActionsBar = byId('tableActionsBar');
 const tableRefreshBtn = byId('tableRefreshBtn');
 const copyCellBtn = byId('copyCellBtn');
 const copyRowBtn = byId('copyRowBtn');
 const exportCsvBtn = byId('exportCsvBtn');
 const exportJsonBtn = byId('exportJsonBtn');
+const settingsModal = byId('settingsModal');
+const settingsModalBackdrop = byId('settingsModalBackdrop');
+const settingsCloseBtn = byId('settingsCloseBtn');
+const settingsCancelBtn = byId('settingsCancelBtn');
+const settingsClearBtn = byId('settingsClearBtn');
+const settingsSubtitle = byId('settingsSubtitle');
+const clearTabsOption = byId('clearTabs');
+const clearHistoryOption = byId('clearHistory');
+const clearSnippetsOption = byId('clearSnippets');
+const clearTreeOption = byId('clearTreeState');
 
 let isConnected = false;
 let isReadOnly = false;
@@ -124,19 +152,20 @@ let saveTabsTimer = null;
 const MAX_RENDER_ROWS = 2000;
 let isLoading = false;
 let isConnecting = false;
+let connections = [];
+let activeConnectionKey = null;
+let connectedKey = null;
 let tabs = [];
 let activeTabId = null;
+const tabsMemory = new Map();
+const tableStateMemory = new Map();
+const dbStateMemory = new Map();
 let tabCounter = 1;
 let editor = null;
 let snippetEditor = null;
 let isSettingEditor = false;
 let isEditingConnection = false;
-let searchTimer = null;
 let treeExpanded = {};
-let selectedCell = null;
-let selectedRow = null;
-let selectedCellEl = null;
-let selectedRowEl = null;
 let historyManager;
 let snippetsManager;
 const api = window.api;
@@ -146,14 +175,41 @@ const showErrorFallback = async (message) => {
     alert(message);
   }
 };
+const SAFE_EMPTY_LIST_METHODS = new Set([
+  'listSavedConnections',
+  'listTables',
+  'listDatabases',
+  'listColumns'
+]);
+const safeApi = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      if (api && typeof api[prop] !== 'undefined') {
+        return api[prop];
+      }
+      if (prop === 'showError') {
+        return showErrorFallback;
+      }
+      if (SAFE_EMPTY_LIST_METHODS.has(prop)) {
+        return async () => [];
+      }
+      return async () => {
+        await showErrorFallback('API do preload não encontrada.');
+        return { ok: false, error: 'API indisponível.' };
+      };
+    }
+  }
+);
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const SIDEBAR_KEY = 'sqlEditor.sidebarWidth';
 const THEME_KEY = 'sqlEditor.theme';
 const SIDEBAR_VIEW_KEY = 'sqlEditor.sidebarView';
 const TIMEOUT_KEY = 'sqlEditor.queryTimeout';
-const TABS_KEY = 'sqlEditor.tabsState';
-const TREE_STATE_KEY = 'sqlEditor.treeState';
 const EDITOR_HEIGHT_KEY = 'sqlEditor.editorHeight';
+const CLEANUP_KEY = 'sqlEditor.cleanup.v1';
+const HISTORY_KEY = 'sqlEditor.queryHistory';
+const SNIPPETS_KEY = 'sqlEditor.snippets';
 const SQL_KEYWORDS = [
   'SELECT',
   'FROM',
@@ -214,21 +270,114 @@ const SQL_KEYWORDS = [
   'MAX'
 ];
 let tableHints = [];
+const tabsState = createTabsStateManager({
+  getCurrentConnection: () => currentConnection,
+  getCurrentHistoryKey: () => currentHistoryKey,
+  getTabs: () => tabs,
+  setTabs: (next) => {
+    tabs = next;
+  },
+  getActiveTabId: () => activeTabId,
+  setActiveTabId: (next) => {
+    activeTabId = next;
+  },
+  getTabCounter: () => tabCounter,
+  setTabCounter: (next) => {
+    tabCounter = next;
+  },
+  tabsMemory,
+  buildConnectionBaseKey,
+  normalizeKeyToBase,
+  renderTabBar: () => renderTabBar(),
+  setActiveTab: (id) => setActiveTab(id),
+  onRestoring: (value) => {
+    isRestoringTabs = value;
+  }
+});
+const resultsRenderer = createResultsRenderer({
+  resultsTable,
+  copyCellBtn,
+  copyRowBtn,
+  exportCsvBtn,
+  exportJsonBtn,
+  getActiveTab: () => getActiveTab(),
+  onSort: (column) => applySort(column),
+  showError: safeApi.showError,
+  maxRows: MAX_RENDER_ROWS
+});
 
-function setStatus(text, ok) {
-  connStatus.textContent = text;
-  connStatus.style.color = ok ? '#22c55e' : '#fbbf24';
+function clearSelection() {
+  resultsRenderer.clearSelection();
 }
 
-function isEntryReadOnly(entry) {
-  if (!entry) return false;
-  return !!(entry.readOnly || entry.read_only);
+function updateSelectionActions() {
+  resultsRenderer.updateSelectionActions();
 }
 
-function isEntrySsh(entry) {
-  if (!entry) return false;
-  if (entry.ssh && entry.ssh.enabled) return true;
-  return !!(entry.ssh_enabled || entry.sshEnabled);
+function getResultsSnapshot() {
+  return {
+    html: resultsTable.innerHTML,
+    className: resultsTable.className
+  };
+}
+
+function restoreResultsSnapshot(snapshot) {
+  if (!snapshot) return;
+  resultsTable.innerHTML = snapshot.html;
+  resultsTable.className = snapshot.className;
+}
+
+const queryRunner = createQueryRunner({
+  safeApi,
+  splitStatements,
+  stripLeadingComments,
+  firstDmlKeyword,
+  hasMultipleStatementsWithSelect,
+  insertWhere,
+  isDangerousStatement,
+  applyLimit: (sqlText) => applyLimit(sqlText),
+  buildOrderBy: (sql, column, direction) => buildOrderBy(sql, column, direction),
+  getTimeoutMs: () => getTimeoutMs(),
+  getQueryValue: () => getQueryValue(),
+  getWhereFilter: () => getWhereFilter(),
+  getActiveTab: () => getActiveTab(),
+  ensureActiveTab: () => ensureActiveTab(),
+  ensureConnected: () => ensureConnected(),
+  isReadOnly: () => isReadOnly,
+  isTableTab: (tab) => isTableTab(tab),
+  isTableEditor: (tab) => isTableEditor(tab),
+  isLoading: () => isLoading,
+  setLoading: (loading) => setLoading(loading),
+  setQueryStatus: (state) => setQueryStatus(state),
+  showError: (message) => safeApi.showError(message),
+  getResultsSnapshot: () => getResultsSnapshot(),
+  restoreResultsSnapshot: (snapshot) => restoreResultsSnapshot(snapshot),
+  onResults: (rows, totalRows, tab) => {
+    if (tab) tab.rows = rows;
+    resultsRenderer.buildTable(rows, totalRows);
+  },
+  onEmptyResults: () => {
+    resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+    clearSelection();
+    updateSelectionActions();
+  },
+  onHistory: (sql) => {
+    if (historyManager) historyManager.recordHistory(sql);
+  }
+});
+
+function clearLocalStateOnce() {
+  if (localStorage.getItem(CLEANUP_KEY) === '1') return;
+  removeKeysByPrefix('sqlEditor.', { exclude: [CLEANUP_KEY] });
+  tabsMemory.clear();
+  tableStateMemory.clear();
+  dbStateMemory.clear();
+  treeExpanded = {};
+  localStorage.setItem(CLEANUP_KEY, '1');
+}
+
+function setStatus() {
+  // status view removed from topbar
 }
 
 function isSshTabActive() {
@@ -251,48 +400,17 @@ function buildSshConfig() {
   };
 }
 
-function getEntrySshConfig(entry) {
-  if (!entry || !isEntrySsh(entry)) return { enabled: false };
-  const ssh = entry.ssh || {};
-  return {
-    enabled: true,
-    host: ssh.host || entry.ssh_host || entry.sshHost || '',
-    port: ssh.port || entry.ssh_port || entry.sshPort || '',
-    user: ssh.user || entry.ssh_user || entry.sshUser || '',
-    password: ssh.password || entry.ssh_password || entry.sshPassword || '',
-    privateKey: ssh.privateKey || entry.ssh_private_key || entry.sshPrivateKey || '',
-    passphrase: ssh.passphrase || entry.ssh_passphrase || entry.sshPassphrase || '',
-    localPort: ssh.localPort || entry.ssh_local_port || entry.sshLocalPort || ''
-  };
-}
-
 function setReadOnlyMode(enabled) {
   isReadOnly = !!enabled;
   const base = isReadOnly ? 'Conectado (somente leitura)' : 'Conectado';
   if (isConnected) setStatus(base, true);
 }
 
-function buildConnectionKey(entry) {
-  if (!entry) return null;
-  const ssh = getEntrySshConfig(entry);
-  return [
-    entry.type || '',
-    entry.host || '',
-    entry.port || '',
-    entry.user || '',
-    entry.database || '',
-    isEntryReadOnly(entry) ? 'ro' : 'rw',
-    ssh.enabled ? 'ssh' : 'direct',
-    ssh.host || '',
-    ssh.port || '',
-    ssh.user || ''
-  ].join('|');
-}
-
 function setCurrentConnection(entry) {
   currentConnection = entry ? { ...entry } : null;
   currentHistoryKey = buildConnectionKey(currentConnection);
-  treeExpanded = readTreeState();
+  activeConnectionKey = currentHistoryKey;
+  treeExpanded = tabsState.readTreeState();
   if (historyPanel && !historyPanel.classList.contains('hidden')) {
     historyManager.renderHistoryList();
   }
@@ -301,69 +419,119 @@ function setCurrentConnection(entry) {
   }
 }
 
-function treeStateKey() {
-  if (!currentHistoryKey) return null;
-  return `${TREE_STATE_KEY}:${currentHistoryKey}`;
+function formatTableTabTitle(schema, name) {
+  const safeName = name || 'Tabela';
+  const schemaName = schema || '';
+  const currentDb = currentConnection && currentConnection.database ? currentConnection.database : '';
+  if (dbType && dbType.value === 'postgres') {
+    return schemaName ? `${schemaName}.${safeName}` : safeName;
+  }
+  if (!schemaName) return safeName;
+  if (currentDb && normalizeName(schemaName) === normalizeName(currentDb)) return safeName;
+  return `${schemaName}.${safeName}`;
 }
 
-function readTreeState() {
-  try {
-    const key = treeStateKey();
-    if (!key) return {};
-    const raw = localStorage.getItem(key);
-    const data = JSON.parse(raw || '{}');
-    return data && typeof data === 'object' ? data : {};
-  } catch (_) {
-    return {};
+function syncConnectionKeyForDatabase(nextDatabase) {
+  if (!currentConnection) return;
+  const previousKey = currentHistoryKey;
+  const nextConnection = { ...currentConnection, database: nextDatabase || '' };
+  const nextKey = buildConnectionKey(nextConnection);
+  if (previousKey && nextKey && previousKey !== nextKey) {
+    const baseKey = buildConnectionBaseKey(nextConnection);
+    let sourceKey = previousKey;
+    if (baseKey && !tabsState.hasStoredTabs(previousKey)) {
+      const candidate = tabsState.findStoredTabsKeyForBase(baseKey);
+      if (candidate) sourceKey = candidate;
+    }
+    tabsState.migrateConnectionState(sourceKey, nextKey);
+    tabs.forEach((tab) => {
+      if (tab.connectionKey === previousKey || tab.connectionKey === sourceKey) {
+        tab.connection = { ...nextConnection };
+        tab.connectionKey = nextKey;
+      }
+    });
+    connections = connections.map((conn) => {
+      if (conn.key !== previousKey) return conn;
+      return {
+        key: nextKey,
+        title: connectionTitle(nextConnection),
+        entry: { ...nextConnection }
+      };
+    });
+    activeConnectionKey = nextKey;
   }
+  setCurrentConnection(nextConnection);
+  renderConnectionTabs();
 }
 
-function writeTreeState() {
-  const key = treeStateKey();
-  if (!key) return;
-  try {
-    localStorage.setItem(key, JSON.stringify(treeExpanded));
-  } catch (_) {
-    // ignore
+function tryActivateExistingConnection(entry) {
+  if (!entry) return false;
+  const key = buildConnectionKey(entry);
+  const existing = connections.find((conn) => conn.key === key);
+  if (existing) {
+    activateConnectionTab(existing.key);
+    return true;
   }
+  if (!entry.database) {
+    const baseKey = buildConnectionBaseKey(entry);
+    const loose = connections.find((conn) => buildConnectionBaseKey(conn.entry) === baseKey);
+    if (loose) {
+      activateConnectionTab(loose.key);
+      return true;
+    }
+  }
+  return false;
+}
+
+function upsertConnectionTab(entry) {
+  const key = buildConnectionKey(entry);
+  const existing = connections.find((conn) => conn.key === key);
+  const title = connectionTitle(entry);
+  if (existing) {
+    existing.entry = { ...entry };
+    existing.title = title;
+  } else {
+    connections.push({ key, title, entry: { ...entry } });
+  }
+  activeConnectionKey = key;
+  renderConnectionTabs();
+}
+
+function removeConnectionTab(key) {
+  connections = connections.filter((conn) => conn.key !== key);
+  if (activeConnectionKey === key) {
+    activeConnectionKey = connections.length ? connections[0].key : null;
+  }
+  renderConnectionTabs();
+}
+
+async function activateConnectionTab(key) {
+  const target = connections.find((conn) => conn.key === key);
+  if (!target) return;
+  if (currentHistoryKey) {
+    saveTabsState();
+  }
+  activeConnectionKey = key;
+  setCurrentConnection(target.entry);
+  setReadOnlyMode(isEntryReadOnly(target.entry));
+  setScreen(true);
+  resetTableState();
+  if (dbSelect) dbSelect.innerHTML = '';
+  const restored = restoreTabsStateWithFallback();
+  if (!restored && tabs.length === 0) {
+    createTab(`Query ${tabCounter++}`, '');
+  }
+  restoreCachedSchema();
+  renderConnectionTabs();
 }
 
 function setTreeExpanded(key, expanded) {
-  if (!key) return;
-  treeExpanded[key] = !!expanded;
-  writeTreeState();
-}
-
-function tabsStorageKey() {
-  if (!currentHistoryKey) return null;
-  return `${TABS_KEY}:${currentHistoryKey}`;
+  treeExpanded = tabsState.setTreeExpanded(treeExpanded, key, expanded);
 }
 
 function saveTabsState() {
   if (isRestoringTabs) return;
-  const key = tabsStorageKey();
-  if (!key) return;
-  const snapshot = {
-    activeTabId,
-    tabCounter,
-    tabs: tabs.map((tab) => ({
-      id: tab.id,
-      title: tab.title,
-      query: tab.query,
-      baseQuery: tab.baseQuery,
-      filter: tab.filter,
-      filterEnabled: tab.filterEnabled,
-      filterSource: tab.filterSource,
-      kind: tab.kind,
-      showEditor: tab.showEditor,
-      sort: tab.sort || null
-    }))
-  };
-  try {
-    localStorage.setItem(key, JSON.stringify(snapshot));
-  } catch (_) {
-    // ignore
-  }
+  tabsState.saveTabsState();
 }
 
 function scheduleSaveTabs() {
@@ -376,49 +544,11 @@ function scheduleSaveTabs() {
 }
 
 function restoreTabsState() {
-  const key = tabsStorageKey();
-  if (!key) return false;
-  let snapshot = null;
-  try {
-    const raw = localStorage.getItem(key);
-    snapshot = raw ? JSON.parse(raw) : null;
-  } catch (_) {
-    snapshot = null;
-  }
+  return tabsState.restoreTabsState();
+}
 
-  isRestoringTabs = true;
-  tabs = [];
-  activeTabId = null;
-  tabCounter = 1;
-
-  if (snapshot && Array.isArray(snapshot.tabs) && snapshot.tabs.length > 0) {
-    tabCounter = snapshot.tabCounter || snapshot.tabs.length + 1;
-    tabs = snapshot.tabs.map((saved) => ({
-      id: saved.id || `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      title: saved.title || `Query ${tabCounter++}`,
-      query: saved.query || '',
-      baseQuery: saved.baseQuery || '',
-      filter: saved.filter || '',
-      filterEnabled: saved.filterEnabled || false,
-      filterSource: saved.filterSource || '',
-      rows: null,
-      kind: saved.kind || 'query',
-      showEditor: saved.showEditor || false,
-      sort: saved.sort || null
-    }));
-    activeTabId = snapshot.activeTabId && tabs.some((t) => t.id === snapshot.activeTabId)
-      ? snapshot.activeTabId
-      : tabs[0].id;
-    renderTabBar();
-    setActiveTab(activeTabId);
-    isRestoringTabs = false;
-    return true;
-  }
-
-  renderTabBar();
-  createTab(`Query ${tabCounter++}`, '');
-  isRestoringTabs = false;
-  return false;
+function restoreTabsStateWithFallback() {
+  return tabsState.restoreTabsStateWithFallback();
 }
 
 function setSidebarView(view) {
@@ -450,21 +580,6 @@ function applyTheme(theme) {
 function toggleTheme() {
   const current = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(current === 'light' ? 'dark' : 'light');
-}
-
-function getField(row, candidates) {
-  for (const key of candidates) {
-    if (row && Object.prototype.hasOwnProperty.call(row, key)) return row[key];
-  }
-  const lower = Object.keys(row || {}).reduce((acc, k) => {
-    acc[k.toLowerCase()] = row[k];
-    return acc;
-  }, {});
-  for (const key of candidates) {
-    const val = lower[key.toLowerCase()];
-    if (val !== undefined) return val;
-  }
-  return undefined;
 }
 
 function rebuildTableHints() {
@@ -562,11 +677,13 @@ function loadSidebarWidth() {
 function initSidebarResizer() {
   if (!sidebarResizer || !sidebar || !mainLayout) return;
   let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
 
   const onMove = (event) => {
     if (!dragging) return;
-    const rect = mainLayout.getBoundingClientRect();
-    const next = Math.min(520, Math.max(200, event.clientX - rect.left));
+    const delta = event.clientX - startX;
+    const next = Math.min(520, Math.max(200, startWidth + delta));
     sidebar.style.width = `${next}px`;
   };
 
@@ -586,6 +703,8 @@ function initSidebarResizer() {
   sidebarResizer.addEventListener('mousedown', (event) => {
     event.preventDefault();
     dragging = true;
+    startX = event.clientX;
+    startWidth = parseFloat(getComputedStyle(sidebar).width) || sidebar.offsetWidth || 260;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', onMove);
@@ -662,12 +781,13 @@ function loadEditorHeight() {
 function initEditorResizer() {
   if (!editorResizer || !editorPanel || !workspace) return;
   let dragging = false;
+  let startY = 0;
+  let startHeight = 0;
 
   const onMove = (event) => {
     if (!dragging) return;
-    const panelRect = editorPanel.getBoundingClientRect();
-    const headerHeight = getEditorHeaderHeight();
-    const rawHeight = event.clientY - panelRect.top - headerHeight;
+    const delta = event.clientY - startY;
+    const rawHeight = startHeight + delta;
     applyEditorBodyHeight(rawHeight);
   };
 
@@ -683,6 +803,9 @@ function initEditorResizer() {
   editorResizer.addEventListener('mousedown', (event) => {
     event.preventDefault();
     dragging = true;
+    startY = event.clientY;
+    const current = parseFloat(editorBody ? editorBody.style.height : '');
+    startHeight = Number.isFinite(current) && current > 0 ? current : (editorBody ? editorBody.offsetHeight : 220);
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', onMove);
@@ -723,7 +846,6 @@ function setScreen(connected) {
     mainScreen.classList.remove('hidden');
     if (welcomeScreen) welcomeScreen.classList.add('hidden');
     if (sidebarShell) sidebarShell.classList.remove('hidden');
-    exitBtn.classList.remove('hidden');
     if (dbSelect) dbSelect.classList.remove('hidden');
     if (sidebar) sidebar.classList.remove('hidden');
     if (sidebarResizer) sidebarResizer.classList.remove('hidden');
@@ -738,7 +860,6 @@ function setScreen(connected) {
     mainScreen.classList.remove('hidden');
     if (welcomeScreen) welcomeScreen.classList.remove('hidden');
     if (sidebarShell) sidebarShell.classList.add('hidden');
-    exitBtn.classList.add('hidden');
     if (dbSelect) dbSelect.classList.add('hidden');
     if (sidebar) sidebar.classList.add('hidden');
     if (sidebarResizer) sidebarResizer.classList.add('hidden');
@@ -750,142 +871,97 @@ function setScreen(connected) {
   }
 }
 
-function buildTable(rows, totalRows) {
-  clearSelection();
-  resultsTable.innerHTML = '';
-  resultsTable.className = '';
-  if (!Array.isArray(rows) || rows.length === 0) {
-    resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
-    updateSelectionActions();
+function goHome() {
+  saveTabsState();
+  isConnected = false;
+  connectedKey = null;
+  setCurrentConnection(null);
+  activeConnectionKey = null;
+  setReadOnlyMode(false);
+  setScreen(false);
+  closeSettingsModal();
+  resetTableState();
+  if (dbSelect) dbSelect.innerHTML = '';
+  renderConnectionTabs();
+}
+
+function resetSettingsOptions() {
+  if (clearTabsOption) clearTabsOption.checked = false;
+  if (clearHistoryOption) clearHistoryOption.checked = false;
+  if (clearSnippetsOption) clearSnippetsOption.checked = false;
+  if (clearTreeOption) clearTreeOption.checked = false;
+}
+
+function openSettingsModal() {
+  if (!settingsModal) return;
+  if (!currentHistoryKey) {
+    safeApi.showError('Conecte para gerenciar preferências.');
     return;
   }
-
-  const limitedRows = rows.slice(0, MAX_RENDER_ROWS);
-  if (!limitedRows[0] || typeof limitedRows[0] !== 'object') {
-    resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
-    updateSelectionActions();
-    return;
+  resetSettingsOptions();
+  if (settingsSubtitle) {
+    const title = currentConnection ? connectionTitle(currentConnection) : '';
+    settingsSubtitle.textContent = title
+      ? `Conexão: ${title}`
+      : 'Limpar dados salvos desta conexão.';
   }
-  const columns = Object.keys(limitedRows[0]);
-  const thead = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  columns.forEach((col) => {
-    const th = document.createElement('th');
-    th.textContent = col;
-    th.addEventListener('click', () => {
-      applySort(col);
-    });
-    headRow.appendChild(th);
-  });
-  thead.appendChild(headRow);
-  resultsTable.appendChild(thead);
+  settingsModal.classList.remove('hidden');
+}
 
-  const tbody = document.createElement('tbody');
-  limitedRows.forEach((row, rowIndex) => {
-    const tr = document.createElement('tr');
-    columns.forEach((col, colIndex) => {
-      const td = document.createElement('td');
-      const value = row[col];
-      td.textContent = value === null || value === undefined ? '' : String(value);
-      td.title = td.textContent;
-      td.dataset.col = col;
-      td.dataset.colIndex = String(colIndex);
-      tr.appendChild(td);
-    });
-    tr.dataset.rowIndex = String(rowIndex);
-    tr.addEventListener('click', (event) => {
-      const cell = event.target.closest('td');
-      if (!cell) return;
-      const colIndex = Number(cell.dataset.colIndex || 0);
-      setSelection(rowIndex, colIndex, cell, tr, row, columns);
-    });
-    tbody.appendChild(tr);
-  });
-  resultsTable.appendChild(tbody);
+function closeSettingsModal() {
+  if (!settingsModal) return;
+  settingsModal.classList.add('hidden');
+}
 
-  const total = totalRows || rows.length;
-  if (total > MAX_RENDER_ROWS) {
-    const note = document.createElement('caption');
-    note.textContent = `Mostrando ${MAX_RENDER_ROWS} de ${total} linhas. Use LIMIT para reduzir.`;
-    note.style.captionSide = 'bottom';
-    note.style.padding = '6px 8px';
-    note.style.color = '#666';
-    resultsTable.appendChild(note);
+function removeScopedPreference(prefix, historyKey) {
+  if (!historyKey) return;
+  try {
+    localStorage.removeItem(`${prefix}:${historyKey}`);
+  } catch (_) {
+    // ignore
   }
-  updateSelectionActions();
 }
 
-function setSelection(rowIndex, colIndex, cellEl, rowEl, rowData, columns) {
-  if (selectedCellEl) selectedCellEl.classList.remove('selected');
-  if (selectedRowEl) selectedRowEl.classList.remove('selected');
-  selectedCellEl = cellEl;
-  selectedRowEl = rowEl;
-  if (selectedCellEl) selectedCellEl.classList.add('selected');
-  if (selectedRowEl) selectedRowEl.classList.add('selected');
-  selectedRow = rowData || null;
-  const colName = columns && columns[colIndex] ? columns[colIndex] : null;
-  selectedCell = colName ? { rowIndex, colIndex, value: rowData ? rowData[colName] : '' } : null;
-  updateSelectionActions();
-}
-
-function clearSelection() {
-  if (selectedCellEl) selectedCellEl.classList.remove('selected');
-  if (selectedRowEl) selectedRowEl.classList.remove('selected');
-  selectedCellEl = null;
-  selectedRowEl = null;
-  selectedCell = null;
-  selectedRow = null;
-}
-
-function updateSelectionActions() {
-  const tab = getActiveTab();
-  const hasRows = !!(tab && Array.isArray(tab.rows) && tab.rows.length > 0);
-  if (copyCellBtn) copyCellBtn.disabled = !selectedCell;
-  if (copyRowBtn) copyRowBtn.disabled = !selectedRow;
-  if (exportCsvBtn) exportCsvBtn.disabled = !hasRows;
-  if (exportJsonBtn) exportJsonBtn.disabled = !hasRows;
-}
-
-function getExportRows() {
-  const tab = getActiveTab();
-  if (!tab || !Array.isArray(tab.rows)) return [];
-  return tab.rows;
-}
-
-function rowsToCsv(rows) {
-  if (!rows || rows.length === 0) return '';
-  let normalized = rows;
-  if (typeof rows[0] !== 'object' || rows[0] === null || Array.isArray(rows[0])) {
-    normalized = rows.map((value) => ({ value }));
-  }
-  const columns = Array.from(
-    new Set(normalized.flatMap((row) => Object.keys(row || {})))
-  );
-  const escape = (val) => {
-    if (val === null || val === undefined) return '';
-    const str = String(val);
-    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
-    return str;
+function clearSelectedPreferences() {
+  if (!currentHistoryKey) return;
+  const selections = {
+    tabs: !!(clearTabsOption && clearTabsOption.checked),
+    history: !!(clearHistoryOption && clearHistoryOption.checked),
+    snippets: !!(clearSnippetsOption && clearSnippetsOption.checked),
+    tree: !!(clearTreeOption && clearTreeOption.checked)
   };
-  const lines = [columns.join(',')];
-  normalized.forEach((row) => {
-    lines.push(columns.map((col) => escape(row[col])).join(','));
-  });
-  return lines.join('\n');
-}
+  const hasAny = Object.values(selections).some(Boolean);
+  if (!hasAny) {
+    safeApi.showError('Selecione ao menos uma opção para limpar.');
+    return;
+  }
+  const confirmed = confirm('Limpar as preferências selecionadas desta conexão?');
+  if (!confirmed) return;
 
-function formatTimestamp() {
-  return new Date().toISOString().replace(/[:.]/g, '-');
-}
+  if (selections.tabs) {
+    tabsState.clearTabsState();
+    if (currentConnection && tabs.length === 0) {
+      createTab(`Query ${tabCounter++}`, '');
+    }
+  }
+  if (selections.history) {
+    removeScopedPreference(HISTORY_KEY, currentHistoryKey);
+    if (historyPanel && !historyPanel.classList.contains('hidden')) {
+      historyManager.renderHistoryList();
+    }
+  }
+  if (selections.snippets) {
+    removeScopedPreference(SNIPPETS_KEY, currentHistoryKey);
+    if (snippetsPanel && !snippetsPanel.classList.contains('hidden')) {
+      snippetsManager.renderSnippetsList();
+    }
+  }
+  if (selections.tree) {
+    treeExpanded = tabsState.clearTreeState();
+    renderSidebarTree(tableSearch ? tableSearch.value : '');
+  }
 
-function downloadText(filename, content, mime = 'text/plain') {
-  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  closeSettingsModal();
 }
 
 function getActiveTab() {
@@ -919,10 +995,63 @@ function renderTabBar() {
     el.appendChild(close);
 
     el.addEventListener('click', () => {
-      setActiveTab(tab.id);
+      activateTab(tab.id);
     });
     tabBar.appendChild(el);
   });
+}
+
+function renderConnectionTabs() {
+  if (!connTabs) return;
+  connTabs.innerHTML = '';
+  connTabs.classList.toggle('hidden', connections.length === 0);
+  if (homeBtn) homeBtn.classList.toggle('hidden', connections.length === 0);
+  connections.forEach((conn) => {
+    const el = document.createElement('div');
+    el.className = 'conn-tab' + (conn.key === activeConnectionKey ? ' active' : '');
+    el.textContent = conn.title;
+
+    const close = document.createElement('span');
+    close.className = 'conn-tab-close';
+    close.innerHTML = '<i class="bi bi-x"></i>';
+    close.addEventListener('click', (event) => {
+      event.stopPropagation();
+      handleCloseConnectionTab(conn.key);
+    });
+    el.appendChild(close);
+
+    el.addEventListener('click', () => {
+      activateConnectionTab(conn.key);
+    });
+    connTabs.appendChild(el);
+  });
+}
+
+async function switchToTabConnection(tab, previousTabId) {
+  if (!tab || !tab.connection) return;
+  if (tab.connectionKey && tab.connectionKey === currentHistoryKey) return;
+  const res = await connectWithLoading(tab.connection);
+  if (!res.ok) {
+    await safeApi.showError(res.error || 'Erro ao conectar.');
+    if (previousTabId) setActiveTab(previousTabId);
+    return;
+  }
+  isConnected = true;
+  setCurrentConnection(tab.connection);
+  setReadOnlyMode(isEntryReadOnly(tab.connection));
+  setScreen(true);
+  resetTableState();
+  await refreshDatabases();
+  await refreshTables();
+}
+
+function activateTab(tabId) {
+  const previousTabId = activeTabId;
+  setActiveTab(tabId);
+  const tab = getActiveTab();
+  if (tab && tab.connectionKey && tab.connectionKey !== currentHistoryKey) {
+    switchToTabConnection(tab, previousTabId);
+  }
 }
 
 function setActiveTab(tabId) {
@@ -968,7 +1097,7 @@ function setActiveTab(tabId) {
     setQueryValue(text, { focus: false });
   }
   if (tab.rows) {
-    buildTable(tab.rows);
+    resultsRenderer.buildTable(tab.rows);
   } else {
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
     clearSelection();
@@ -989,6 +1118,12 @@ function createTab(title, queryText, options = {}) {
     resolvedQuery = resolvedOptions.query || '';
   }
 
+  const connection = resolvedOptions.connection || currentConnection;
+  if (!connection) {
+    safeApi.showError('Conecte para criar uma aba.');
+    return null;
+  }
+
   const kind = resolvedOptions.kind || 'query';
   const baseQuery = resolvedOptions.baseQuery || (kind === 'table' ? resolvedQuery : '');
   const tab = {
@@ -1001,7 +1136,9 @@ function createTab(title, queryText, options = {}) {
     filterSource: resolvedOptions.filterSource || '',
     rows: null,
     kind,
-    showEditor: resolvedOptions.showEditor || false
+    showEditor: resolvedOptions.showEditor || false,
+    connectionKey: buildConnectionKey(connection),
+    connection: { ...connection }
   };
   tabs.push(tab);
   setActiveTab(tab.id);
@@ -1014,6 +1151,28 @@ function createNewQueryTab(queryText) {
   return createTab(title, queryText);
 }
 
+function handleCloseConnectionTab(key) {
+  if (!key) return;
+  if (currentHistoryKey === key) {
+    saveTabsState();
+    safeApi.disconnect();
+    isConnected = false;
+    connectedKey = null;
+    setCurrentConnection(null);
+    setReadOnlyMode(false);
+    setScreen(false);
+    resetTableState();
+    if (dbSelect) dbSelect.innerHTML = '';
+    tabs = [];
+    activeTabId = null;
+    tabCounter = 1;
+  }
+  removeConnectionTab(key);
+  if (activeConnectionKey) {
+    activateConnectionTab(activeConnectionKey);
+  }
+}
+
 function closeTab(tabId) {
   const idx = tabs.findIndex((t) => t.id === tabId);
   if (idx === -1) return;
@@ -1021,8 +1180,23 @@ function closeTab(tabId) {
   tabs.splice(idx, 1);
   if (wasActive) {
     const next = tabs[idx] || tabs[idx - 1] || tabs[0] || null;
-    if (next) setActiveTab(next.id);
-    else createTab(`Query ${tabCounter++}`, '');
+    if (next) activateTab(next.id);
+    else {
+      activeTabId = null;
+      renderTabBar();
+      if (currentConnection) {
+        createTab(`Query ${tabCounter++}`, '');
+      } else {
+        safeApi.disconnect();
+        setScreen(false);
+        isConnected = false;
+        setCurrentConnection(null);
+        setStatus('Desconectado', false);
+        setReadOnlyMode(false);
+        resetTableState();
+        if (dbSelect) dbSelect.innerHTML = '';
+      }
+    }
   } else {
     renderTabBar();
     scheduleSaveTabs();
@@ -1032,6 +1206,7 @@ function closeTab(tabId) {
 function ensureActiveTab() {
   let tab = getActiveTab();
   if (!tab) {
+    if (!currentConnection) return null;
     tab = createTab(`Query ${tabCounter++}`, query.value || '');
   }
   return tab;
@@ -1090,6 +1265,12 @@ function setConnecting(loading) {
   if (clearFormBtn) clearFormBtn.disabled = loading;
   if (cancelEditBtn) cancelEditBtn.disabled = loading;
   if (dbSelect) dbSelect.disabled = loading;
+  if (openConnectModalBtn) openConnectModalBtn.disabled = loading;
+  if (quickConnectBtn) quickConnectBtn.disabled = loading;
+  if (savedList) savedList.classList.toggle('is-connecting', loading);
+  if (recentList) recentList.classList.toggle('is-connecting', loading);
+  if (connectModal) connectModal.classList.toggle('is-connecting', loading);
+  if (connTabs) connTabs.classList.toggle('is-connecting', loading);
   updateRunAvailability();
 }
 
@@ -1105,42 +1286,33 @@ function setQueryStatus({ state, message, duration }) {
   queryStatus.className = `query-status${state ? ` ${state}` : ''}`;
 }
 
-function readRecentConnections() {
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+async function ensureConnected() {
+  if (!currentConnection) {
+    await safeApi.showError('Conecte para continuar.');
+    return false;
   }
+  if (connectedKey === currentHistoryKey) return true;
+  const res = await connectWithLoading(currentConnection);
+  if (!res.ok) {
+    await safeApi.showError(res.error || 'Erro ao conectar.');
+    return false;
+  }
+  isConnected = true;
+  connectedKey = currentHistoryKey;
+  setReadOnlyMode(isEntryReadOnly(currentConnection));
+  setScreen(true);
+  return true;
+}
+
+function readRecentConnections() {
+  const parsed = readJson(RECENT_KEY, []);
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 function writeRecentConnections(list) {
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-  } catch {
-    // ignore
-  }
+  writeJson(RECENT_KEY, list);
 }
 
-
-function makeRecentKey(entry) {
-  const ro = isEntryReadOnly(entry);
-  const ssh = getEntrySshConfig(entry);
-  return [
-    entry.type,
-    entry.host || '',
-    entry.port || '',
-    entry.user || '',
-    entry.database || '',
-    ro ? 'ro' : 'rw',
-    ssh.enabled ? 'ssh' : 'direct',
-    ssh.host || '',
-    ssh.port || '',
-    ssh.user || '',
-    ssh.localPort || ''
-  ].join('|');
-}
 
 function recordRecentConnection(entry) {
   if (!entry) return;
@@ -1220,8 +1392,10 @@ function renderRecentList() {
     item.appendChild(actions);
 
     info.addEventListener('click', async () => {
-    if (isConnected) saveTabsState();
-    const res = await connectWithLoading({
+      if (isConnecting) return;
+      if (tryActivateExistingConnection(entry)) return;
+      if (isConnected) saveTabsState();
+      const res = await connectWithLoading({
         type: entry.type,
         host: entry.host || 'localhost',
         port: entry.port || undefined,
@@ -1233,7 +1407,7 @@ function renderRecentList() {
       });
 
       if (!res.ok) {
-        await window.api.showError(res.error || 'Erro ao conectar.');
+        await safeApi.showError(res.error || 'Erro ao conectar.');
         return;
       }
       recordRecentConnection(entry);
@@ -1241,9 +1415,14 @@ function renderRecentList() {
       setCurrentConnection(entry);
       setReadOnlyMode(isEntryReadOnly(entry));
       setScreen(true);
-      restoreTabsState();
+      upsertConnectionTab(entry);
+      connectedKey = currentHistoryKey;
       resetTableState();
       await refreshDatabases();
+      const restored = restoreTabsStateWithFallback();
+      if (!restored && tabs.length === 0) {
+        createTab(`Query ${tabCounter++}`, '');
+      }
       await refreshTables();
     });
 
@@ -1253,9 +1432,11 @@ function renderRecentList() {
 
 async function refreshDatabases() {
   if (!dbSelect) return;
-  const res = await window.api.listDatabases();
+  const ok = await ensureConnected();
+  if (!ok) return;
+  const res = await safeApi.listDatabases();
   if (!res.ok) {
-    await window.api.showError(res.error || 'Erro ao listar databases.');
+    await safeApi.showError(res.error || 'Erro ao listar databases.');
     return;
   }
   dbSelect.innerHTML = '';
@@ -1269,26 +1450,31 @@ async function refreshDatabases() {
 
   if ((!res.current || !dbSelect.value) && res.databases.length > 0) {
     dbSelect.value = res.databases[0];
-    const useRes = await window.api.useDatabase(dbSelect.value);
+    const useRes = await safeApi.useDatabase(dbSelect.value);
     if (!useRes.ok) {
-      await window.api.showError(useRes.error || 'Erro ao selecionar database.');
+      await safeApi.showError(useRes.error || 'Erro ao selecionar database.');
     }
   }
   if (currentConnection) {
     saveTabsState();
   }
   if (currentConnection && dbSelect.value) {
-    currentConnection.database = dbSelect.value;
-    setCurrentConnection(currentConnection);
-    restoreTabsState();
+    syncConnectionKeyForDatabase(dbSelect.value);
   }
+  if (currentHistoryKey) {
+    dbStateMemory.set(currentHistoryKey, {
+      databases: res.databases || [],
+      current: res.current || dbSelect.value || ''
+    });
+  }
+  restoreCachedSchema();
 }
 
 async function connectWithLoading(config) {
   if (isConnecting) return { ok: false, error: 'Conexão em andamento.' };
   setConnecting(true);
   try {
-    return await window.api.connect(config);
+    return await safeApi.connect(config);
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : 'Erro ao conectar.' };
   } finally {
@@ -1300,7 +1486,7 @@ async function testConnectionWithLoading(config) {
   if (isConnecting) return { ok: false, error: 'Conexão em andamento.' };
   setConnecting(true);
   try {
-    return await window.api.testConnection(config);
+    return await safeApi.testConnection(config);
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : 'Erro ao testar conexão.' };
   } finally {
@@ -1320,47 +1506,56 @@ function initEditor() {
     autofocus: true,
     extraKeys: {
       'Ctrl-Enter': () => {
-        ensureActiveTab();
-        const tab = getActiveTab();
+        const tab = ensureActiveTab();
+        if (!tab) {
+          safeApi.showError('Conecte para executar queries.');
+          return;
+        }
         if (isTableTab(tab) && !isTableEditor(tab)) return;
         const full = getQueryValue();
         if (hasMultipleStatementsWithSelect(full)) {
-          window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+          safeApi.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
           return;
         }
-        safeRunQueries(full).then(async (ok) => {
+        queryRunner.safeRunQueries(full).then(async (ok) => {
           if (ok) enableQueryFilter(tab, full);
-          if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(full))) {
-            await runTableTabQuery(tab);
+          if (ok && isTableEditor(tab) && queryRunner.hasNonSelect(splitStatements(full))) {
+            await queryRunner.runTableTabQuery(tab);
           }
         });
       },
       'Cmd-Enter': () => {
-        ensureActiveTab();
-        const tab = getActiveTab();
+        const tab = ensureActiveTab();
+        if (!tab) {
+          safeApi.showError('Conecte para executar queries.');
+          return;
+        }
         if (isTableTab(tab) && !isTableEditor(tab)) return;
         const full = getQueryValue();
         if (hasMultipleStatementsWithSelect(full)) {
-          window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+          safeApi.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
           return;
         }
-        safeRunQueries(full).then(async (ok) => {
+        queryRunner.safeRunQueries(full).then(async (ok) => {
           if (ok) enableQueryFilter(tab, full);
-          if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(full))) {
-            await runTableTabQuery(tab);
+          if (ok && isTableEditor(tab) && queryRunner.hasNonSelect(splitStatements(full))) {
+            await queryRunner.runTableTabQuery(tab);
           }
         });
       },
       'Shift-Enter': () => {
-        ensureActiveTab();
-        const tab = getActiveTab();
+        const tab = ensureActiveTab();
+        if (!tab) {
+          safeApi.showError('Conecte para executar queries.');
+          return;
+        }
         if (isTableTab(tab) && !isTableEditor(tab)) return;
         const baseSql = getSelectionOrStatement(false);
         if (!baseSql) return;
-        safeRunQueries(baseSql).then(async (ok) => {
+        queryRunner.safeRunQueries(baseSql).then(async (ok) => {
           if (ok) enableQueryFilter(tab, baseSql);
-          if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(baseSql))) {
-            await runTableTabQuery(tab);
+          if (ok && isTableEditor(tab) && queryRunner.hasNonSelect(splitStatements(baseSql))) {
+            await queryRunner.runTableTabQuery(tab);
           }
         });
       },
@@ -1371,6 +1566,10 @@ function initEditor() {
         triggerAutocomplete(editor);
       },
       'Cmd-T': () => {
+        if (!currentConnection) {
+          openConnectModal({ keepForm: false, mode: 'full' });
+          return;
+        }
         createTab(`Query ${tabCounter++}`, '');
       }
     }
@@ -1518,70 +1717,10 @@ function getTimeoutMs() {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-function confirmDangerous(statements) {
-  const risky = statements.filter((stmt) => isDangerousStatement(stmt));
-  if (risky.length === 0) return true;
-  const summary = risky
-    .map((stmt) => stripLeadingComments(stmt).trim().split('\n')[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('\n');
-  return confirm(
-    `Atenção: você está executando ${risky.length} comando(s) perigoso(s) (DELETE/DROP sem WHERE).\nDeseja continuar?\n\n${summary}`
-  );
-}
-
 function getWhereFilter() {
   const tab = getActiveTab();
   if (tab && typeof tab.filter === 'string') return tab.filter.trim();
   return queryFilter && queryFilter.value ? queryFilter.value.trim() : '';
-}
-
-function applyQueryModifiers(sqlText) {
-  const tab = getActiveTab();
-  if (isTableTab(tab) && !isTableEditor(tab)) {
-    const withWhere = insertWhere(sqlText, getWhereFilter());
-    return applyLimit(withWhere);
-  }
-  return applyLimit(sqlText);
-}
-
-function buildTableSql(tab) {
-  if (!tab) return '';
-  const base = tab.baseQuery || tab.query || '';
-  const filter = tab.filter || '';
-  let sql = insertWhere(base, filter);
-  if (tab.sort && tab.sort.column) {
-    sql = buildOrderBy(sql, tab.sort.column, tab.sort.direction || 'asc');
-  }
-  return applyLimit(sql);
-}
-
-function buildCountSql(tab) {
-  if (!tab) return '';
-  const base = (tab.baseQuery || tab.query || '').trim();
-  if (!base) return '';
-  const clean = base.replace(/;$/, '');
-  const upper = clean.toUpperCase();
-  const fromIndex = upper.indexOf(' FROM ');
-  if (fromIndex === -1) return '';
-  const fromClause = clean.slice(fromIndex);
-  const countBase = `SELECT COUNT(*) AS total${fromClause}`;
-  return insertWhere(countBase, tab.filter || '');
-}
-
-function hasNonSelect(statements) {
-  return statements.some((stmt) => {
-    const key = firstDmlKeyword(stmt);
-    return key && key !== 'select';
-  });
-}
-
-async function runTableTabQuery(tab) {
-  if (!tab) return;
-  tab.filter = getWhereFilter();
-  const sql = buildTableSql(tab);
-  await runQuery(sql, { storeQuery: false });
 }
 
 function enableQueryFilter(tab, baseSql) {
@@ -1590,28 +1729,6 @@ function enableQueryFilter(tab, baseSql) {
   tab.filterSource = baseSql || tab.query || '';
   if (queryFilter) queryFilter.disabled = false;
   updateRunAvailability();
-}
-
-function isReadOnlyViolation(sqlText) {
-  if (!isReadOnly) return false;
-  const statements = splitStatements(sqlText || '');
-  if (statements.length === 0) return false;
-  return statements.some((stmt) => {
-    const cleaned = stripLeadingComments(stmt).trim();
-    if (!cleaned) return false;
-    const key = firstDmlKeyword(cleaned);
-    if (key) return key !== 'select';
-    const upper = cleaned.toUpperCase();
-    if (upper.startsWith('SELECT')) return false;
-    if (upper.startsWith('WITH')) {
-      const withKey = firstDmlKeyword(cleaned);
-      return withKey && withKey !== 'select';
-    }
-    if (upper.startsWith('SHOW')) return false;
-    if (upper.startsWith('DESCRIBE')) return false;
-    if (upper.startsWith('EXPLAIN')) return false;
-    return true;
-  });
 }
 
 function updateRunAvailability() {
@@ -1626,7 +1743,7 @@ function updateRunAvailability() {
   } else {
     const sqlText = getQueryValue();
     const blocked = hasMultipleStatementsWithSelect(sqlText);
-    const roBlocked = isReadOnlyViolation(sqlText);
+    const roBlocked = queryRunner.isReadOnlyViolation(sqlText);
     runBtn.disabled = blocked || roBlocked || isLoading || isConnecting;
   }
 
@@ -1659,7 +1776,7 @@ function formatSQL() {
   const tab = getActiveTab();
   if (isTableTab(tab)) return;
   if (typeof formatSql !== 'function') {
-    window.api.showError('Formatador SQL não disponível.');
+    safeApi.showError('Formatador SQL não disponível.');
     return;
   }
   const source = getQueryValue();
@@ -1721,14 +1838,14 @@ async function applySort(column) {
   tab.sort = sortState;
 
   if (isTableTab(tab)) {
-    const sql = buildTableSql(tab);
-    await runQuery(sql, { storeQuery: false });
+    const sql = queryRunner.buildTableSql(tab);
+    await queryRunner.runQuery(sql, { storeQuery: false });
     return;
   }
 
   const sql = buildOrderBy(getQueryValue(), column, sortState.direction);
   setQueryValue(sql);
-  await runQuery(sql);
+  await queryRunner.runQuery(sql);
 }
 
 function tableQuery(schema, table) {
@@ -1753,16 +1870,42 @@ function resetTableState() {
   updateSelectionActions();
 }
 
+function restoreCachedSchema() {
+  const key = currentHistoryKey;
+  if (!key) return;
+  const tableState = tableStateMemory.get(key);
+  if (tableState && Array.isArray(tableState.rows)) {
+    tableCache = tableState.rows;
+    rebuildTableHints();
+    renderSidebarTree(tableSearch ? tableSearch.value : '');
+  }
+  const dbState = dbStateMemory.get(key);
+  if (dbSelect && dbState && Array.isArray(dbState.databases)) {
+    dbSelect.innerHTML = '';
+    dbState.databases.forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (dbState.current && dbState.current === name) opt.selected = true;
+      dbSelect.appendChild(opt);
+    });
+  }
+}
+
 async function openTableTab(schema, name) {
+  if (!currentConnection) {
+    await safeApi.showError('Conecte para abrir tabelas.');
+    return;
+  }
   const sql = tableQuery(schema, name);
   const tab = createTab({
-    title: `${schema}.${name}`,
+    title: formatTableTabTitle(schema, name),
     kind: 'table',
     baseQuery: sql,
     query: sql,
     filter: ''
   });
-  await runTableTabQuery(tab);
+  if (tab) await queryRunner.runTableTabQuery(tab);
 }
 
 function renderSidebarTree(filterText) {
@@ -1770,9 +1913,10 @@ function renderSidebarTree(filterText) {
     tableList,
     tableCache,
     filterText,
+    activeSchema: currentConnection ? currentConnection.database || '' : '',
     onOpenTable: openTableTab,
-    listColumns: window.api.listColumns,
-    onShowError: window.api.showError,
+    listColumns: safeApi.listColumns,
+    onShowError: safeApi.showError,
     expandedState: treeExpanded,
     onToggleExpand: (key, expanded) => {
       setTreeExpanded(key, expanded);
@@ -1782,7 +1926,7 @@ function renderSidebarTree(filterText) {
       try {
         await navigator.clipboard.writeText(name);
       } catch (_) {
-        await window.api.showError('Não foi possível copiar.');
+        await safeApi.showError('Não foi possível copiar.');
       }
     },
     onCopyQualified: async (schema, name) => {
@@ -1791,7 +1935,7 @@ function renderSidebarTree(filterText) {
       try {
         await navigator.clipboard.writeText(qualified);
       } catch (_) {
-        await window.api.showError('Não foi possível copiar.');
+        await safeApi.showError('Não foi possível copiar.');
       }
     }
   });
@@ -1800,9 +1944,11 @@ function renderSidebarTree(filterText) {
 async function refreshTables() {
   tableList.innerHTML = '';
   tableCache = [];
-  const res = await window.api.listTables();
+  const ok = await ensureConnected();
+  if (!ok) return;
+  const res = await safeApi.listTables();
   if (!res.ok) {
-    await window.api.showError(res.error || 'Erro ao listar tabelas.');
+    await safeApi.showError(res.error || 'Erro ao listar tabelas.');
     return;
   }
 
@@ -1817,113 +1963,12 @@ async function refreshTables() {
   tableCache = res.rows;
   rebuildTableHints();
   renderSidebarTree(tableSearch.value);
-}
-
-async function runQuery(sql, options = {}) {
-  if (isLoading) return;
-  const tab = ensureActiveTab();
-  const storeQuery = options.storeQuery !== false;
-  if (tab) {
-    if (storeQuery && !isTableTab(tab)) {
-      tab.query = sql;
-    } else if (isTableTab(tab)) {
-      tab.lastQuery = sql;
-    }
-  }
-  const prevHtml = resultsTable.innerHTML;
-  const prevClass = resultsTable.className;
-  const start = performance.now();
-  setLoading(true);
-  let res;
-  try {
-    res = await window.api.runQuery({ sql, timeoutMs: getTimeoutMs() });
-  } finally {
-    setLoading(false);
-  }
-  if (!res || !res.ok) {
-    resultsTable.innerHTML = prevHtml;
-    resultsTable.className = prevClass;
-    const duration = performance.now() - start;
-    setQueryStatus({ state: 'error', message: (res && res.error) || 'Erro ao executar query.', duration });
-    await window.api.showError((res && res.error) || 'Erro ao executar query.');
-    return;
-  }
-  tab.rows = res.rows;
-  buildTable(res.rows, res.totalRows);
-  historyManager.recordHistory(sql);
-  const duration = performance.now() - start;
-  setQueryStatus({ state: 'success', duration });
-}
-
-async function runQueriesSequential(sqlText) {
-  if (isReadOnlyViolation(sqlText)) {
-    await window.api.showError('Conexão em modo somente leitura. Comandos de escrita estão bloqueados.');
-    return false;
-  }
-  const statements = splitStatements(sqlText);
-  if (statements.length === 0) {
-    await window.api.showError('Query vazia.');
-    return false;
-  }
-  if (!confirmDangerous(statements)) {
-    return false;
-  }
-  if (statements.length === 1) {
-    const tab = ensureActiveTab();
-    await runQuery(applyQueryModifiers(statements[0]), {
-      storeQuery: tab ? !isTableTab(tab) : true
+  if (currentHistoryKey) {
+    tableStateMemory.set(currentHistoryKey, {
+      rows: tableCache
     });
-    return true;
   }
-
-  if (isLoading) return;
-  const tab = ensureActiveTab();
-  if (tab && !isTableTab(tab)) tab.query = sqlText;
-
-  const prevHtml = resultsTable.innerHTML;
-  const prevClass = resultsTable.className;
-  const start = performance.now();
-  setLoading(true);
-  let lastRows = null;
-  let lastTotalRows = 0;
-  try {
-    for (const stmt of statements) {
-      const res = await window.api.runQuery({ sql: applyQueryModifiers(stmt), timeoutMs: getTimeoutMs() });
-      if (!res || !res.ok) {
-        throw new Error((res && res.error) || 'Erro ao executar query.');
-      }
-      lastRows = res.rows;
-      lastTotalRows = res.totalRows || 0;
-    }
-  } catch (err) {
-    resultsTable.innerHTML = prevHtml;
-    resultsTable.className = prevClass;
-    const duration = performance.now() - start;
-    setQueryStatus({ state: 'error', message: err && err.message ? err.message : 'Erro ao executar query.', duration });
-    await window.api.showError(err && err.message ? err.message : 'Erro ao executar query.');
-    return false;
-  } finally {
-    setLoading(false);
-  }
-
-  if (lastRows) {
-    tab.rows = lastRows;
-    buildTable(lastRows, lastTotalRows);
-  } else {
-    resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
-  }
-  const duration = performance.now() - start;
-  setQueryStatus({ state: 'success', duration });
-  return true;
-}
-
-async function safeRunQueries(sqlText) {
-  try {
-    return await runQueriesSequential(sqlText);
-  } catch (err) {
-    await window.api.showError(err && err.message ? err.message : 'Erro ao executar query.');
-    return false;
-  }
+  restoreCachedSchema();
 }
 
 historyManager = createHistoryManager({
@@ -1957,20 +2002,20 @@ snippetsManager = createSnippetsManager({
   updateRunAvailability,
   scheduleSaveTabs,
   enableQueryFilter,
-  safeRunQueries,
-  runTableTabQuery,
-  isReadOnlyViolation,
+  safeRunQueries: queryRunner.safeRunQueries,
+  runTableTabQuery: queryRunner.runTableTabQuery,
+  isReadOnlyViolation: queryRunner.isReadOnlyViolation,
   hasMultipleStatementsWithSelect,
-  hasNonSelect,
+  hasNonSelect: queryRunner.hasNonSelect,
   splitStatements,
-  showError: api ? api.showError : showErrorFallback
+  showError: safeApi.showError
 });
 snippetsManager.bindEvents();
 
 async function refreshSaved() {
-  const list = await window.api.listSavedConnections();
+  const list = await safeApi.listSavedConnections();
   savedList.innerHTML = '';
-  if (!list || list.length === 0) {
+  if (!Array.isArray(list) || list.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
     empty.textContent = 'Nenhuma conexão salva.';
@@ -2018,6 +2063,8 @@ async function refreshSaved() {
     item.appendChild(actions);
 
     info.addEventListener('click', async () => {
+      if (isConnecting) return;
+      if (tryActivateExistingConnection(entry)) return;
       if (isConnected) saveTabsState();
       const res = await connectWithLoading({
         type: entry.type,
@@ -2031,7 +2078,7 @@ async function refreshSaved() {
       });
 
       if (!res.ok) {
-        await window.api.showError(res.error || 'Erro ao conectar.');
+        await safeApi.showError(res.error || 'Erro ao conectar.');
         return;
       }
       recordRecentConnection(entry);
@@ -2039,6 +2086,12 @@ async function refreshSaved() {
       setCurrentConnection(entry);
       setReadOnlyMode(isEntryReadOnly(entry));
       setScreen(true);
+      upsertConnectionTab(entry);
+      connectedKey = currentHistoryKey;
+      const restored = restoreTabsState();
+      if (!restored && tabs.length === 0) {
+        createTab(`Query ${tabCounter++}`, '');
+      }
       resetTableState();
       await refreshDatabases();
       await refreshTables();
@@ -2069,7 +2122,7 @@ async function refreshSaved() {
     deleteBtn.addEventListener('click', async () => {
       const confirmed = confirm(`Remover conexão "${entry.name}"?`);
       if (!confirmed) return;
-      await window.api.deleteConnection(entry.name);
+      await safeApi.deleteConnection(entry.name);
       await refreshSaved();
     });
 
@@ -2090,9 +2143,14 @@ connectBtn.addEventListener('click', async () => {
     ssh: buildSshConfig()
   };
 
+  if (tryActivateExistingConnection(config)) {
+    closeConnectModal();
+    return;
+  }
+
   const res = await connectWithLoading(config);
   if (!res.ok) {
-    await window.api.showError(res.error || 'Erro ao conectar.');
+    await safeApi.showError(res.error || 'Erro ao conectar.');
     return;
   }
   recordRecentConnection(config);
@@ -2100,16 +2158,21 @@ connectBtn.addEventListener('click', async () => {
   setCurrentConnection(config);
   setReadOnlyMode(!!config.readOnly);
   setScreen(true);
-  restoreTabsState();
+  upsertConnectionTab(config);
+  connectedKey = currentHistoryKey;
   resetTableState();
   await refreshDatabases();
+  const restored = restoreTabsStateWithFallback();
+  if (!restored && tabs.length === 0) {
+    createTab(`Query ${tabCounter++}`, '');
+  }
   await refreshTables();
   closeConnectModal();
 });
 
 saveBtn.addEventListener('click', async () => {
   if (!saveName.value.trim()) {
-    await window.api.showError('Informe um nome para salvar.');
+    await safeApi.showError('Informe um nome para salvar.');
     return;
   }
 
@@ -2135,11 +2198,11 @@ saveBtn.addEventListener('click', async () => {
 
   const testRes = await testConnectionWithLoading(entry);
   if (!testRes.ok) {
-    await window.api.showError(testRes.error || 'Falha ao validar conexão.');
+    await safeApi.showError(testRes.error || 'Falha ao validar conexão.');
     return;
   }
 
-  await window.api.saveConnection(entry);
+  await safeApi.saveConnection(entry);
   await refreshSaved();
   setEditMode(false);
   closeConnectModal();
@@ -2170,75 +2233,76 @@ testBtn.addEventListener('click', async () => {
 
   const testRes = await testConnectionWithLoading(entry);
   if (!testRes.ok) {
-    await window.api.showError(testRes.error || 'Falha ao validar conexão.');
+    await safeApi.showError(testRes.error || 'Falha ao validar conexão.');
     return;
   }
-  await window.api.showError('Conexão OK.');
+  await safeApi.showError('Conexão OK.');
 });
 
-exitBtn.addEventListener('click', async () => {
-  saveTabsState();
-  await window.api.disconnect();
-  isConnected = false;
-  currentHistoryKey = null;
-  currentConnection = null;
-  setStatus('Desconectado', false);
-  setReadOnlyMode(false);
-  setScreen(false);
-  resetTableState();
-  if (dbSelect) dbSelect.innerHTML = '';
-  tabs = [];
-  activeTabId = null;
-  tabCounter = 1;
-  renderTabBar();
-  setQueryValue('');
-  createTab(`Query ${tabCounter++}`, '');
-});
+if (exitBtn) {
+  exitBtn.addEventListener('click', async () => {
+    if (!currentHistoryKey) return;
+    saveTabsState();
+    handleCloseConnectionTab(currentHistoryKey);
+  });
+}
+
+if (homeBtn) {
+  homeBtn.addEventListener('click', () => {
+    goHome();
+  });
+}
 
 runBtn.addEventListener('click', async () => {
-  ensureActiveTab();
-  const tab = getActiveTab();
+  const tab = ensureActiveTab();
+  if (!tab) {
+    await safeApi.showError('Conecte para executar queries.');
+    return;
+  }
   if (isTableTab(tab) && !isTableEditor(tab)) {
-    await runTableTabQuery(tab);
+    await queryRunner.runTableTabQuery(tab);
     return;
   }
   const full = getQueryValue();
-  if (isReadOnlyViolation(full)) {
-    await window.api.showError('Conexão em modo somente leitura. Comandos de escrita estão bloqueados.');
+  if (queryRunner.isReadOnlyViolation(full)) {
+    await safeApi.showError('Conexão em modo somente leitura. Comandos de escrita estão bloqueados.');
     return;
   }
   if (hasMultipleStatementsWithSelect(full)) {
-    await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+    await safeApi.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
     return;
   }
-  const ok = await safeRunQueries(full);
+  const ok = await queryRunner.safeRunQueries(full);
   if (ok) enableQueryFilter(tab, full);
-  if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(full))) {
-    await runTableTabQuery(tab);
+  if (ok && isTableEditor(tab) && queryRunner.hasNonSelect(splitStatements(full))) {
+    await queryRunner.runTableTabQuery(tab);
   }
 });
 
 runSelectionBtn.addEventListener('click', async () => {
-  ensureActiveTab();
-  const tab = getActiveTab();
+  const tab = ensureActiveTab();
+  if (!tab) {
+    await safeApi.showError('Conecte para executar queries.');
+    return;
+  }
   if (isTableTab(tab) && !isTableEditor(tab)) return;
   const baseSql = getSelectionOrStatement(false);
   if (!baseSql) {
-    await window.api.showError('Selecione um trecho ou posicione o cursor em uma instrução.');
+    await safeApi.showError('Selecione um trecho ou posicione o cursor em uma instrução.');
     return;
   }
-  if (isReadOnlyViolation(baseSql)) {
-    await window.api.showError('Conexão em modo somente leitura. Comandos de escrita estão bloqueados.');
+  if (queryRunner.isReadOnlyViolation(baseSql)) {
+    await safeApi.showError('Conexão em modo somente leitura. Comandos de escrita estão bloqueados.');
     return;
   }
   try {
-    const ok = await safeRunQueries(baseSql);
+    const ok = await queryRunner.safeRunQueries(baseSql);
     if (ok) enableQueryFilter(tab, baseSql);
-    if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(baseSql))) {
-      await runTableTabQuery(tab);
+    if (ok && isTableEditor(tab) && queryRunner.hasNonSelect(splitStatements(baseSql))) {
+      await queryRunner.runTableTabQuery(tab);
     }
   } catch (err) {
-    await window.api.showError(err && err.message ? err.message : 'Erro ao executar seleção.');
+    await safeApi.showError(err && err.message ? err.message : 'Erro ao executar seleção.');
   }
 });
 
@@ -2263,8 +2327,9 @@ if (queryFilter) {
     if (event.key !== 'Enter') return;
     event.preventDefault();
     const tab = getActiveTab();
+    if (!tab) return;
     if (isTableTab(tab)) {
-      await runTableTabQuery(tab);
+      await queryRunner.runTableTabQuery(tab);
       return;
     }
     if (!tab || !tab.filterEnabled) return;
@@ -2276,10 +2341,10 @@ if (queryFilter) {
     updateRunAvailability();
     scheduleSaveTabs();
     if (hasMultipleStatementsWithSelect(nextSql)) {
-      await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+      await safeApi.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
       return;
     }
-    await safeRunQueries(nextSql);
+    await queryRunner.safeRunQueries(nextSql);
   });
 }
 
@@ -2288,7 +2353,7 @@ if (applyFilterBtn) {
     const tab = getActiveTab();
     if (!tab) return;
     if (isTableTab(tab)) {
-      await runTableTabQuery(tab);
+      await queryRunner.runTableTabQuery(tab);
       return;
     }
     if (!tab.filterEnabled) return;
@@ -2300,10 +2365,10 @@ if (applyFilterBtn) {
     updateRunAvailability();
     scheduleSaveTabs();
     if (hasMultipleStatementsWithSelect(nextSql)) {
-      await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+      await safeApi.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
       return;
     }
-    await safeRunQueries(nextSql);
+    await queryRunner.safeRunQueries(nextSql);
   });
 }
 
@@ -2348,46 +2413,36 @@ query.addEventListener('keydown', async (event) => {
   if (isTableTab(tab) && !isTableEditor(tab)) return;
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault();
-    ensureActiveTab();
-    const full = getQueryValue();
-    if (hasMultipleStatementsWithSelect(full)) {
-      await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+    const active = ensureActiveTab();
+    if (!active) {
+      await safeApi.showError('Conecte para executar queries.');
       return;
     }
-    const ok = await safeRunQueries(full);
+    const full = getQueryValue();
+    if (hasMultipleStatementsWithSelect(full)) {
+      await safeApi.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+      return;
+    }
+    const ok = await queryRunner.safeRunQueries(full);
     if (ok) enableQueryFilter(tab, full);
-    if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(full))) {
-      await runTableTabQuery(tab);
+    if (ok && isTableEditor(tab) && queryRunner.hasNonSelect(splitStatements(full))) {
+      await queryRunner.runTableTabQuery(tab);
     }
   }
 });
 
-function scheduleTreeRender() {
-  if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    renderSidebarTree(tableSearch ? tableSearch.value : '');
-  }, 150);
-}
-
-if (tableSearch) {
-  tableSearch.addEventListener('input', () => {
-    if (tableSearchClear) {
-      tableSearchClear.classList.toggle('visible', !!tableSearch.value);
-    }
-    scheduleTreeRender();
-  });
-}
-
-if (tableSearchClear) {
-  tableSearchClear.addEventListener('click', () => {
-    if (tableSearch) tableSearch.value = '';
-    tableSearchClear.classList.remove('visible');
-    renderSidebarTree('');
-    if (tableSearch) tableSearch.focus();
-  });
-}
+createTableSearch({
+  input: tableSearch,
+  clearButton: tableSearchClear,
+  onSearch: (value) => renderSidebarTree(value),
+  onClear: () => renderSidebarTree('')
+});
 
 newTabBtn.addEventListener('click', () => {
+  if (!currentConnection) {
+    openConnectModal({ keepForm: false, mode: 'full' });
+    return;
+  }
   createTab(`Query ${tabCounter++}`, '');
 });
 
@@ -2404,12 +2459,12 @@ if (countBtn) {
     const tab = getActiveTab();
     if (!isTableTab(tab)) return;
     tab.filter = getWhereFilter();
-    const sql = buildCountSql(tab);
+    const sql = queryRunner.buildCountSql(tab);
     if (!sql) {
-      await window.api.showError('Não foi possível montar o COUNT.');
+      await safeApi.showError('Não foi possível montar o COUNT.');
       return;
     }
-    await runQuery(sql, { storeQuery: false });
+    await queryRunner.runQuery(sql, { storeQuery: false });
   });
 }
 
@@ -2431,54 +2486,7 @@ if (tableRefreshBtn) {
   tableRefreshBtn.addEventListener('click', async () => {
     const tab = getActiveTab();
     if (!isTableTab(tab)) return;
-    await runTableTabQuery(tab);
-  });
-}
-
-if (copyCellBtn) {
-  copyCellBtn.addEventListener('click', async () => {
-    if (!selectedCell) return;
-    try {
-      await navigator.clipboard.writeText(
-        selectedCell.value === null || selectedCell.value === undefined
-          ? ''
-          : String(selectedCell.value)
-      );
-    } catch (_) {
-      await window.api.showError('Não foi possível copiar a célula.');
-    }
-  });
-}
-
-if (copyRowBtn) {
-  copyRowBtn.addEventListener('click', async () => {
-    if (!selectedRow) return;
-    try {
-      const text = typeof selectedRow === 'object'
-        ? JSON.stringify(selectedRow)
-        : String(selectedRow);
-      await navigator.clipboard.writeText(text);
-    } catch (_) {
-      await window.api.showError('Não foi possível copiar a linha.');
-    }
-  });
-}
-
-if (exportCsvBtn) {
-  exportCsvBtn.addEventListener('click', () => {
-    const rows = getExportRows();
-    if (!rows || rows.length === 0) return;
-    const csv = rowsToCsv(rows);
-    downloadText(`results-${formatTimestamp()}.csv`, csv, 'text/csv');
-  });
-}
-
-if (exportJsonBtn) {
-  exportJsonBtn.addEventListener('click', () => {
-    const rows = getExportRows();
-    if (!rows || rows.length === 0) return;
-    const json = JSON.stringify(rows, null, 2);
-    downloadText(`results-${formatTimestamp()}.json`, json, 'application/json');
+    await queryRunner.runTableTabQuery(tab);
   });
 }
 
@@ -2486,18 +2494,14 @@ dbSelect.addEventListener('change', async () => {
   const name = dbSelect.value;
   if (!name) return;
   setConnecting(true);
-  const res = await window.api.useDatabase(name);
+  const res = await safeApi.useDatabase(name);
   setConnecting(false);
   if (!res.ok) {
-    await window.api.showError(res.error || 'Erro ao trocar database.');
+    await safeApi.showError(res.error || 'Erro ao trocar database.');
     return;
   }
   saveTabsState();
-  if (currentConnection) {
-    currentConnection.database = name;
-    setCurrentConnection(currentConnection);
-    restoreTabsState();
-  }
+  if (currentConnection) syncConnectionKeyForDatabase(name);
   resetTableState();
   await refreshTables();
 });
@@ -2518,9 +2522,9 @@ if (stopBtn) {
   stopBtn.addEventListener('click', async () => {
     if (!isLoading) return;
     setQueryStatus({ state: 'running', message: 'Cancelando...' });
-    const res = await window.api.cancelQuery();
+    const res = await safeApi.cancelQuery();
     if (!res || !res.ok) {
-      await window.api.showError((res && res.error) || 'Erro ao cancelar query.');
+      await safeApi.showError((res && res.error) || 'Erro ao cancelar query.');
     }
   });
 }
@@ -2546,7 +2550,7 @@ if (sidebarSnippetsBtn) {
 if (refreshSchemaBtn) {
   refreshSchemaBtn.addEventListener('click', async () => {
     if (!isConnected) {
-      await window.api.showError('Conecte para atualizar o schema.');
+      await safeApi.showError('Conecte para atualizar o schema.');
       return;
     }
     resetTableState();
@@ -2554,12 +2558,42 @@ if (refreshSchemaBtn) {
   });
 }
 
+if (tableSettingsBtn) {
+  tableSettingsBtn.addEventListener('click', () => {
+    openSettingsModal();
+  });
+}
+
+if (settingsCloseBtn) {
+  settingsCloseBtn.addEventListener('click', () => {
+    closeSettingsModal();
+  });
+}
+
+if (settingsCancelBtn) {
+  settingsCancelBtn.addEventListener('click', () => {
+    closeSettingsModal();
+  });
+}
+
+if (settingsModalBackdrop) {
+  settingsModalBackdrop.addEventListener('click', () => {
+    closeSettingsModal();
+  });
+}
+
+if (settingsClearBtn) {
+  settingsClearBtn.addEventListener('click', () => {
+    clearSelectedPreferences();
+  });
+}
+
 async function bootstrap() {
+  clearLocalStateOnce();
   setStatus('Desconectado', false);
   setScreen(false);
   if (!api) {
     console.error('API do preload não encontrada. Verifique o caminho do preload.');
-    return;
   }
   refreshSaved();
   renderRecentList();
@@ -2571,7 +2605,7 @@ async function bootstrap() {
   setQueryValue('');
   resetConnectionForm();
   setEditMode(false);
-  createTab(`Query ${tabCounter++}`, '');
+  renderConnectionTabs();
   if (timeoutSelect) {
     const savedTimeout = localStorage.getItem(TIMEOUT_KEY);
     if (savedTimeout) timeoutSelect.value = savedTimeout;

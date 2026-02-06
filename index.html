@@ -13,12 +13,15 @@
   <body>
     <div id="app">
       <header class="topbar">
-        <div class="brand">SQL Editor</div>
+        <div class="brand-area">
+          <div class="brand">SQL Editor</div>
+          <button id="homeBtn" class="icon-btn mini hidden" title="Voltar para home">
+            <i class="bi bi-house"></i>
+          </button>
+          <div class="conn-tabs hidden" id="tabConnections"></div>
+        </div>
         <div class="status-area">
-          <div class="conn-status" id="connStatus">Desconectado</div>
-          <select id="dbSelect" class="db-select hidden"></select>
           <span id="connectSpinner" class="spinner hidden"></span>
-          <button id="exitBtn" class="secondary hidden">Desconectar</button>
           <button id="themeToggle" class="icon-btn" title="Alternar tema">
             <i class="bi bi-sun"></i>
           </button>
@@ -54,13 +57,23 @@
             <div id="tablePanel" class="sidebar-panel">
               <div class="panel-title with-actions">
                 <span>Database</span>
-                <button
-                  id="refreshSchemaBtn"
-                  class="icon-btn mini"
-                  title="Atualizar schema"
-                >
-                  <i class="bi bi-arrow-clockwise"></i>
-                </button>
+                <div class="panel-actions">
+                  <select id="dbSelect" class="db-select small hidden"></select>
+                  <button
+                    id="refreshSchemaBtn"
+                    class="icon-btn mini"
+                    title="Atualizar schema"
+                  >
+                    <i class="bi bi-arrow-clockwise"></i>
+                  </button>
+                  <button
+                    id="tableSettingsBtn"
+                    class="icon-btn mini"
+                    title="Preferências da conexão"
+                  >
+                    <i class="bi bi-gear"></i>
+                  </button>
+                </div>
               </div>
               <div class="table-search">
                 <i class="bi bi-search"></i>
@@ -98,13 +111,18 @@
 
         <div class="workspace">
           <div class="welcome-screen hidden" id="welcomeScreen">
-            <div class="onboard welcome-card">
-              <div class="onboard-header">
-                <div>
-                  <div class="connect-title">Bem-vindo</div>
-                  <div class="connect-subtitle">
-                    Conecte-se rapidamente ou escolha uma conexão salva.
-                  </div>
+            <div class="welcome-hero">
+              <pre class="welcome-ascii" aria-hidden="true">
+ ____   ___  _       _____    _ _ _
+/ ___| / _ \| |     | ____|__| (_) |_ ___  _ __
+\___ \| | | | |     |  _| / _` | | __/ _ \| '__|
+ ___) | |_| | |___  | |__| (_| | | || (_) | |
+|____/ \__\_\_____| |_____\__,_|_|\__\___/|_|
+              </pre>
+              <div class="welcome-copy">
+                <div class="connect-title">Bem-vindo ao SQL Editor</div>
+                <div class="connect-subtitle">
+                  Inicialize uma conexão e comece a explorar suas tabelas em segundos.
                 </div>
                 <div class="welcome-actions">
                   <button id="quickConnectBtn" class="secondary">
@@ -112,9 +130,19 @@
                   </button>
                   <button id="openConnectModalBtn">Nova conexão</button>
                 </div>
+                <div class="welcome-note">
+                  Conexão rápida não fica salva após desconectar.
+                </div>
               </div>
-              <div class="welcome-note">
-                Conexão rápida não fica salva após desconectar.
+            </div>
+            <div class="onboard welcome-card">
+              <div class="onboard-header">
+                <div>
+                  <div class="connect-title">Conexões</div>
+                  <div class="connect-subtitle">
+                    Retome conexões salvas ou escolha uma sessão recente.
+                  </div>
+                </div>
               </div>
               <div class="onboard-grid">
                 <div class="saved-card">
@@ -456,8 +484,50 @@
           </div>
         </div>
       </div>
+
+      <div id="settingsModal" class="modal hidden">
+        <div id="settingsModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card small">
+          <div class="connect-panel">
+            <div class="connect-header">
+              <div>
+                <div class="connect-title">Preferências</div>
+                <div id="settingsSubtitle" class="connect-subtitle">
+                  Limpar dados salvos desta conexão.
+                </div>
+              </div>
+              <button id="settingsCloseBtn" class="icon-btn" title="Fechar">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">Dados da conexão</div>
+              <label class="settings-option">
+                <input id="clearTabs" type="checkbox" />
+                Tabs abertas
+              </label>
+              <label class="settings-option">
+                <input id="clearHistory" type="checkbox" />
+                Histórico de consultas
+              </label>
+              <label class="settings-option">
+                <input id="clearSnippets" type="checkbox" />
+                Snippets salvos
+              </label>
+              <label class="settings-option">
+                <input id="clearTreeState" type="checkbox" />
+                Árvore (expansão)
+              </label>
+            </div>
+            <div class="actions end">
+              <button id="settingsCancelBtn" class="secondary">Cancelar</button>
+              <button id="settingsClearBtn" class="danger">Limpar selecionados</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <script type="module" src="/src/renderer.js"></script>
+    <script type="module" src="/src/app.js"></script>
   </body>
 </html>

@@ -1,24 +1,11 @@
+import { getField, normalizeName } from './utils.js';
+
 let columnCache = new Map();
 let selectedKey = null;
 
 export function resetTreeCache() {
   columnCache = new Map();
   selectedKey = null;
-}
-
-function getField(row, candidates) {
-  for (const key of candidates) {
-    if (row && Object.prototype.hasOwnProperty.call(row, key)) return row[key];
-  }
-  const lower = Object.keys(row || {}).reduce((acc, k) => {
-    acc[k.toLowerCase()] = row[k];
-    return acc;
-  }, {});
-  for (const key of candidates) {
-    const val = lower[key.toLowerCase()];
-    if (val !== undefined) return val;
-  }
-  return undefined;
 }
 
 function typeLabel(rawType) {
@@ -28,11 +15,13 @@ function typeLabel(rawType) {
   return 'Outros';
 }
 
-function buildTreeData(rows, filterText) {
+function buildTreeData(rows, filterText, activeSchema) {
   const filter = (filterText || '').toLowerCase().trim();
   const map = new Map();
   rows.forEach((row) => {
-    const schema = getField(row, ['table_schema', 'schema', 'table_schema_name']) || 'default';
+    const schema = getField(row, ['table_schema', 'schema', 'table_schema_name'])
+      || activeSchema
+      || 'default';
     const name = getField(row, ['table_name', 'name', 'table']) || '';
     const rawType = getField(row, ['table_type', 'type']) || '';
     if (filter && !name.toLowerCase().includes(filter)) return;
@@ -50,9 +39,10 @@ function buildTreeData(rows, filterText) {
 
 const INDENT = 20;
 
-function createGroup({ label, depth, expanded = true, icon, count, key, level, onToggle, isFolder }) {
+function createGroup({ label, depth, expanded = true, icon, count, key, level, onToggle, isFolder, isActive }) {
   const item = document.createElement('div');
   item.className = 'tree-item tree-group' + (expanded ? ' expanded' : '');
+  if (isActive) item.classList.add('active-schema');
   item.style.paddingLeft = `${8 + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(level || 1));
@@ -321,6 +311,7 @@ export function renderTableTree({
   tableList,
   tableCache,
   filterText,
+  activeSchema,
   onOpenTable,
   listColumns,
   onShowError,
@@ -342,7 +333,7 @@ export function renderTableTree({
     return;
   }
 
-  const treeData = buildTreeData(tableCache, filterText);
+  const treeData = buildTreeData(tableCache, filterText, activeSchema);
   if (treeData.size === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
@@ -353,7 +344,9 @@ export function renderTableTree({
 
   const filterActive = !!(filterText || '').trim();
 
+  const normalizedActive = normalizeName(activeSchema);
   for (const [schema, groups] of treeData.entries()) {
+    const isActiveSchema = normalizedActive && normalizeName(schema) === normalizedActive;
     const schemaKey = `db:${schema}`;
     const schemaExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, schemaKey)
       ? !!expandedState[schemaKey]
@@ -365,6 +358,7 @@ export function renderTableTree({
       icon: '<i class="bi bi-database"></i>',
       key: schemaKey,
       level: 1,
+      isActive: isActiveSchema,
       onToggle: (expanded) => {
         if (onToggleExpand) onToggleExpand(schemaKey, expanded);
       }

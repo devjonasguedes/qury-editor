@@ -300,6 +300,20 @@
               <table id="resultsTable"></table>
             </div>
             <div class="results-footer">
+              <div class="query-output">
+                <span class="query-output-label">Output</span>
+                <button
+                  id="queryOutputBtn"
+                  class="query-output-btn"
+                  title="Ver output completo"
+                  disabled
+                >
+                  <span id="queryOutputPreview" class="query-output-preview">
+                    Sem output.
+                  </span>
+                  <i class="bi bi-box-arrow-up-right"></i>
+                </button>
+              </div>
               <div id="queryStatus" class="query-status"></div>
             </div>
           </div>
@@ -515,6 +529,43 @@
             <div class="actions end">
               <button id="settingsCancelBtn" class="secondary">Cancelar</button>
               <button id="settingsClearBtn" class="danger">Limpar selecionados</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="outputModal" class="modal hidden">
+        <div id="outputModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card">
+          <div class="connect-panel">
+            <div class="connect-header">
+              <div>
+                <div class="connect-title">Output da consulta</div>
+                <div id="outputModalSubtitle" class="connect-subtitle">
+                  Último resultado
+                </div>
+              </div>
+              <button id="outputCloseBtn" class="icon-btn" title="Fechar">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="output-body">
+              <table class="output-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Time</th>
+                    <th>Action</th>
+                    <th>Response</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody id="outputLogBody"></tbody>
+              </table>
+            </div>
+            <div class="actions end">
+              <button id="outputCopyBtn" class="secondary">Copiar</button>
+              <button id="outputCloseBtnBottom">Fechar</button>
             </div>
           </div>
         </div>

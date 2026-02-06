@@ -158,7 +158,11 @@ export function isDangerousStatement(sqlText) {
   if (!cleaned) return false;
   const upper = cleaned.toUpperCase();
   if (upper.startsWith('DROP ')) return true;
+  if (upper.startsWith('TRUNCATE ')) return true;
   if (upper.startsWith('DELETE')) {
+    return !/\bWHERE\b/.test(upper);
+  }
+  if (upper.startsWith('UPDATE')) {
     return !/\bWHERE\b/.test(upper);
   }
   return false;

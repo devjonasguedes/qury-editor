@@ -80,12 +80,13 @@ export function createTreeView({
       if (api.showError) {
         await api.showError((res && res.error) || 'Erro ao listar tabelas.');
       }
-      return;
+      return tableCache;
     }
     tableCache = res.rows || [];
     resetTreeCache();
     treeExpanded = {};
     render(tableSearch ? tableSearch.value : '');
+    return tableCache;
   };
 
   const setActiveSchema = (schema) => {

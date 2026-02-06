@@ -392,6 +392,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
       preload: resolvedPreload,
       contextIsolation: true,
@@ -716,14 +718,32 @@ ipcMain.handle('db:runQuery', async (_evt, payload) => {
       });
       currentQuery = null;
       let payload = rows;
+      let affectedRows = null;
+      let changedRows = null;
       if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[0])) {
         payload = rows[rows.length - 1];
-      } else if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].affectedRows !== undefined) {
-        payload = [];
+      } else if (Array.isArray(rows) && rows.length > 0) {
+        const packet = rows.slice().reverse().find((item) => item && item.affectedRows !== undefined);
+        const changed = rows.slice().reverse().find((item) => item && item.changedRows !== undefined);
+        if (packet || changed) {
+          if (packet) affectedRows = packet.affectedRows;
+          if (changed) changedRows = changed.changedRows;
+          payload = [];
+        }
+      } else if (rows && rows.affectedRows !== undefined) {
+        affectedRows = rows.affectedRows;
+        if (rows && rows.changedRows !== undefined) changedRows = rows.changedRows;
       }
       const arr = payload || [];
       const truncated = arr.length > MAX_IPC_ROWS;
-      return { ok: true, rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr, totalRows: arr.length, truncated };
+      return {
+        ok: true,
+        rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr,
+        totalRows: arr.length,
+        truncated,
+        affectedRows: Number.isFinite(affectedRows) ? affectedRows : undefined,
+        changedRows: Number.isFinite(changedRows) ? changedRows : undefined
+      };
     }
 
     if (current.type === 'postgresql') {
@@ -735,7 +755,13 @@ ipcMain.handle('db:runQuery', async (_evt, payload) => {
         const res = await current.client.query(sql);
         const arr = res.rows || [];
         const truncated = arr.length > MAX_IPC_ROWS;
-        return { ok: true, rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr, totalRows: arr.length, truncated };
+        return {
+          ok: true,
+          rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr,
+          totalRows: arr.length,
+          truncated,
+          affectedRows: Number.isFinite(res.rowCount) ? res.rowCount : undefined
+        };
       } finally {
         if (applyTimeout) {
           try {

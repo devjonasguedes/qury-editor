@@ -9,6 +9,38 @@ export function createCodeEditor({ textarea }) {
   let editor = null;
   let onRun = null;
   let onRunSelection = null;
+  let hintOptionsProvider = null;
+  let hintPrefetch = null;
+
+  const resolveHintOptions = async () => {
+    if (typeof hintOptionsProvider !== 'function') return {};
+    const value = hintOptionsProvider();
+    if (value && typeof value.then === 'function') return await value;
+    return value || {};
+  };
+
+  const shouldSkipHint = () => {
+    if (!editor) return false;
+    const cursor = editor.getCursor();
+    const token = editor.getTokenAt(cursor);
+    const type = token && token.type ? String(token.type) : '';
+    if (!type) return false;
+    return type.includes('string') || type.includes('comment');
+  };
+
+  const triggerHint = async () => {
+    if (!editor || typeof editor.showHint !== 'function') return;
+    if (shouldSkipHint()) return;
+    if (typeof hintPrefetch === 'function') {
+      try {
+        await hintPrefetch(editor);
+      } catch (_) {
+        // ignore prefetch errors
+      }
+    }
+    const options = await resolveHintOptions();
+    editor.showHint({ hint: CodeMirror.hint.sql, completeSingle: false, ...options });
+  };
 
   const init = () => {
     if (!textarea || editor) return editor;
@@ -32,24 +64,21 @@ export function createCodeEditor({ textarea }) {
           if (typeof onRunSelection === 'function') onRunSelection();
         },
         'Ctrl-Space': () => {
-          if (editor && typeof editor.showHint === 'function') {
-            editor.showHint({ hint: CodeMirror.hint.sql, completeSingle: false });
-          }
+          triggerHint();
         },
         'Cmd-Space': () => {
-          if (editor && typeof editor.showHint === 'function') {
-            editor.showHint({ hint: CodeMirror.hint.sql, completeSingle: false });
-          }
+          triggerHint();
         }
       }
     });
     editor.on('inputRead', (_cm, change) => {
       if (!change || !change.text || !change.text[0]) return;
+      if (change.origin === 'paste') return;
+      if (Array.isArray(change.text) && change.text.length > 1) return;
+      if (Array.isArray(change.text) && change.text[0] && change.text[0].length > 80) return;
       const ch = change.text[0];
       if (!/[A-Za-z0-9_.]/.test(ch)) return;
-      if (typeof editor.showHint === 'function') {
-        editor.showHint({ hint: CodeMirror.hint.sql, completeSingle: false });
-      }
+      triggerHint();
     });
     return editor;
   };
@@ -82,6 +111,11 @@ export function createCodeEditor({ textarea }) {
     onRunSelection = runSelection || null;
   };
 
+  const setHintProvider = ({ getHintOptions, prefetch } = {}) => {
+    hintOptionsProvider = typeof getHintOptions === 'function' ? getHintOptions : null;
+    hintPrefetch = typeof prefetch === 'function' ? prefetch : null;
+  };
+
   return {
     init,
     getValue,
@@ -91,6 +125,7 @@ export function createCodeEditor({ textarea }) {
     refresh,
     focus,
     setSize,
-    setHandlers
+    setHandlers,
+    setHintProvider
   };
 }

@@ -16,7 +16,8 @@ import { createCodeEditor } from './modules/codeEditor.js';
 import { createTableView } from './modules/tableView.js';
 import { createQueryHistory } from './modules/queryHistory.js';
 import { createSnippetsManager } from './modules/snippets.js';
-import { insertWhere } from './sql.js';
+import { createSqlAutocomplete } from './modules/sqlAutocomplete.js';
+import { firstDmlKeyword, insertWhere, isDangerousStatement, splitStatements } from './sql.js';
 
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const THEME_KEY = 'sqlEditor.theme';
@@ -95,6 +96,8 @@ export function initHome({ api }) {
   const resultsPanel = byId('resultsPanel');
   const resultsTable = byId('resultsTable');
   const queryStatus = byId('queryStatus');
+  const queryOutputBtn = byId('queryOutputBtn');
+  const queryOutputPreview = byId('queryOutputPreview');
   const tableActionsBar = byId('tableActionsBar');
   const copyCellBtn = byId('copyCellBtn');
   const copyRowBtn = byId('copyRowBtn');
@@ -116,6 +119,14 @@ export function initHome({ api }) {
   const applyFilterBtn = byId('applyFilterBtn');
   let globalLoading = byId('globalLoading');
 
+  const outputModal = byId('outputModal');
+  const outputModalBackdrop = byId('outputModalBackdrop');
+  const outputLogBody = byId('outputLogBody');
+  const outputModalSubtitle = byId('outputModalSubtitle');
+  const outputCloseBtn = byId('outputCloseBtn');
+  const outputCloseBtnBottom = byId('outputCloseBtnBottom');
+  const outputCopyBtn = byId('outputCopyBtn');
+
   let isConnecting = false;
   let isEditingConnection = false;
   let treeView = null;
@@ -126,8 +137,11 @@ export function initHome({ api }) {
   let tableView = null;
   let lastSort = null;
   let resultsByTabId = new Map();
+  let outputByTabId = new Map();
+  let currentOutput = null;
   let historyManager = null;
   let snippetsManager = null;
+  let sqlAutocomplete = null;
 
   const safeApi = api || {};
 
@@ -257,6 +271,7 @@ export function initHome({ api }) {
     if (editorPanel) editorPanel.classList.toggle('hidden', !connected);
     if (resultsPanel) resultsPanel.classList.toggle('hidden', !connected);
     if (!connected) closeConnectModal();
+    if (!connected) setOutputDisplay(null);
     if (homeBtn) {
       homeBtn.classList.toggle(
         'hidden',
@@ -314,6 +329,8 @@ export function initHome({ api }) {
     const key = tabConnectionsView.getActiveKey();
     return key ? tabConnectionsView.getEntry(key) : null;
   };
+
+  sqlAutocomplete = createSqlAutocomplete({ api: safeApi, getActiveConnection });
 
   const getCurrentHistoryKey = () => {
     if (!tabConnectionsView) return null;
@@ -527,6 +544,142 @@ export function initHome({ api }) {
     queryStatus.className = `query-status${state ? ` ${state}` : ''}`;
   };
 
+  const OUTPUT_PREVIEW_MAX = 160;
+
+  const normalizePreview = (text) => String(text || '').replace(/\s+/g, ' ').trim();
+
+  const truncatePreview = (text) => {
+    const preview = normalizePreview(text);
+    if (preview.length <= OUTPUT_PREVIEW_MAX) return preview;
+    return `${preview.slice(0, OUTPUT_PREVIEW_MAX - 1)}…`;
+  };
+
+  const formatTime = (date) => {
+    const value = date instanceof Date ? date : new Date();
+    return value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
+  const ACTION_MAX = 220;
+
+  const truncateAction = (text) => {
+    const clean = normalizePreview(text);
+    if (clean.length <= ACTION_MAX) return clean;
+    return `${clean.slice(0, ACTION_MAX - 1)}…`;
+  };
+
+  const buildAction = (sql) => {
+    const clean = String(sql || '').trim();
+    if (!clean) return 'QUERY';
+    return truncateAction(clean);
+  };
+
+  const buildOutputEntry = ({ sql, ok, totalRows, truncated, affectedRows, changedRows, error, duration }) => {
+    const keyword = firstDmlKeyword(sql || '');
+    const isDml = keyword === 'insert' || keyword === 'update' || keyword === 'delete';
+    const preferredAffected = Number.isFinite(changedRows) && changedRows > 0
+      ? changedRows
+      : (Number.isFinite(affectedRows) ? affectedRows : undefined);
+    let response = error || 'Erro';
+    if (ok) {
+      if (Number.isFinite(preferredAffected)) {
+        response = `Rows affected: ${preferredAffected}`;
+      } else if (isDml) {
+        response = 'Rows affected: 0';
+      } else {
+        response = `Rows: ${Number.isFinite(totalRows) ? totalRows : 0}${truncated ? ' (truncado)' : ''}`;
+      }
+    }
+    return {
+      id: 0,
+      time: formatTime(new Date()),
+      action: buildAction(sql),
+      response,
+      durationMs: Number.isFinite(duration) ? Math.round(duration) : 0,
+      fullResponse: response
+    };
+  };
+
+  const ensureOutputState = (tabId) => {
+    if (!tabId) return null;
+    if (!outputByTabId.has(tabId)) {
+      outputByTabId.set(tabId, { seq: 0, items: [], subtitle: 'Último resultado' });
+    }
+    return outputByTabId.get(tabId);
+  };
+
+  const appendOutputEntry = (tabId, entry) => {
+    const state = ensureOutputState(tabId);
+    if (!state || !entry) return;
+    state.seq += 1;
+    const next = { ...entry, id: state.seq };
+    state.items.push(next);
+    if (state.items.length > 200) {
+      state.items.shift();
+    }
+  };
+
+  const setOutputDisplay = (payload) => {
+    currentOutput = payload || null;
+    if (queryOutputPreview) {
+      if (payload && payload.items && payload.items.length) {
+        const last = payload.items[payload.items.length - 1];
+        const preview = `${last.action} • ${last.response}`;
+        queryOutputPreview.textContent = truncatePreview(preview);
+      } else {
+        queryOutputPreview.textContent = 'Sem output.';
+      }
+    }
+    if (queryOutputBtn) {
+      queryOutputBtn.disabled = !(payload && payload.items && payload.items.length);
+    }
+  };
+
+  const openOutputModal = () => {
+    if (!outputModal || !currentOutput || !currentOutput.items) return;
+    if (outputModalSubtitle) {
+      outputModalSubtitle.textContent = currentOutput.subtitle || 'Último resultado';
+    }
+    if (outputLogBody) {
+      outputLogBody.innerHTML = '';
+      currentOutput.items.forEach((entry) => {
+        const tr = document.createElement('tr');
+        const cols = [
+          String(entry.id),
+          entry.time,
+          entry.action,
+          entry.response,
+          entry.durationMs ? `${entry.durationMs}ms` : ''
+        ];
+        cols.forEach((value, index) => {
+          const td = document.createElement('td');
+          td.textContent = value;
+          if (index === 3) td.classList.add('response');
+          tr.appendChild(td);
+        });
+        outputLogBody.appendChild(tr);
+      });
+    }
+    outputModal.classList.remove('hidden');
+  };
+
+  const closeOutputModal = () => {
+    if (outputModal) outputModal.classList.add('hidden');
+  };
+
+  const updateOutputForActiveTab = () => {
+    if (!tabTablesView) {
+      setOutputDisplay(null);
+      return;
+    }
+    const tab = tabTablesView.getActiveTab();
+    if (!tab || !tab.id) {
+      setOutputDisplay(null);
+      return;
+    }
+    const payload = outputByTabId.get(tab.id) || null;
+    setOutputDisplay(payload);
+  };
+
   const renderResults = (rows, totalRows, truncated, baseSql = '', sourceSql = '') => {
     if (!tableView) return;
     tableView.setResults({ rows, totalRows, truncated, baseSql, sourceSql });
@@ -549,6 +702,12 @@ export function initHome({ api }) {
     return `${clean} LIMIT ${limitValue}`;
   };
 
+  const applyLimitIfSelect = (sql) => {
+    const keyword = firstDmlKeyword(sql);
+    if (keyword !== 'select') return sql;
+    return applyLimit(sql);
+  };
+
   const getTimeoutMs = () => {
     const value = timeoutSelect ? timeoutSelect.value : 'none';
     if (!value || value === 'none') return 0;
@@ -558,30 +717,90 @@ export function initHome({ api }) {
 
   const runSql = async (rawSql, sourceSqlOverride = '') => {
     const baseSql = normalizeSql(rawSql);
-    const sql = applyLimit(baseSql);
-    if (!sql) return;
+    if (!baseSql) return;
     const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : baseSql;
-    const startedAt = Date.now();
-    setQueryStatus({ state: 'running', message: 'Executando...' });
+    const statements = splitStatements(sourceSql);
+    const total = statements.length || 1;
+    if (total === 0) return;
+
+    let lastResult = null;
+    const overallStart = Date.now();
     if (runBtn) runBtn.disabled = true;
     if (runSelectionBtn) runSelectionBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
-    const res = await safeApi.runQuery({ sql, timeoutMs: getTimeoutMs() || undefined });
-    if (!res || !res.ok) {
-      await safeApi.showError((res && res.error) || 'Erro ao executar query.');
-      setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Erro' });
-      if (runBtn) runBtn.disabled = false;
-      if (runSelectionBtn) runSelectionBtn.disabled = false;
-      if (stopBtn) stopBtn.disabled = true;
-      return;
+
+    for (let i = 0; i < statements.length; i += 1) {
+      const stmt = normalizeSql(statements[i]);
+      if (!stmt) continue;
+      if (isDangerousStatement(stmt)) {
+        const keyword = firstDmlKeyword(stmt);
+        const actionLabel = keyword ? keyword.toUpperCase() : 'QUERY';
+        const confirmed = confirm(`Confirmar ${actionLabel} sem WHERE?`);
+        if (!confirmed) {
+          setQueryStatus({ state: 'error', message: 'Cancelada pelo usuario' });
+          if (runBtn) runBtn.disabled = false;
+          if (runSelectionBtn) runSelectionBtn.disabled = false;
+          if (stopBtn) stopBtn.disabled = true;
+          return;
+        }
+      }
+      const sql = applyLimitIfSelect(stmt);
+      const startedAt = Date.now();
+      setQueryStatus({ state: 'running', message: `Executando ${i + 1}/${total}...` });
+      const res = await safeApi.runQuery({ sql, timeoutMs: getTimeoutMs() || undefined });
+      if (!res || !res.ok) {
+        await safeApi.showError((res && res.error) || 'Erro ao executar query.');
+        setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Erro' });
+        if (tabTablesView) {
+          const tab = tabTablesView.getActiveTab();
+          if (tab && tab.id) {
+            appendOutputEntry(tab.id, buildOutputEntry({
+              sql: stmt,
+              ok: false,
+              error: res && res.error ? res.error : 'Erro',
+              duration: Date.now() - startedAt
+            }));
+            updateOutputForActiveTab();
+          }
+        }
+        if (runBtn) runBtn.disabled = false;
+        if (runSelectionBtn) runSelectionBtn.disabled = false;
+        if (stopBtn) stopBtn.disabled = true;
+        return;
+      }
+      lastResult = { rows: res.rows || [], totalRows: res.totalRows, truncated: res.truncated, stmt };
+      if (historyManager) historyManager.recordHistory(stmt);
+      if (tabTablesView) {
+        const tab = tabTablesView.getActiveTab();
+        if (tab && tab.id) {
+          appendOutputEntry(tab.id, buildOutputEntry({
+            sql: stmt,
+            ok: true,
+            totalRows: res.totalRows || 0,
+            truncated: !!res.truncated,
+            affectedRows: Number.isFinite(res.affectedRows) ? res.affectedRows : undefined,
+            changedRows: Number.isFinite(res.changedRows) ? res.changedRows : undefined,
+            duration: Date.now() - startedAt
+          }));
+          updateOutputForActiveTab();
+        }
+      }
     }
-    renderResults(res.rows || [], res.totalRows, res.truncated, baseSql, sourceSql);
-    if (historyManager) historyManager.recordHistory(sourceSql);
-    setQueryStatus({
-      state: 'success',
-      message: `Linhas: ${res.totalRows || 0}`,
-      duration: Date.now() - startedAt
-    });
+
+    if (lastResult) {
+      renderResults(
+        lastResult.rows || [],
+        lastResult.totalRows,
+        lastResult.truncated,
+        lastResult.stmt,
+        lastResult.stmt
+      );
+      setQueryStatus({
+        state: 'success',
+        message: `Linhas: ${lastResult.totalRows || 0}`,
+        duration: Date.now() - overallStart
+      });
+    }
     if (runBtn) runBtn.disabled = false;
     if (runSelectionBtn) runSelectionBtn.disabled = false;
     if (stopBtn) stopBtn.disabled = true;
@@ -681,29 +900,30 @@ export function initHome({ api }) {
       const opt = document.createElement('option');
       opt.value = name;
       opt.textContent = name;
-      if (res.current && res.current === name) opt.selected = true;
       dbSelect.appendChild(opt);
     });
     const active = getActiveConnection();
-    const hasPreferredDb = active && active.database;
-    if ((!res.current || !dbSelect.value) && dbSelect.options.length > 0) {
-      dbSelect.value = dbSelect.options[0].value;
-      if (!hasPreferredDb) {
-        const useRes = await safeApi.useDatabase(dbSelect.value);
-        if (!useRes || !useRes.ok) {
-          await safeApi.showError((useRes && useRes.error) || 'Erro ao selecionar database.');
-          return;
-        }
-        if (active) {
-          const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
-          active.database = dbSelect.value;
-          if (tabConnectionsView && key) {
-            tabConnectionsView.upsert(key, active);
-            renderConnectionTabs();
-          }
-        }
-        if (treeView) treeView.setActiveSchema(dbSelect.value);
+    const preferred = active && active.database ? active.database : '';
+    const targetDb = res.current || preferred || (dbSelect.options.length > 0 ? dbSelect.options[0].value : '');
+    if (targetDb) {
+      dbSelect.value = targetDb;
+    }
+    if (targetDb && res.current !== targetDb) {
+      const useRes = await safeApi.useDatabase(targetDb);
+      if (!useRes || !useRes.ok) {
+        await safeApi.showError((useRes && useRes.error) || 'Erro ao selecionar database.');
+        return;
       }
+      if (active) {
+        const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+        active.database = targetDb;
+        if (tabConnectionsView && key) {
+          tabConnectionsView.upsert(key, active);
+          renderConnectionTabs();
+        }
+      }
+      if (treeView) treeView.setActiveSchema(targetDb);
+      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(targetDb);
     }
   };
 
@@ -719,10 +939,14 @@ export function initHome({ api }) {
       return false;
     }
     if (treeView) treeView.setActiveSchema(entry.database || '');
+    if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
     await refreshDatabases();
-    if (treeView) await treeView.refresh();
+    const tables = treeView ? await treeView.refresh() : null;
+    if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
     if (tabTablesView) loadTabsForKey(key);
     resultsByTabId = new Map();
+    outputByTabId = new Map();
+    setOutputDisplay(null);
     if (tableView) tableView.clearUi();
     return true;
   };
@@ -897,8 +1121,10 @@ export function initHome({ api }) {
         saveTabsForActive();
         upsertConnectionTab(entry);
         if (treeView) treeView.setActiveSchema(entry.database || '');
+        if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
-        if (treeView) await treeView.refresh();
+        const tables = treeView ? await treeView.refresh() : null;
+        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
         loadTabsForKey(getTabKey(entry));
         setScreen(true);
         closeConnectModal();
@@ -970,8 +1196,10 @@ export function initHome({ api }) {
         saveTabsForActive();
         upsertConnectionTab(entry);
         if (treeView) treeView.setActiveSchema(entry.database || '');
+        if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
-        if (treeView) await treeView.refresh();
+        const tables = treeView ? await treeView.refresh() : null;
+        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
         loadTabsForKey(getTabKey(entry));
         setScreen(true);
         closeConnectModal();
@@ -1018,8 +1246,10 @@ export function initHome({ api }) {
     saveTabsForActive();
     upsertConnectionTab(config);
     if (treeView) treeView.setActiveSchema(config.database || '');
+    if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(config.database || '');
     await refreshDatabases();
-    if (treeView) await treeView.refresh();
+    const tables = treeView ? await treeView.refresh() : null;
+    if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
     loadTabsForKey(getTabKey(config));
     setScreen(true);
     closeConnectModal();
@@ -1118,6 +1348,41 @@ export function initHome({ api }) {
 
   if (connectModalBackdrop) {
     connectModalBackdrop.addEventListener('click', () => closeConnectModal());
+  }
+
+  if (queryOutputBtn) {
+    queryOutputBtn.addEventListener('click', () => openOutputModal());
+  }
+
+  if (outputCloseBtn) {
+    outputCloseBtn.addEventListener('click', () => closeOutputModal());
+  }
+
+  if (outputCloseBtnBottom) {
+    outputCloseBtnBottom.addEventListener('click', () => closeOutputModal());
+  }
+
+  if (outputModalBackdrop) {
+    outputModalBackdrop.addEventListener('click', () => closeOutputModal());
+  }
+
+  if (outputCopyBtn) {
+    outputCopyBtn.addEventListener('click', async () => {
+      if (!currentOutput || !currentOutput.items || currentOutput.items.length === 0) return;
+      try {
+        const header = ['#', 'Time', 'Action', 'Response', 'Duration'].join('\t');
+        const lines = currentOutput.items.map((entry) => [
+          entry.id,
+          entry.time,
+          entry.action,
+          entry.response,
+          entry.durationMs ? `${entry.durationMs}ms` : ''
+        ].join('\t'));
+        await navigator.clipboard.writeText([header, ...lines].join('\n'));
+      } catch (_) {
+        if (safeApi.showError) await safeApi.showError('Nao foi possivel copiar o output.');
+      }
+    });
   }
 
   if (connectBtn) {
@@ -1252,7 +1517,9 @@ export function initHome({ api }) {
         }
       }
       if (treeView) treeView.setActiveSchema(name);
-      if (treeView) await treeView.refresh();
+      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(name);
+      const tables = treeView ? await treeView.refresh() : null;
+      if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
       setGlobalLoading(false);
     });
   }
@@ -1261,7 +1528,8 @@ export function initHome({ api }) {
     refreshSchemaBtn.addEventListener('click', async () => {
       if (treeView) {
         setGlobalLoading(true, 'Atualizando schema...');
-        await treeView.refresh();
+        const tables = await treeView.refresh();
+        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
         setGlobalLoading(false);
       }
     });
@@ -1288,9 +1556,21 @@ export function initHome({ api }) {
   });
   codeEditor = createCodeEditor({ textarea: query });
   codeEditor.init();
+  if (sqlAutocomplete) {
+    codeEditor.setHintProvider({
+      getHintOptions: () => sqlAutocomplete.getHintOptions(),
+      prefetch: (editor) => sqlAutocomplete.prefetch(editor)
+    });
+  }
   if (snippetQueryInput) {
     snippetEditor = createCodeEditor({ textarea: snippetQueryInput });
     snippetEditor.init();
+    if (sqlAutocomplete) {
+      snippetEditor.setHintProvider({
+        getHintOptions: () => sqlAutocomplete.getHintOptions(),
+        prefetch: (editor) => sqlAutocomplete.prefetch(editor)
+      });
+    }
   }
   codeEditor.setHandlers({
     run: () => handleRun(),
@@ -1323,12 +1603,16 @@ export function initHome({ api }) {
         for (const id of resultsByTabId.keys()) {
           if (!ids.has(id)) resultsByTabId.delete(id);
         }
+        for (const id of outputByTabId.keys()) {
+          if (!ids.has(id)) outputByTabId.delete(id);
+        }
       }
     },
     onActiveChange: (id) => {
       if (!tableView) return;
       if (!id) {
         tableView.clearUi();
+        setOutputDisplay(null);
         return;
       }
       const snapshot = resultsByTabId.get(id);
@@ -1338,6 +1622,7 @@ export function initHome({ api }) {
         tableView.clearUi();
       }
       updateRunAvailability();
+      updateOutputForActiveTab();
     }
   });
   historyManager = createQueryHistory({

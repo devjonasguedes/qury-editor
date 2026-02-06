@@ -53,6 +53,10 @@ function createWindow() {
 
 app.whenReady().then(createWindow);
 
+app.on('before-quit', () => {
+  disconnect();
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -126,21 +130,21 @@ ipcMain.handle('db:listTables', async () => {
   if (current.type === 'mysql') {
     if (current.database) {
       const [rows] = await current.client.query(
-        "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema = ? ORDER BY table_name",
+        "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema = ? ORDER BY table_type, table_name",
         [current.database]
       );
       return { ok: true, rows };
     }
 
     const [rows] = await current.client.query(
-      "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') ORDER BY table_schema, table_name"
+      "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') ORDER BY table_schema, table_type, table_name"
     );
     return { ok: true, rows };
   }
 
   if (current.type === 'postgres') {
     const res = await current.client.query(
-      "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_name"
+      "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_type, table_name"
     );
     return { ok: true, rows: res.rows };
   }

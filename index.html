@@ -13,12 +13,13 @@
         <div class="brand">SQL GUI</div>
         <div class="status-area">
           <div class="conn-status" id="connStatus">Desconectado</div>
-          <button id="exitBtn" class="secondary hidden">Sair</button>
+          <button id="exitBtn" class="secondary hidden">Desconectar</button>
         </div>
       </header>
 
-      <section class="connect-panel" id="connectScreen">
-        <div class="row">
+      <section class="connect-screen" id="connectScreen">
+        <div class="connect-panel">
+          <div class="row">
           <label>Tipo</label>
           <select id="dbType">
             <option value="mysql">MySQL</option>
@@ -46,11 +47,11 @@
           <div class="actions">
             <button id="connectBtn">Conectar</button>
             <button id="saveBtn">Salvar</button>
-            <button id="disconnectBtn" class="secondary">Desconectar</button>
           </div>
         </div>
 
-        <div class="saved">
+        </div>
+        <div class="saved-card">
           <div class="saved-header">Conexões salvas</div>
           <ul id="savedList"></ul>
         </div>
@@ -58,17 +59,27 @@
 
       <section class="main hidden" id="mainScreen">
         <aside class="tables">
-          <div class="panel-title">Tabelas <span id="schemaName"></span></div>
+          <div class="panel-title">Database</div>
           <input id="tableSearch" class="table-search" placeholder="Buscar tabela" />
-          <ul id="tableList"></ul>
+          <div id="tableList"></div>
         </aside>
 
         <div class="workspace">
-          <div class="query-bar">
-            <textarea id="query" placeholder="Digite sua query SQL"></textarea>
-            <button id="runBtn">Executar</button>
+          <div class="editor">
+            <div class="tab-bar" id="tabBar"></div>
+            <div class="editor-toolbar">
+              <div class="editor-title">Query <span id="querySpinner" class="spinner hidden"></span></div>
+              <button id="runBtn">Executar</button>
+            </div>
+            <div class="editor-body">
+              <div id="lineNumbers" class="editor-gutter"></div>
+              <div class="editor-code">
+                <pre id="queryHighlight" class="editor-highlight"></pre>
+                <textarea id="query" placeholder="Digite sua query SQL"></textarea>
+              </div>
+            </div>
           </div>
-          <div class="results">
+          <div class="results" id="resultsPanel">
             <table id="resultsTable"></table>
           </div>
         </div>

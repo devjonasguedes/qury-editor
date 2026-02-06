@@ -197,14 +197,15 @@ function renderColumns(container, columns, depth) {
   });
 }
 
-function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowError, isView, highlightText) {
+function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowError, isView, highlightText, options = {}) {
+  const { expanded = false, onToggle, onCopyName, onCopyQualified, key } = options;
   const item = document.createElement('div');
   item.className = 'tree-item tree-leaf tree-table';
   item.style.paddingLeft = `${8 + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
-  item.setAttribute('aria-expanded', 'false');
-  item.dataset.key = `${schema}.${name}`;
+  item.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  item.dataset.key = key || `${schema}.${name}`;
   if (selectedKey === item.dataset.key) {
     item.classList.add('selected');
     item.setAttribute('aria-selected', 'true');
@@ -233,7 +234,7 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowEr
 
   const infoBtn = document.createElement('button');
   infoBtn.className = 'icon-btn tree-action';
-  infoBtn.title = 'Show table structure';
+  infoBtn.title = 'Mostrar colunas';
   infoBtn.innerHTML = '<i class="bi bi-info-circle"></i>';
   infoBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
@@ -249,20 +250,41 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowEr
     if (onOpenTable) await onOpenTable(schema, name);
   });
 
+  const copyNameBtn = document.createElement('button');
+  copyNameBtn.className = 'icon-btn tree-action';
+  copyNameBtn.title = 'Copiar nome';
+  copyNameBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+  copyNameBtn.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (onCopyName) await onCopyName(name);
+  });
+
+  const copyQualifiedBtn = document.createElement('button');
+  copyQualifiedBtn.className = 'icon-btn tree-action';
+  copyQualifiedBtn.title = 'Copiar nome qualificado';
+  copyQualifiedBtn.innerHTML = '<i class="bi bi-clipboard2-plus"></i>';
+  copyQualifiedBtn.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (onCopyQualified) await onCopyQualified(schema, name);
+  });
+
   actions.appendChild(infoBtn);
   actions.appendChild(openBtn);
+  actions.appendChild(copyNameBtn);
+  actions.appendChild(copyQualifiedBtn);
 
   item.appendChild(content);
   item.appendChild(actions);
 
   const children = document.createElement('div');
-  children.className = 'tree-children hidden';
+  children.className = 'tree-children' + (expanded ? '' : ' hidden');
   let loaded = false;
 
   const toggle = async () => {
     item.classList.toggle('expanded');
     children.classList.toggle('hidden');
     item.setAttribute('aria-expanded', item.classList.contains('expanded') ? 'true' : 'false');
+    if (onToggle) onToggle(item.classList.contains('expanded'));
     if (!children.classList.contains('hidden') && !loaded) {
       children.innerHTML = '<div class="tree-empty">Carregando...</div>';
       const cols = await fetchColumns(schema, name, listColumns, onShowError);
@@ -288,6 +310,10 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowEr
     if (onOpenTable) await onOpenTable(schema, name);
   });
 
+  if (expanded) {
+    toggle();
+  }
+
   return { item, children };
 }
 
@@ -297,7 +323,11 @@ export function renderTableTree({
   filterText,
   onOpenTable,
   listColumns,
-  onShowError
+  onShowError,
+  expandedState,
+  onToggleExpand,
+  onCopyName,
+  onCopyQualified
 }) {
   if (!tableList) return;
   tableList.innerHTML = '';
@@ -324,13 +354,20 @@ export function renderTableTree({
   const filterActive = !!(filterText || '').trim();
 
   for (const [schema, groups] of treeData.entries()) {
+    const schemaKey = `db:${schema}`;
+    const schemaExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, schemaKey)
+      ? !!expandedState[schemaKey]
+      : true;
     const schemaNode = createGroup({
       label: schema,
       depth: 0,
-      expanded: true,
+      expanded: schemaExpanded,
       icon: '<i class="bi bi-database"></i>',
-      key: `db:${schema}`,
-      level: 1
+      key: schemaKey,
+      level: 1,
+      onToggle: (expanded) => {
+        if (onToggleExpand) onToggleExpand(schemaKey, expanded);
+      }
     });
     tableList.appendChild(schemaNode.item);
     tableList.appendChild(schemaNode.children);
@@ -339,16 +376,21 @@ export function renderTableTree({
       const items = groups[groupLabel] || [];
       if (items.length === 0) return;
 
+      const groupKey = `group:${schema}:${groupLabel}`;
+      const groupExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, groupKey)
+        ? !!expandedState[groupKey]
+        : true;
       const groupNode = createGroup({
         label: groupLabel,
         depth: 1,
-        expanded: true,
+        expanded: groupExpanded,
         icon: '<i class="bi bi-folder2-open"></i>',
         count: items.length,
-        key: `group:${schema}:${groupLabel}`,
+        key: groupKey,
         level: 2,
         isFolder: true,
         onToggle: (expanded) => {
+          if (onToggleExpand) onToggleExpand(groupKey, expanded);
           if (!filterActive) return;
           groupNode.children
             .querySelectorAll('.tree-item.tree-table')
@@ -366,6 +408,10 @@ export function renderTableTree({
 
       items.sort((a, b) => a.localeCompare(b));
       items.forEach((name) => {
+        const tableKey = `table:${schema}.${name}`;
+        const tableExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, tableKey)
+          ? !!expandedState[tableKey]
+          : false;
         const tableNode = createTableNode(
           schema,
           name,
@@ -374,7 +420,16 @@ export function renderTableTree({
           listColumns,
           onShowError,
           groupLabel === 'Views',
-          filterText
+          filterText,
+          {
+            key: tableKey,
+            expanded: tableExpanded,
+            onToggle: (expanded) => {
+              if (onToggleExpand) onToggleExpand(tableKey, expanded);
+            },
+            onCopyName,
+            onCopyQualified
+          }
         );
         groupNode.children.appendChild(tableNode.item);
         groupNode.children.appendChild(tableNode.children);

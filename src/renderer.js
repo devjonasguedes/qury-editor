@@ -19,6 +19,16 @@ const password = byId('password');
 const database = byId('database');
 const saveName = byId('saveName');
 const readOnly = byId('readOnly');
+const tabDirectBtn = byId('tabDirectBtn');
+const tabSshBtn = byId('tabSshBtn');
+const sshHost = byId('sshHost');
+const sshPort = byId('sshPort');
+const sshUser = byId('sshUser');
+const sshPassword = byId('sshPassword');
+const sshPrivateKey = byId('sshPrivateKey');
+const sshPassphrase = byId('sshPassphrase');
+const sshLocalPort = byId('sshLocalPort');
+const sshFields = byId('sshFields');
 const connectBtn = byId('connectBtn');
 const saveBtn = byId('saveBtn');
 const testBtn = byId('testBtn');
@@ -44,6 +54,7 @@ const dbSelect = byId('dbSelect');
 const formatBtn = byId('formatBtn');
 const runSelectionBtn = byId('runSelectionBtn');
 const limitSelect = byId('limitSelect');
+const timeoutSelect = byId('timeoutSelect');
 const queryFilter = byId('queryFilter');
 const applyFilterBtn = byId('applyFilterBtn');
 const countBtn = byId('countBtn');
@@ -58,21 +69,33 @@ const connectModalBackdrop = byId('connectModalBackdrop');
 const connectModalTitle = byId('connectModalTitle');
 const connectModalSubtitle = byId('connectModalSubtitle');
 const sidebarResizer = byId('sidebarResizer');
+const editorResizer = byId('editorResizer');
 const sidebar = document.querySelector('.tables');
 const sidebarShell = byId('sidebarShell');
 const mainLayout = document.querySelector('.main');
 const editorPanel = document.querySelector('.editor');
+const workspace = document.querySelector('.workspace');
 const themeToggle = byId('themeToggle');
 const sidebarTreeBtn = byId('sidebarTreeBtn');
 const sidebarHistoryBtn = byId('sidebarHistoryBtn');
 const tablePanel = byId('tablePanel');
 const historyPanel = byId('historyPanel');
 const historyList = byId('historyList');
+const stopBtn = byId('stopBtn');
+const refreshSchemaBtn = byId('refreshSchemaBtn');
+const tableActionsBar = byId('tableActionsBar');
+const tableRefreshBtn = byId('tableRefreshBtn');
+const copyCellBtn = byId('copyCellBtn');
+const copyRowBtn = byId('copyRowBtn');
+const exportCsvBtn = byId('exportCsvBtn');
+const exportJsonBtn = byId('exportJsonBtn');
 
 let isConnected = false;
 let isReadOnly = false;
 let currentHistoryKey = null;
 let currentConnection = null;
+let isRestoringTabs = false;
+let saveTabsTimer = null;
 const MAX_RENDER_ROWS = 2000;
 let isLoading = false;
 let isConnecting = false;
@@ -83,11 +106,20 @@ let editor = null;
 let isSettingEditor = false;
 let isEditingConnection = false;
 let searchTimer = null;
+let treeExpanded = {};
+let selectedCell = null;
+let selectedRow = null;
+let selectedCellEl = null;
+let selectedRowEl = null;
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const SIDEBAR_KEY = 'sqlEditor.sidebarWidth';
 const THEME_KEY = 'sqlEditor.theme';
 const HISTORY_KEY = 'sqlEditor.queryHistory';
 const SIDEBAR_VIEW_KEY = 'sqlEditor.sidebarView';
+const TIMEOUT_KEY = 'sqlEditor.queryTimeout';
+const TABS_KEY = 'sqlEditor.tabsState';
+const TREE_STATE_KEY = 'sqlEditor.treeState';
+const EDITOR_HEIGHT_KEY = 'sqlEditor.editorHeight';
 const SQL_KEYWORDS = [
   'SELECT',
   'FROM',
@@ -159,6 +191,47 @@ function isEntryReadOnly(entry) {
   return !!(entry.readOnly || entry.read_only);
 }
 
+function isEntrySsh(entry) {
+  if (!entry) return false;
+  if (entry.ssh && entry.ssh.enabled) return true;
+  return !!(entry.ssh_enabled || entry.sshEnabled);
+}
+
+function isSshTabActive() {
+  if (!tabSshBtn) return false;
+  return tabSshBtn.classList.contains('active');
+}
+
+function buildSshConfig() {
+  const enabled = isSshTabActive();
+  if (!enabled) return { enabled: false };
+  return {
+    enabled: true,
+    host: sshHost ? sshHost.value.trim() : '',
+    port: sshPort ? sshPort.value.trim() : '',
+    user: sshUser ? sshUser.value.trim() : '',
+    password: sshPassword ? sshPassword.value : '',
+    privateKey: sshPrivateKey ? sshPrivateKey.value : '',
+    passphrase: sshPassphrase ? sshPassphrase.value : '',
+    localPort: sshLocalPort ? sshLocalPort.value.trim() : ''
+  };
+}
+
+function getEntrySshConfig(entry) {
+  if (!entry || !isEntrySsh(entry)) return { enabled: false };
+  const ssh = entry.ssh || {};
+  return {
+    enabled: true,
+    host: ssh.host || entry.ssh_host || entry.sshHost || '',
+    port: ssh.port || entry.ssh_port || entry.sshPort || '',
+    user: ssh.user || entry.ssh_user || entry.sshUser || '',
+    password: ssh.password || entry.ssh_password || entry.sshPassword || '',
+    privateKey: ssh.privateKey || entry.ssh_private_key || entry.sshPrivateKey || '',
+    passphrase: ssh.passphrase || entry.ssh_passphrase || entry.sshPassphrase || '',
+    localPort: ssh.localPort || entry.ssh_local_port || entry.sshLocalPort || ''
+  };
+}
+
 function setReadOnlyMode(enabled) {
   isReadOnly = !!enabled;
   const base = isReadOnly ? 'Conectado (somente leitura)' : 'Conectado';
@@ -167,22 +240,148 @@ function setReadOnlyMode(enabled) {
 
 function buildConnectionKey(entry) {
   if (!entry) return null;
+  const ssh = getEntrySshConfig(entry);
   return [
     entry.type || '',
     entry.host || '',
     entry.port || '',
     entry.user || '',
     entry.database || '',
-    isEntryReadOnly(entry) ? 'ro' : 'rw'
+    isEntryReadOnly(entry) ? 'ro' : 'rw',
+    ssh.enabled ? 'ssh' : 'direct',
+    ssh.host || '',
+    ssh.port || '',
+    ssh.user || ''
   ].join('|');
 }
 
 function setCurrentConnection(entry) {
   currentConnection = entry ? { ...entry } : null;
   currentHistoryKey = buildConnectionKey(currentConnection);
+  treeExpanded = readTreeState();
   if (historyPanel && !historyPanel.classList.contains('hidden')) {
     renderHistoryList();
   }
+}
+
+function treeStateKey() {
+  if (!currentHistoryKey) return null;
+  return `${TREE_STATE_KEY}:${currentHistoryKey}`;
+}
+
+function readTreeState() {
+  try {
+    const key = treeStateKey();
+    if (!key) return {};
+    const raw = localStorage.getItem(key);
+    const data = JSON.parse(raw || '{}');
+    return data && typeof data === 'object' ? data : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeTreeState() {
+  const key = treeStateKey();
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(treeExpanded));
+  } catch (_) {
+    // ignore
+  }
+}
+
+function setTreeExpanded(key, expanded) {
+  if (!key) return;
+  treeExpanded[key] = !!expanded;
+  writeTreeState();
+}
+
+function tabsStorageKey() {
+  if (!currentHistoryKey) return null;
+  return `${TABS_KEY}:${currentHistoryKey}`;
+}
+
+function saveTabsState() {
+  if (isRestoringTabs) return;
+  const key = tabsStorageKey();
+  if (!key) return;
+  const snapshot = {
+    activeTabId,
+    tabCounter,
+    tabs: tabs.map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      query: tab.query,
+      baseQuery: tab.baseQuery,
+      filter: tab.filter,
+      filterEnabled: tab.filterEnabled,
+      filterSource: tab.filterSource,
+      kind: tab.kind,
+      showEditor: tab.showEditor,
+      sort: tab.sort || null
+    }))
+  };
+  try {
+    localStorage.setItem(key, JSON.stringify(snapshot));
+  } catch (_) {
+    // ignore
+  }
+}
+
+function scheduleSaveTabs() {
+  if (isRestoringTabs) return;
+  if (saveTabsTimer) clearTimeout(saveTabsTimer);
+  saveTabsTimer = setTimeout(() => {
+    saveTabsTimer = null;
+    saveTabsState();
+  }, 300);
+}
+
+function restoreTabsState() {
+  const key = tabsStorageKey();
+  if (!key) return false;
+  let snapshot = null;
+  try {
+    const raw = localStorage.getItem(key);
+    snapshot = raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    snapshot = null;
+  }
+
+  isRestoringTabs = true;
+  tabs = [];
+  activeTabId = null;
+  tabCounter = 1;
+
+  if (snapshot && Array.isArray(snapshot.tabs) && snapshot.tabs.length > 0) {
+    tabCounter = snapshot.tabCounter || snapshot.tabs.length + 1;
+    tabs = snapshot.tabs.map((saved) => ({
+      id: saved.id || `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      title: saved.title || `Query ${tabCounter++}`,
+      query: saved.query || '',
+      baseQuery: saved.baseQuery || '',
+      filter: saved.filter || '',
+      filterEnabled: saved.filterEnabled || false,
+      filterSource: saved.filterSource || '',
+      rows: null,
+      kind: saved.kind || 'query',
+      showEditor: saved.showEditor || false,
+      sort: saved.sort || null
+    }));
+    activeTabId = snapshot.activeTabId && tabs.some((t) => t.id === snapshot.activeTabId)
+      ? snapshot.activeTabId
+      : tabs[0].id;
+    renderTabBar();
+    setActiveTab(activeTabId);
+    isRestoringTabs = false;
+    return true;
+  }
+
+  renderTabBar();
+  createTab(`Query ${tabCounter++}`, '');
+  isRestoringTabs = false;
+  return false;
 }
 
 function historyStorageKey() {
@@ -376,6 +575,13 @@ function setEditMode(enabled) {
   if (cancelEditBtn) cancelEditBtn.classList.toggle('hidden', !enabled);
 }
 
+function setConnectTab(tab) {
+  const isSsh = tab === 'ssh';
+  if (tabDirectBtn) tabDirectBtn.classList.toggle('active', !isSsh);
+  if (tabSshBtn) tabSshBtn.classList.toggle('active', isSsh);
+  if (sshFields) sshFields.classList.toggle('hidden', !isSsh);
+}
+
 function resetConnectionForm() {
   dbType.value = 'mysql';
   host.value = 'localhost';
@@ -385,6 +591,14 @@ function resetConnectionForm() {
   database.value = '';
   saveName.value = '';
   if (readOnly) readOnly.checked = false;
+  setConnectTab('direct');
+  if (sshHost) sshHost.value = '';
+  if (sshPort) sshPort.value = '';
+  if (sshUser) sshUser.value = '';
+  if (sshPassword) sshPassword.value = '';
+  if (sshPrivateKey) sshPrivateKey.value = '';
+  if (sshPassphrase) sshPassphrase.value = '';
+  if (sshLocalPort) sshLocalPort.value = '';
 }
 
 function loadSidebarWidth() {
@@ -447,6 +661,93 @@ function setConnectMode(mode) {
   }
 }
 
+function getEditorHeaderHeight() {
+  if (!editorPanel) return 0;
+  const tab = editorPanel.querySelector('.tab-bar');
+  const toolbar = editorPanel.querySelector('.editor-toolbar');
+  return (tab ? tab.offsetHeight : 0) + (toolbar ? toolbar.offsetHeight : 0);
+}
+
+function clampEditorBodyHeight(rawHeight) {
+  const minEditor = 120;
+  const minResults = 180;
+  const resizerHeight = editorResizer ? editorResizer.offsetHeight : 6;
+  const workspaceRect = workspace ? workspace.getBoundingClientRect() : null;
+  const headerHeight = getEditorHeaderHeight();
+  let maxBody = Number.isFinite(rawHeight) ? rawHeight : minEditor;
+
+  if (workspaceRect && workspaceRect.height) {
+    maxBody = workspaceRect.height - headerHeight - resizerHeight - minResults;
+  }
+
+  if (!Number.isFinite(maxBody)) {
+    maxBody = minEditor;
+  }
+
+  if (maxBody < minEditor) {
+    maxBody = minEditor;
+  }
+
+  const clamped = Math.min(Math.max(rawHeight, minEditor), maxBody);
+  return Math.round(clamped);
+}
+
+function applyEditorBodyHeight(height, { save = true } = {}) {
+  if (!editorBody) return;
+  const next = clampEditorBodyHeight(height);
+  editorBody.style.height = `${next}px`;
+  if (editor && typeof editor.setSize === 'function') {
+    editor.setSize('100%', next);
+  }
+  if (save) {
+    localStorage.setItem(EDITOR_HEIGHT_KEY, String(next));
+  }
+}
+
+function loadEditorHeight() {
+  const raw = Number(localStorage.getItem(EDITOR_HEIGHT_KEY));
+  if (!Number.isFinite(raw) || raw <= 0) return;
+  applyEditorBodyHeight(raw, { save: false });
+}
+
+function initEditorResizer() {
+  if (!editorResizer || !editorPanel || !workspace) return;
+  let dragging = false;
+
+  const onMove = (event) => {
+    if (!dragging) return;
+    const panelRect = editorPanel.getBoundingClientRect();
+    const headerHeight = getEditorHeaderHeight();
+    const rawHeight = event.clientY - panelRect.top - headerHeight;
+    applyEditorBodyHeight(rawHeight);
+  };
+
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  };
+
+  editorResizer.addEventListener('mousedown', (event) => {
+    event.preventDefault();
+    dragging = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+
+  window.addEventListener('resize', () => {
+    const current = parseFloat(editorBody ? editorBody.style.height : '');
+    if (Number.isFinite(current) && current > 0) {
+      applyEditorBodyHeight(current, { save: false });
+    }
+  });
+}
+
 function openConnectModal({ keepForm = false, mode = 'full' } = {}) {
   if (!connectModal) return;
   if (!keepForm) {
@@ -477,6 +778,7 @@ function setScreen(connected) {
     if (dbSelect) dbSelect.classList.remove('hidden');
     if (sidebar) sidebar.classList.remove('hidden');
     if (sidebarResizer) sidebarResizer.classList.remove('hidden');
+    if (editorResizer) editorResizer.classList.remove('hidden');
     if (editorPanel) editorPanel.classList.remove('hidden');
     if (resultsPanel) resultsPanel.classList.remove('hidden');
     setSidebarView('tree');
@@ -491,6 +793,7 @@ function setScreen(connected) {
     if (dbSelect) dbSelect.classList.add('hidden');
     if (sidebar) sidebar.classList.add('hidden');
     if (sidebarResizer) sidebarResizer.classList.add('hidden');
+    if (editorResizer) editorResizer.classList.add('hidden');
     if (editorPanel) editorPanel.classList.add('hidden');
     if (resultsPanel) resultsPanel.classList.add('hidden');
     closeConnectModal();
@@ -499,16 +802,19 @@ function setScreen(connected) {
 }
 
 function buildTable(rows, totalRows) {
+  clearSelection();
   resultsTable.innerHTML = '';
   resultsTable.className = '';
   if (!Array.isArray(rows) || rows.length === 0) {
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+    updateSelectionActions();
     return;
   }
 
   const limitedRows = rows.slice(0, MAX_RENDER_ROWS);
   if (!limitedRows[0] || typeof limitedRows[0] !== 'object') {
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+    updateSelectionActions();
     return;
   }
   const columns = Object.keys(limitedRows[0]);
@@ -526,14 +832,23 @@ function buildTable(rows, totalRows) {
   resultsTable.appendChild(thead);
 
   const tbody = document.createElement('tbody');
-  limitedRows.forEach((row) => {
+  limitedRows.forEach((row, rowIndex) => {
     const tr = document.createElement('tr');
-    columns.forEach((col) => {
+    columns.forEach((col, colIndex) => {
       const td = document.createElement('td');
       const value = row[col];
       td.textContent = value === null || value === undefined ? '' : String(value);
       td.title = td.textContent;
+      td.dataset.col = col;
+      td.dataset.colIndex = String(colIndex);
       tr.appendChild(td);
+    });
+    tr.dataset.rowIndex = String(rowIndex);
+    tr.addEventListener('click', (event) => {
+      const cell = event.target.closest('td');
+      if (!cell) return;
+      const colIndex = Number(cell.dataset.colIndex || 0);
+      setSelection(rowIndex, colIndex, cell, tr, row, columns);
     });
     tbody.appendChild(tr);
   });
@@ -548,6 +863,80 @@ function buildTable(rows, totalRows) {
     note.style.color = '#666';
     resultsTable.appendChild(note);
   }
+  updateSelectionActions();
+}
+
+function setSelection(rowIndex, colIndex, cellEl, rowEl, rowData, columns) {
+  if (selectedCellEl) selectedCellEl.classList.remove('selected');
+  if (selectedRowEl) selectedRowEl.classList.remove('selected');
+  selectedCellEl = cellEl;
+  selectedRowEl = rowEl;
+  if (selectedCellEl) selectedCellEl.classList.add('selected');
+  if (selectedRowEl) selectedRowEl.classList.add('selected');
+  selectedRow = rowData || null;
+  const colName = columns && columns[colIndex] ? columns[colIndex] : null;
+  selectedCell = colName ? { rowIndex, colIndex, value: rowData ? rowData[colName] : '' } : null;
+  updateSelectionActions();
+}
+
+function clearSelection() {
+  if (selectedCellEl) selectedCellEl.classList.remove('selected');
+  if (selectedRowEl) selectedRowEl.classList.remove('selected');
+  selectedCellEl = null;
+  selectedRowEl = null;
+  selectedCell = null;
+  selectedRow = null;
+}
+
+function updateSelectionActions() {
+  const tab = getActiveTab();
+  const hasRows = !!(tab && Array.isArray(tab.rows) && tab.rows.length > 0);
+  if (copyCellBtn) copyCellBtn.disabled = !selectedCell;
+  if (copyRowBtn) copyRowBtn.disabled = !selectedRow;
+  if (exportCsvBtn) exportCsvBtn.disabled = !hasRows;
+  if (exportJsonBtn) exportJsonBtn.disabled = !hasRows;
+}
+
+function getExportRows() {
+  const tab = getActiveTab();
+  if (!tab || !Array.isArray(tab.rows)) return [];
+  return tab.rows;
+}
+
+function rowsToCsv(rows) {
+  if (!rows || rows.length === 0) return '';
+  let normalized = rows;
+  if (typeof rows[0] !== 'object' || rows[0] === null || Array.isArray(rows[0])) {
+    normalized = rows.map((value) => ({ value }));
+  }
+  const columns = Array.from(
+    new Set(normalized.flatMap((row) => Object.keys(row || {})))
+  );
+  const escape = (val) => {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
+  const lines = [columns.join(',')];
+  normalized.forEach((row) => {
+    lines.push(columns.map((col) => escape(row[col])).join(','));
+  });
+  return lines.join('\n');
+}
+
+function formatTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function downloadText(filename, content, mime = 'text/plain') {
+  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function getActiveTab() {
@@ -594,6 +983,8 @@ function setActiveTab(tabId) {
   if (!tab) {
     setQueryValue('');
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+    clearSelection();
+    updateSelectionActions();
     return;
   }
   const tableTab = isTableTab(tab);
@@ -618,6 +1009,9 @@ function setActiveTab(tabId) {
     toggleEditorBtn.classList.toggle('hidden', !tableTab);
     toggleEditorBtn.classList.toggle('active', tableEditor);
   }
+  if (tableActionsBar) {
+    tableActionsBar.classList.toggle('hidden', false);
+  }
   if (!tableTab) {
     setQueryValue(tab.query || '');
   } else {
@@ -628,8 +1022,11 @@ function setActiveTab(tabId) {
     buildTable(tab.rows);
   } else {
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+    clearSelection();
+    updateSelectionActions();
   }
   updateRunAvailability();
+  scheduleSaveTabs();
 }
 
 function createTab(title, queryText, options = {}) {
@@ -659,6 +1056,7 @@ function createTab(title, queryText, options = {}) {
   };
   tabs.push(tab);
   setActiveTab(tab.id);
+  scheduleSaveTabs();
   return tab;
 }
 
@@ -673,6 +1071,7 @@ function closeTab(tabId) {
     else createTab(`Query ${tabCounter++}`, '');
   } else {
     renderTabBar();
+    scheduleSaveTabs();
   }
 }
 
@@ -719,11 +1118,13 @@ function showSkeleton() {
 function setLoading(loading) {
   isLoading = loading;
   if (runBtn) runBtn.disabled = loading;
+  if (stopBtn) stopBtn.disabled = !loading;
   if (querySpinner) querySpinner.classList.toggle('hidden', !loading);
   if (resultsPanel) resultsPanel.classList.toggle('loading', loading);
   if (loading) showSkeleton();
   if (loading) setQueryStatus({ state: 'running', message: 'Executando...' });
   updateRunAvailability();
+  updateSelectionActions();
 }
 
 function setConnecting(loading) {
@@ -770,13 +1171,19 @@ function writeRecentConnections(list) {
 
 function makeRecentKey(entry) {
   const ro = isEntryReadOnly(entry);
+  const ssh = getEntrySshConfig(entry);
   return [
     entry.type,
     entry.host || '',
     entry.port || '',
     entry.user || '',
     entry.database || '',
-    ro ? 'ro' : 'rw'
+    ro ? 'ro' : 'rw',
+    ssh.enabled ? 'ssh' : 'direct',
+    ssh.host || '',
+    ssh.port || '',
+    ssh.user || '',
+    ssh.localPort || ''
   ].join('|');
 }
 
@@ -794,9 +1201,19 @@ function recordRecentConnection(entry) {
     password: entry.password || '',
     database: entry.database || '',
     readOnly: isEntryReadOnly(entry),
+    ssh: getEntrySshConfig(entry),
     lastUsed: Date.now()
   });
   writeRecentConnections(next.slice(0, 8));
+  renderRecentList();
+}
+
+function removeRecentConnection(entry) {
+  if (!entry) return;
+  const list = readRecentConnections();
+  const key = makeRecentKey(entry);
+  const next = list.filter((item) => makeRecentKey(item) !== key);
+  writeRecentConnections(next);
   renderRecentList();
 }
 
@@ -825,21 +1242,39 @@ function renderRecentList() {
     const meta = document.createElement('div');
     meta.className = 'saved-meta';
     const roTag = isEntryReadOnly(entry) ? ' • RO' : '';
-    meta.textContent = `${entry.type} • ${entry.host}:${entry.port || ''}${entry.database ? ` • ${entry.database}` : ''}${roTag}`;
+    const sshTag = isEntrySsh(entry) ? ' • SSH' : '';
+    meta.textContent = `${entry.type} • ${entry.host}:${entry.port || ''}${entry.database ? ` • ${entry.database}` : ''}${roTag}${sshTag}`;
 
     info.appendChild(title);
     info.appendChild(meta);
     item.appendChild(info);
 
+    const actions = document.createElement('div');
+    actions.className = 'saved-actions';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'icon-btn';
+    removeBtn.innerHTML = '<i class="bi bi-x"></i>';
+    removeBtn.title = 'Remover da lista';
+    removeBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      removeRecentConnection(entry);
+    });
+
+    actions.appendChild(removeBtn);
+    item.appendChild(actions);
+
     info.addEventListener('click', async () => {
-      const res = await connectWithLoading({
+    if (isConnected) saveTabsState();
+    const res = await connectWithLoading({
         type: entry.type,
         host: entry.host || 'localhost',
         port: entry.port || undefined,
         user: entry.user || '',
         password: entry.password || '',
         database: entry.database || '',
-        readOnly: isEntryReadOnly(entry)
+        readOnly: isEntryReadOnly(entry),
+        ssh: getEntrySshConfig(entry)
       });
 
       if (!res.ok) {
@@ -851,6 +1286,7 @@ function renderRecentList() {
       setCurrentConnection(entry);
       setReadOnlyMode(isEntryReadOnly(entry));
       setScreen(true);
+      restoreTabsState();
       resetTableState();
       await refreshDatabases();
       await refreshTables();
@@ -883,9 +1319,13 @@ async function refreshDatabases() {
       await window.api.showError(useRes.error || 'Erro ao selecionar database.');
     }
   }
+  if (currentConnection) {
+    saveTabsState();
+  }
   if (currentConnection && dbSelect.value) {
     currentConnection.database = dbSelect.value;
     setCurrentConnection(currentConnection);
+    restoreTabsState();
   }
 }
 
@@ -995,6 +1435,7 @@ function initEditor() {
       }
     }
     updateRunAvailability();
+    scheduleSaveTabs();
   });
 
   editor.on('inputRead', (cm, change) => {
@@ -1004,6 +1445,7 @@ function initEditor() {
     triggerAutocomplete(cm);
   });
 
+  loadEditorHeight();
 }
 
 function getQueryValue() {
@@ -1077,6 +1519,14 @@ function applyLimit(sqlText) {
   const upper = clean.toUpperCase();
   if (upper.includes(' LIMIT ')) return `${clean};`;
   return `${clean} LIMIT ${limit};`;
+}
+
+function getTimeoutMs() {
+  if (!timeoutSelect) return 0;
+  const value = timeoutSelect.value;
+  if (!value || value === 'none') return 0;
+  const ms = Number(value);
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 function confirmDangerous(statements) {
@@ -1198,6 +1648,9 @@ function updateRunAvailability() {
   if (countBtn) {
     countBtn.disabled = !isTable || isLoading || isConnecting;
   }
+  if (stopBtn) {
+    stopBtn.disabled = !isLoading;
+  }
 }
 
 function setQueryValue(value, options = {}) {
@@ -1307,6 +1760,8 @@ function resetTableState() {
   tableList.innerHTML = '';
   if (tableSearch) tableSearch.value = '';
   resultsTable.innerHTML = '';
+  clearSelection();
+  updateSelectionActions();
 }
 
 async function openTableTab(schema, name) {
@@ -1328,7 +1783,28 @@ function renderSidebarTree(filterText) {
     filterText,
     onOpenTable: openTableTab,
     listColumns: window.api.listColumns,
-    onShowError: window.api.showError
+    onShowError: window.api.showError,
+    expandedState: treeExpanded,
+    onToggleExpand: (key, expanded) => {
+      setTreeExpanded(key, expanded);
+    },
+    onCopyName: async (name) => {
+      if (!name) return;
+      try {
+        await navigator.clipboard.writeText(name);
+      } catch (_) {
+        await window.api.showError('Não foi possível copiar.');
+      }
+    },
+    onCopyQualified: async (schema, name) => {
+      if (!name) return;
+      const qualified = schema ? `${quoteIdentifier(schema)}.${quoteIdentifier(name)}` : quoteIdentifier(name);
+      try {
+        await navigator.clipboard.writeText(qualified);
+      } catch (_) {
+        await window.api.showError('Não foi possível copiar.');
+      }
+    }
   });
 }
 
@@ -1371,7 +1847,7 @@ async function runQuery(sql, options = {}) {
   setLoading(true);
   let res;
   try {
-    res = await window.api.runQuery(sql);
+    res = await window.api.runQuery({ sql, timeoutMs: getTimeoutMs() });
   } finally {
     setLoading(false);
   }
@@ -1423,7 +1899,7 @@ async function runQueriesSequential(sqlText) {
   let lastTotalRows = 0;
   try {
     for (const stmt of statements) {
-      const res = await window.api.runQuery(applyQueryModifiers(stmt));
+      const res = await window.api.runQuery({ sql: applyQueryModifiers(stmt), timeoutMs: getTimeoutMs() });
       if (!res || !res.ok) {
         throw new Error((res && res.error) || 'Erro ao executar query.');
       }
@@ -1478,16 +1954,17 @@ async function refreshSaved() {
     const info = document.createElement('div');
     info.className = 'saved-info';
 
-  const title = document.createElement('div');
-  title.className = 'saved-title';
-  title.textContent = entry.name;
+    const title = document.createElement('div');
+    title.className = 'saved-title';
+    title.textContent = entry.name;
 
-  const meta = document.createElement('div');
-  meta.className = 'saved-meta';
-  {
-    const roTag = isEntryReadOnly(entry) ? ' • RO' : '';
-    meta.textContent = `${entry.type} • ${entry.host}:${entry.port || ''}${entry.database ? ` • ${entry.database}` : ''}${roTag}`;
-  }
+    const meta = document.createElement('div');
+    meta.className = 'saved-meta';
+    {
+      const roTag = isEntryReadOnly(entry) ? ' • RO' : '';
+      const sshTag = isEntrySsh(entry) ? ' • SSH' : '';
+      meta.textContent = `${entry.type} • ${entry.host}:${entry.port || ''}${entry.database ? ` • ${entry.database}` : ''}${roTag}${sshTag}`;
+    }
 
     info.appendChild(title);
     info.appendChild(meta);
@@ -1511,15 +1988,17 @@ async function refreshSaved() {
     item.appendChild(actions);
 
     info.addEventListener('click', async () => {
-    const res = await connectWithLoading({
-      type: entry.type,
-      host: entry.host || 'localhost',
-      port: entry.port || undefined,
-      user: entry.user || '',
-      password: entry.password || '',
-      database: entry.database || '',
-      readOnly: isEntryReadOnly(entry)
-    });
+      if (isConnected) saveTabsState();
+      const res = await connectWithLoading({
+        type: entry.type,
+        host: entry.host || 'localhost',
+        port: entry.port || undefined,
+        user: entry.user || '',
+        password: entry.password || '',
+        database: entry.database || '',
+        readOnly: isEntryReadOnly(entry),
+        ssh: getEntrySshConfig(entry)
+      });
 
       if (!res.ok) {
         await window.api.showError(res.error || 'Erro ao conectar.');
@@ -1544,6 +2023,15 @@ async function refreshSaved() {
       database.value = entry.database || '';
       saveName.value = entry.name;
       if (readOnly) readOnly.checked = isEntryReadOnly(entry);
+      const ssh = getEntrySshConfig(entry);
+      setConnectTab(ssh.enabled ? 'ssh' : 'direct');
+      if (sshHost) sshHost.value = ssh.host || '';
+      if (sshPort) sshPort.value = ssh.port || '';
+      if (sshUser) sshUser.value = ssh.user || '';
+      if (sshPassword) sshPassword.value = ssh.password || '';
+      if (sshPrivateKey) sshPrivateKey.value = ssh.privateKey || '';
+      if (sshPassphrase) sshPassphrase.value = ssh.passphrase || '';
+      if (sshLocalPort) sshLocalPort.value = ssh.localPort || '';
       setEditMode(true);
       openConnectModal({ keepForm: true, mode: 'full' });
     });
@@ -1560,6 +2048,7 @@ async function refreshSaved() {
 }
 
 connectBtn.addEventListener('click', async () => {
+  if (isConnected) saveTabsState();
   const config = {
     type: dbType.value,
     host: host.value || 'localhost',
@@ -1567,7 +2056,8 @@ connectBtn.addEventListener('click', async () => {
     user: user.value || '',
     password: password.value || '',
     database: database.value || '',
-    readOnly: readOnly ? readOnly.checked : false
+    readOnly: readOnly ? readOnly.checked : false,
+    ssh: buildSshConfig()
   };
 
   const res = await connectWithLoading(config);
@@ -1580,6 +2070,7 @@ connectBtn.addEventListener('click', async () => {
   setCurrentConnection(config);
   setReadOnlyMode(!!config.readOnly);
   setScreen(true);
+  restoreTabsState();
   resetTableState();
   await refreshDatabases();
   await refreshTables();
@@ -1592,16 +2083,25 @@ saveBtn.addEventListener('click', async () => {
     return;
   }
 
-const entry = {
-  name: saveName.value.trim(),
-  type: dbType.value,
-  host: host.value || 'localhost',
-  port: port.value || '',
-  user: user.value || '',
-  password: password.value || '',
-  database: database.value || '',
-  read_only: readOnly ? (readOnly.checked ? 1 : 0) : 0
-};
+  const ssh = buildSshConfig();
+  const entry = {
+    name: saveName.value.trim(),
+    type: dbType.value,
+    host: host.value || 'localhost',
+    port: port.value || '',
+    user: user.value || '',
+    password: password.value || '',
+    database: database.value || '',
+    read_only: readOnly ? (readOnly.checked ? 1 : 0) : 0,
+    ssh_enabled: ssh.enabled ? 1 : 0,
+    ssh_host: ssh.host || '',
+    ssh_port: ssh.port || '',
+    ssh_user: ssh.user || '',
+    ssh_password: ssh.password || '',
+    ssh_private_key: ssh.privateKey || '',
+    ssh_passphrase: ssh.passphrase || '',
+    ssh_local_port: ssh.localPort || ''
+  };
 
   const testRes = await testConnectionWithLoading(entry);
   if (!testRes.ok) {
@@ -1634,7 +2134,8 @@ testBtn.addEventListener('click', async () => {
     port: port.value || '',
     user: user.value || '',
     password: password.value || '',
-    database: database.value || ''
+    database: database.value || '',
+    ssh: buildSshConfig()
   };
 
   const testRes = await testConnectionWithLoading(entry);
@@ -1646,6 +2147,7 @@ testBtn.addEventListener('click', async () => {
 });
 
 exitBtn.addEventListener('click', async () => {
+  saveTabsState();
   await window.api.disconnect();
   isConnected = false;
   currentHistoryKey = null;
@@ -1724,6 +2226,7 @@ if (queryFilter) {
     setQueryValue(nextSql, { focus: false, skipUpdate: true });
     tab.query = nextSql;
     updateRunAvailability();
+    scheduleSaveTabs();
   });
 
   queryFilter.addEventListener('keydown', async (event) => {
@@ -1741,6 +2244,7 @@ if (queryFilter) {
     setQueryValue(nextSql, { focus: false, skipUpdate: true });
     tab.query = nextSql;
     updateRunAvailability();
+    scheduleSaveTabs();
     if (hasMultipleStatementsWithSelect(nextSql)) {
       await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
       return;
@@ -1764,6 +2268,7 @@ if (applyFilterBtn) {
     setQueryValue(nextSql, { focus: false, skipUpdate: true });
     tab.query = nextSql;
     updateRunAvailability();
+    scheduleSaveTabs();
     if (hasMultipleStatementsWithSelect(nextSql)) {
       await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
       return;
@@ -1781,6 +2286,18 @@ if (openConnectModalBtn) {
 if (quickConnectBtn) {
   quickConnectBtn.addEventListener('click', () => {
     openConnectModal({ mode: 'quick' });
+  });
+}
+
+if (tabDirectBtn) {
+  tabDirectBtn.addEventListener('click', () => {
+    setConnectTab('direct');
+  });
+}
+
+if (tabSshBtn) {
+  tabSshBtn.addEventListener('click', () => {
+    setConnectTab('ssh');
   });
 }
 
@@ -1876,6 +2393,62 @@ if (toggleEditorBtn) {
     }
     setActiveTab(tab.id);
     updateRunAvailability();
+    scheduleSaveTabs();
+  });
+}
+
+if (tableRefreshBtn) {
+  tableRefreshBtn.addEventListener('click', async () => {
+    const tab = getActiveTab();
+    if (!isTableTab(tab)) return;
+    await runTableTabQuery(tab);
+  });
+}
+
+if (copyCellBtn) {
+  copyCellBtn.addEventListener('click', async () => {
+    if (!selectedCell) return;
+    try {
+      await navigator.clipboard.writeText(
+        selectedCell.value === null || selectedCell.value === undefined
+          ? ''
+          : String(selectedCell.value)
+      );
+    } catch (_) {
+      await window.api.showError('Não foi possível copiar a célula.');
+    }
+  });
+}
+
+if (copyRowBtn) {
+  copyRowBtn.addEventListener('click', async () => {
+    if (!selectedRow) return;
+    try {
+      const text = typeof selectedRow === 'object'
+        ? JSON.stringify(selectedRow)
+        : String(selectedRow);
+      await navigator.clipboard.writeText(text);
+    } catch (_) {
+      await window.api.showError('Não foi possível copiar a linha.');
+    }
+  });
+}
+
+if (exportCsvBtn) {
+  exportCsvBtn.addEventListener('click', () => {
+    const rows = getExportRows();
+    if (!rows || rows.length === 0) return;
+    const csv = rowsToCsv(rows);
+    downloadText(`results-${formatTimestamp()}.csv`, csv, 'text/csv');
+  });
+}
+
+if (exportJsonBtn) {
+  exportJsonBtn.addEventListener('click', () => {
+    const rows = getExportRows();
+    if (!rows || rows.length === 0) return;
+    const json = JSON.stringify(rows, null, 2);
+    downloadText(`results-${formatTimestamp()}.json`, json, 'application/json');
   });
 }
 
@@ -1889,9 +2462,11 @@ dbSelect.addEventListener('change', async () => {
     await window.api.showError(res.error || 'Erro ao trocar database.');
     return;
   }
+  saveTabsState();
   if (currentConnection) {
     currentConnection.database = name;
     setCurrentConnection(currentConnection);
+    restoreTabsState();
   }
   resetTableState();
   await refreshTables();
@@ -1904,6 +2479,7 @@ renderRecentList();
 initEditor();
 loadSidebarWidth();
 initSidebarResizer();
+initEditorResizer();
 setQueryValue('');
 resetConnectionForm();
 setEditMode(false);
@@ -1912,6 +2488,25 @@ createTab(`Query ${tabCounter++}`, '');
 if (themeToggle) {
   themeToggle.addEventListener('click', () => {
     toggleTheme();
+  });
+}
+
+if (timeoutSelect) {
+  const savedTimeout = localStorage.getItem(TIMEOUT_KEY);
+  if (savedTimeout) timeoutSelect.value = savedTimeout;
+  timeoutSelect.addEventListener('change', () => {
+    localStorage.setItem(TIMEOUT_KEY, timeoutSelect.value);
+  });
+}
+
+if (stopBtn) {
+  stopBtn.addEventListener('click', async () => {
+    if (!isLoading) return;
+    setQueryStatus({ state: 'running', message: 'Cancelando...' });
+    const res = await window.api.cancelQuery();
+    if (!res || !res.ok) {
+      await window.api.showError((res && res.error) || 'Erro ao cancelar query.');
+    }
   });
 }
 
@@ -1924,6 +2519,17 @@ if (sidebarTreeBtn) {
 if (sidebarHistoryBtn) {
   sidebarHistoryBtn.addEventListener('click', () => {
     setSidebarView('history');
+  });
+}
+
+if (refreshSchemaBtn) {
+  refreshSchemaBtn.addEventListener('click', async () => {
+    if (!isConnected) {
+      await window.api.showError('Conecte para atualizar o schema.');
+      return;
+    }
+    resetTableState();
+    await refreshTables();
   });
 }
 

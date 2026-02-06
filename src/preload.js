@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   listDatabases: () => ipcRenderer.invoke('db:listDatabases'),
   useDatabase: (name) => ipcRenderer.invoke('db:useDatabase', name),
   testConnection: (config) => ipcRenderer.invoke('db:testConnection', config),
-  runQuery: (sql) => ipcRenderer.invoke('db:runQuery', sql),
+  runQuery: (payload) => ipcRenderer.invoke('db:runQuery', payload),
+  cancelQuery: () => ipcRenderer.invoke('db:cancelQuery'),
   showError: (message) => ipcRenderer.invoke('dialog:error', message)
 });

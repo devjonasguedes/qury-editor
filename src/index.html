@@ -43,7 +43,12 @@
           </div>
           <aside class="tables">
             <div id="tablePanel" class="sidebar-panel">
-              <div class="panel-title">Database</div>
+              <div class="panel-title with-actions">
+                <span>Database</span>
+                <button id="refreshSchemaBtn" class="icon-btn mini" title="Atualizar schema">
+                  <i class="bi bi-arrow-clockwise"></i>
+                </button>
+              </div>
               <div class="table-search">
                 <i class="bi bi-search"></i>
                 <input
@@ -101,7 +106,91 @@
               </button>
             </div>
             <div class="editor-toolbar">
-              <div class="editor-search">
+              <div class="editor-actions">
+                <div class="editor-actions-left">
+                  <button
+                    id="runBtn"
+                    class="icon-btn run-btn"
+                    title="Executar (⌘⏎)"
+                  >
+                    <i class="bi bi-lightning-charge-fill"></i>
+                  </button>
+                  <button
+                  <button
+                    id="runSelectionBtn"
+                    class="icon-btn run-selection-btn"
+                    title="Executar seleção (⇧⏎)"
+                  >
+                    <i class="bi bi-cursor-text"></i>
+                  </button>
+                  <button
+                    id="formatBtn"
+                    class="icon-btn format-btn"
+                    title="Formatar (⌥⇧F)"
+                  >
+                    <i class="bi bi-text-paragraph"></i>
+                  </button>
+                  <button
+                    id="toggleEditorBtn"
+                    class="icon-btn toggle-editor-btn"
+                    title="Mostrar/ocultar editor"
+                  >
+                    <i class="bi bi-code-slash"></i>
+                  </button>
+                  <button
+                    id="countBtn"
+                    class="icon-btn count-btn"
+                    title="Contar registros"
+                  >
+                    <i class="bi bi-123"></i>
+                  </button>
+                </div>
+                <div class="editor-actions-right">
+                  <button
+                    id="stopBtn"
+                    class="icon-btn stop-btn"
+                    title="Parar execução"
+                    disabled
+                  >
+                    <i class="bi bi-stop-circle"></i>
+                  </button>
+                  <select
+                    id="limitSelect"
+                    class="limit-select"
+                    title="Limite padrão"
+                  >
+                    <option value="50">50</option>
+                    <option value="100" selected>100</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                    <option value="none">Sem limite</option>
+                  </select>
+                  <select
+                    id="timeoutSelect"
+                    class="limit-select"
+                    title="Timeout da query"
+                  >
+                    <option value="5000">5s</option>
+                    <option value="15000">15s</option>
+                    <option value="30000" selected>30s</option>
+                    <option value="60000">60s</option>
+                    <option value="none">Sem timeout</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="editor-body">
+              <textarea
+                id="query"
+                placeholder="Digite sua query SQL"
+              ></textarea>
+            </div>
+          </div>
+          <div id="editorResizer" class="editor-resizer hidden"></div>
+          <div class="results" id="resultsPanel">
+            <div class="results-toolbar hidden" id="tableActionsBar">
+              <div class="table-filter">
                 <input id="queryFilter" placeholder="id > 100" />
                 <button
                   id="applyFilterBtn"
@@ -112,64 +201,48 @@
                 </button>
                 <span id="querySpinner" class="spinner hidden"></span>
               </div>
-              <div class="editor-actions">
-                <select
-                  id="limitSelect"
-                  class="limit-select"
-                  title="Limite padrão"
-                >
-                  <option value="50">50</option>
-                  <option value="100" selected>100</option>
-                  <option value="200">200</option>
-                  <option value="500">500</option>
-                  <option value="1000">1000</option>
-                  <option value="none">Sem limite</option>
-                </select>
+              <div class="table-actions">
                 <button
-                  id="countBtn"
-                  class="icon-btn count-btn"
-                  title="Contar registros"
+                  id="tableRefreshBtn"
+                  class="icon-btn mini"
+                  title="Atualizar tabela"
                 >
-                  <i class="bi bi-123"></i>
+                  <i class="bi bi-arrow-clockwise"></i>
                 </button>
                 <button
-                  id="toggleEditorBtn"
-                  class="icon-btn toggle-editor-btn"
-                  title="Editar SQL"
+                  id="copyCellBtn"
+                  class="icon-btn mini"
+                  title="Copiar célula"
+                  disabled
                 >
-                  <i class="bi bi-code-slash"></i>
+                  <i class="bi bi-clipboard"></i>
                 </button>
                 <button
-                  id="formatBtn"
-                  class="icon-btn format-btn"
-                  title="Formatar (⌥⇧F)"
+                  id="copyRowBtn"
+                  class="icon-btn mini"
+                  title="Copiar linha (JSON)"
+                  disabled
                 >
-                  <i class="bi bi-braces"></i>
+                  <i class="bi bi-clipboard2-check"></i>
                 </button>
                 <button
-                  id="runSelectionBtn"
-                  class="icon-btn run-selection-btn"
-                  title="Executar seleção (⇧⏎)"
+                  id="exportCsvBtn"
+                  class="icon-btn mini"
+                  title="Exportar CSV"
+                  disabled
                 >
-                  <i class="bi bi-cursor-text"></i>
+                  <i class="bi bi-filetype-csv"></i>
                 </button>
                 <button
-                  id="runBtn"
-                  class="icon-btn run-btn"
-                  title="Executar (⌘⏎)"
+                  id="exportJsonBtn"
+                  class="icon-btn mini"
+                  title="Exportar JSON"
+                  disabled
                 >
-                  <i class="bi bi-lightning-charge-fill"></i>
+                  <i class="bi bi-filetype-json"></i>
                 </button>
               </div>
             </div>
-            <div class="editor-body">
-              <textarea
-                id="query"
-                placeholder="Digite sua query SQL"
-              ></textarea>
-            </div>
-          </div>
-          <div class="results" id="resultsPanel">
             <div class="results-table">
               <table id="resultsTable"></table>
             </div>
@@ -229,12 +302,60 @@
                 <input id="database" placeholder="opcional" />
               </div>
 
+              <div class="field span-2">
+                <div class="connect-tabs">
+                  <button id="tabDirectBtn" class="connect-tab active" type="button">
+                    Direta
+                  </button>
+                  <button id="tabSshBtn" class="connect-tab" type="button">
+                    SSH
+                  </button>
+                </div>
+              </div>
+
               <div class="field span-2 checkbox-field">
                 <label>
                   <input id="readOnly" type="checkbox" />
                   Somente leitura (produção)
                 </label>
                 <div class="field-hint">Bloqueia INSERT/UPDATE/DELETE/DDL.</div>
+              </div>
+
+              <div id="sshFields" class="ssh-fields hidden">
+                <div class="field">
+                  <label>SSH Host</label>
+                  <input id="sshHost" placeholder="ex: bastion.company.com" />
+                </div>
+
+                <div class="field">
+                  <label>SSH Porta</label>
+                  <input id="sshPort" placeholder="22" />
+                </div>
+
+                <div class="field">
+                  <label>SSH Usuário</label>
+                  <input id="sshUser" />
+                </div>
+
+                <div class="field">
+                  <label>SSH Senha</label>
+                  <input id="sshPassword" type="password" />
+                </div>
+
+                <div class="field span-2">
+                  <label>SSH Private Key</label>
+                  <textarea id="sshPrivateKey" rows="4" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+                </div>
+
+                <div class="field">
+                  <label>SSH Passphrase</label>
+                  <input id="sshPassphrase" type="password" />
+                </div>
+
+                <div class="field">
+                  <label>Local Port (opcional)</label>
+                  <input id="sshLocalPort" placeholder="automático" />
+                </div>
               </div>
 
               <div class="field span-2 save-only">

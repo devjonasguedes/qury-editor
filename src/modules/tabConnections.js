@@ -19,9 +19,10 @@ export function createTabConnections({ container, getTitle, onSelect, onClose })
       const label = document.createElement('span');
       label.textContent = getTitle ? getTitle(entry) : String(key);
       label.addEventListener('click', () => {
+        const previousKey = activeKey;
         activeKey = key;
         render();
-        if (onSelect) onSelect(key, entry);
+        if (onSelect) onSelect(key, entry, previousKey);
       });
 
       const closeBtn = document.createElement('button');

@@ -1,3 +1,5 @@
+import { format as formatSql } from 'sql-formatter';
+
 import {
   buildConnectionBaseKey,
   connectionTitle,
@@ -5,10 +7,16 @@ import {
   isEntryReadOnly,
   isEntrySsh,
   makeRecentKey
-} from './renderer/connectionUtils.js';
-import { readJson, writeJson } from './renderer/storage.js';
+} from './modules/connectionUtils.js';
+import { readJson, writeJson } from './modules/storage.js';
 import { createTreeView } from './modules/treeView.js';
 import { createTabConnections } from './modules/tabConnections.js';
+import { createTabTables } from './modules/tabTables.js';
+import { createCodeEditor } from './modules/codeEditor.js';
+import { createTableView } from './modules/tableView.js';
+import { createQueryHistory } from './modules/queryHistory.js';
+import { createSnippetsManager } from './modules/snippets.js';
+import { insertWhere } from './sql.js';
 
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const THEME_KEY = 'sqlEditor.theme';
@@ -61,7 +69,17 @@ export function initHome({ api }) {
   const sidebarSnippetsBtn = byId('sidebarSnippetsBtn');
   const tablePanel = byId('tablePanel');
   const historyPanel = byId('historyPanel');
+  const historyList = byId('historyList');
   const snippetsPanel = byId('snippetsPanel');
+  const snippetsList = byId('snippetsList');
+  const addSnippetBtn = byId('addSnippetBtn');
+  const snippetModal = byId('snippetModal');
+  const snippetModalBackdrop = byId('snippetModalBackdrop');
+  const snippetCloseBtn = byId('snippetCloseBtn');
+  const snippetCancelBtn = byId('snippetCancelBtn');
+  const snippetSaveBtn = byId('snippetSaveBtn');
+  const snippetNameInput = byId('snippetNameInput');
+  const snippetQueryInput = byId('snippetQueryInput');
   const tableList = byId('tableList');
   const tableSearch = byId('tableSearch');
   const tableSearchClear = byId('tableSearchClear');
@@ -77,14 +95,39 @@ export function initHome({ api }) {
   const resultsPanel = byId('resultsPanel');
   const resultsTable = byId('resultsTable');
   const queryStatus = byId('queryStatus');
+  const tableActionsBar = byId('tableActionsBar');
+  const copyCellBtn = byId('copyCellBtn');
+  const copyRowBtn = byId('copyRowBtn');
+  const exportCsvBtn = byId('exportCsvBtn');
+  const exportJsonBtn = byId('exportJsonBtn');
   const refreshSchemaBtn = byId('refreshSchemaBtn');
-  const tableSettingsBtn = byId('tableSettingsBtn');
+  const tabBar = byId('tabBar');
+  const newTabBtn = byId('newTabBtn');
+  const query = byId('query');
+  const runBtn = byId('runBtn');
+  const runSelectionBtn = byId('runSelectionBtn');
+  const formatBtn = byId('formatBtn');
+  const stopBtn = byId('stopBtn');
+  const limitSelect = byId('limitSelect');
+  const timeoutSelect = byId('timeoutSelect');
+  const toggleEditorBtn = byId('toggleEditorBtn');
+  const countBtn = byId('countBtn');
+  const queryFilter = byId('queryFilter');
+  const applyFilterBtn = byId('applyFilterBtn');
   let globalLoading = byId('globalLoading');
 
   let isConnecting = false;
   let isEditingConnection = false;
   let treeView = null;
   let tabConnectionsView = null;
+  let tabTablesView = null;
+  let codeEditor = null;
+  let snippetEditor = null;
+  let tableView = null;
+  let lastSort = null;
+  let resultsByTabId = new Map();
+  let historyManager = null;
+  let snippetsManager = null;
 
   const safeApi = api || {};
 
@@ -220,7 +263,10 @@ export function initHome({ api }) {
         !tabConnectionsView || tabConnectionsView.size() === 0
       );
     }
-    if (connected) setSidebarView('tree');
+    if (connected) {
+      setSidebarView('tree');
+      refreshEditor();
+    }
   };
 
   const setSidebarView = (view) => {
@@ -231,6 +277,8 @@ export function initHome({ api }) {
     if (sidebarTreeBtn) sidebarTreeBtn.classList.toggle('active', next === 'tree');
     if (sidebarHistoryBtn) sidebarHistoryBtn.classList.toggle('active', next === 'history');
     if (sidebarSnippetsBtn) sidebarSnippetsBtn.classList.toggle('active', next === 'snippets');
+    if (next === 'history' && historyManager) historyManager.renderHistoryList();
+    if (next === 'snippets' && snippetsManager) snippetsManager.renderSnippetsList();
   };
 
   const renderConnectionTabs = () => {
@@ -265,6 +313,40 @@ export function initHome({ api }) {
     if (!tabConnectionsView) return null;
     const key = tabConnectionsView.getActiveKey();
     return key ? tabConnectionsView.getEntry(key) : null;
+  };
+
+  const getCurrentHistoryKey = () => {
+    if (!tabConnectionsView) return null;
+    return tabConnectionsView.getActiveKey();
+  };
+
+  const tabsStorageKey = (key) => (key ? `sqlEditor.tabs:${key}` : null);
+
+  const saveTabsForKey = (key) => {
+    if (!key || !tabTablesView) return;
+    writeJson(tabsStorageKey(key), tabTablesView.getState());
+  };
+
+  const saveTabsForActive = () => {
+    if (!tabConnectionsView) return;
+    const key = tabConnectionsView.getActiveKey();
+    if (key) {
+      saveTabsForKey(key);
+    }
+  };
+
+  const loadTabsForKey = (key) => {
+    if (!key || !tabTablesView) return;
+    const state = readJson(tabsStorageKey(key), null);
+    if (state && Array.isArray(state.tabs)) {
+      tabTablesView.setState(state);
+      if (state.tabs.length === 0) tabTablesView.ensureOne();
+      refreshEditor();
+      return;
+    }
+    tabTablesView.setState({ tabs: [], activeTabId: null, tabCounter: 1 });
+    tabTablesView.ensureOne();
+    refreshEditor();
   };
 
   const applyEntryToForm = (entry) => {
@@ -370,6 +452,9 @@ export function initHome({ api }) {
     if (!editorBody) return;
     const next = clampEditorBodyHeight(height);
     editorBody.style.height = `${next}px`;
+    if (codeEditor) {
+      codeEditor.setSize('100%', next);
+    }
     if (save) {
       localStorage.setItem(EDITOR_HEIGHT_KEY, String(next));
     }
@@ -425,6 +510,165 @@ export function initHome({ api }) {
     });
   };
 
+  const refreshEditor = () => {
+    if (!codeEditor) return;
+    codeEditor.refresh();
+  };
+
+  const setQueryStatus = ({ state, message, duration }) => {
+    if (!queryStatus) return;
+    const parts = [];
+    if (state === 'success') parts.push('Sucesso');
+    if (state === 'error') parts.push('Erro');
+    if (state === 'running') parts.push('Executando');
+    if (message) parts.push(message);
+    if (Number.isFinite(duration)) parts.push(`${Math.round(duration)}ms`);
+    queryStatus.textContent = parts.join(' • ');
+    queryStatus.className = `query-status${state ? ` ${state}` : ''}`;
+  };
+
+  const renderResults = (rows, totalRows, truncated, baseSql = '', sourceSql = '') => {
+    if (!tableView) return;
+    tableView.setResults({ rows, totalRows, truncated, baseSql, sourceSql });
+    if (tabTablesView) {
+      const tab = tabTablesView.getActiveTab();
+      if (tab && tab.id) {
+        resultsByTabId.set(tab.id, { rows, totalRows, truncated, baseSql, sourceSql });
+      }
+    }
+  };
+
+  const normalizeSql = (sql) => String(sql || '').trim().replace(/;$/, '').trim();
+
+  const applyLimit = (sql) => {
+    const limitValue = limitSelect ? limitSelect.value : 'none';
+    if (!limitValue || limitValue === 'none') return sql;
+    const clean = normalizeSql(sql);
+    if (!clean) return clean;
+    if (/\\blimit\\b/i.test(clean)) return clean;
+    return `${clean} LIMIT ${limitValue}`;
+  };
+
+  const getTimeoutMs = () => {
+    const value = timeoutSelect ? timeoutSelect.value : 'none';
+    if (!value || value === 'none') return 0;
+    const ms = Number(value);
+    return Number.isFinite(ms) ? ms : 0;
+  };
+
+  const runSql = async (rawSql, sourceSqlOverride = '') => {
+    const baseSql = normalizeSql(rawSql);
+    const sql = applyLimit(baseSql);
+    if (!sql) return;
+    const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : baseSql;
+    const startedAt = Date.now();
+    setQueryStatus({ state: 'running', message: 'Executando...' });
+    if (runBtn) runBtn.disabled = true;
+    if (runSelectionBtn) runSelectionBtn.disabled = true;
+    if (stopBtn) stopBtn.disabled = false;
+    const res = await safeApi.runQuery({ sql, timeoutMs: getTimeoutMs() || undefined });
+    if (!res || !res.ok) {
+      await safeApi.showError((res && res.error) || 'Erro ao executar query.');
+      setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Erro' });
+      if (runBtn) runBtn.disabled = false;
+      if (runSelectionBtn) runSelectionBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = true;
+      return;
+    }
+    renderResults(res.rows || [], res.totalRows, res.truncated, baseSql, sourceSql);
+    if (historyManager) historyManager.recordHistory(sourceSql);
+    setQueryStatus({
+      state: 'success',
+      message: `Linhas: ${res.totalRows || 0}`,
+      duration: Date.now() - startedAt
+    });
+    if (runBtn) runBtn.disabled = false;
+    if (runSelectionBtn) runSelectionBtn.disabled = false;
+    if (stopBtn) stopBtn.disabled = true;
+  };
+
+  const updateRunAvailability = () => {
+    const sql = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
+    const hasText = !!(sql && sql.trim());
+    if (runBtn) runBtn.disabled = !hasText;
+    if (runSelectionBtn) {
+      const selection = codeEditor ? codeEditor.getSelection() : '';
+      const hasSelection = !!(selection && selection.trim());
+      runSelectionBtn.disabled = !hasText || !hasSelection;
+    }
+    if (runBtn) runBtn.classList.toggle('ready', hasText);
+  };
+
+  const handleRun = async () => {
+    const sql = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
+    if (!sql || !sql.trim()) {
+      await safeApi.showError('Query vazia.');
+      return;
+    }
+    lastSort = null;
+    await runSql(sql);
+  };
+
+  const handleRunSelection = async () => {
+    const selection = codeEditor ? codeEditor.getSelection() : '';
+    const sql = selection && selection.trim() ? selection : '';
+    if (!sql) {
+      await safeApi.showError('Selecione uma query.');
+      return;
+    }
+    lastSort = null;
+    await runSql(sql);
+  };
+
+  const buildCountSql = (rawSql) => {
+    const clean = normalizeSql(rawSql);
+    if (!clean) return '';
+    return `SELECT COUNT(*) AS total FROM (${clean}) AS subquery`;
+  };
+
+  const applyTableFilter = async () => {
+    const filter = queryFilter ? queryFilter.value.trim() : '';
+    const active = tableView ? tableView.getActive() : null;
+    const base = active && (active.sourceSql || active.baseSql)
+      ? (active.sourceSql || active.baseSql)
+      : (codeEditor ? codeEditor.getValue() : (query ? query.value : ''));
+    if (!base || !base.trim()) {
+      await safeApi.showError('Query vazia.');
+      return;
+    }
+    if (!filter) {
+      lastSort = null;
+      await runSql(base, base);
+      return;
+    }
+    const sql = insertWhere(base, filter);
+    if (!sql || !sql.trim()) return;
+    lastSort = null;
+    await runSql(sql, base);
+  };
+
+  const quoteIdentifier = (name) => {
+    if (!name) return name;
+    const text = String(name);
+    if (!/^[A-Za-z0-9_$.]+$/.test(text)) {
+      return text;
+    }
+    const active = getActiveConnection();
+    const type = active && active.type ? active.type : 'mysql';
+    const parts = text.split('.');
+    if (type === 'postgres' || type === 'postgresql') {
+      return parts.map((p) => (p.startsWith('\"') ? p : `\"${p.replace(/\"/g, '\"\"')}\"`)).join('.');
+    }
+    return parts.map((p) => (p.startsWith('`') ? p : `\`${p.replace(/`/g, '``')}\``)).join('.');
+  };
+
+  const setEditorVisible = (visible) => {
+    if (!editorBody) return;
+    editorBody.classList.toggle('hidden', !visible);
+    if (toggleEditorBtn) toggleEditorBtn.classList.toggle('active', visible);
+    if (visible) refreshEditor();
+  };
+
   const refreshDatabases = async () => {
     if (!dbSelect) return;
     const res = await safeApi.listDatabases();
@@ -463,8 +707,9 @@ export function initHome({ api }) {
     }
   };
 
-  const activateConnection = async (entry) => {
+  const activateConnection = async (entry, previousKey = null) => {
     const key = getTabKey(entry);
+    if (previousKey) saveTabsForKey(previousKey);
     setScreen(true);
     if (tabConnectionsView) tabConnectionsView.setActive(key);
 
@@ -476,6 +721,9 @@ export function initHome({ api }) {
     if (treeView) treeView.setActiveSchema(entry.database || '');
     await refreshDatabases();
     if (treeView) await treeView.refresh();
+    if (tabTablesView) loadTabsForKey(key);
+    resultsByTabId = new Map();
+    if (tableView) tableView.clearUi();
     return true;
   };
 
@@ -483,7 +731,8 @@ export function initHome({ api }) {
     if (!entry) return false;
     const key = getTabKey(entry);
     if (!tabConnectionsView || !tabConnectionsView.has(key)) return false;
-    const ok = await activateConnection(entry);
+    const previousKey = tabConnectionsView.getActiveKey();
+    const ok = await activateConnection(entry, previousKey && previousKey !== key ? previousKey : null);
     if (ok) closeConnectModal();
     return ok;
   };
@@ -645,10 +894,12 @@ export function initHome({ api }) {
           return;
         }
         recordRecentConnection(entry);
+        saveTabsForActive();
         upsertConnectionTab(entry);
         if (treeView) treeView.setActiveSchema(entry.database || '');
         await refreshDatabases();
         if (treeView) await treeView.refresh();
+        loadTabsForKey(getTabKey(entry));
         setScreen(true);
         closeConnectModal();
       });
@@ -716,10 +967,12 @@ export function initHome({ api }) {
           return;
         }
         recordRecentConnection(entry);
+        saveTabsForActive();
         upsertConnectionTab(entry);
         if (treeView) treeView.setActiveSchema(entry.database || '');
         await refreshDatabases();
         if (treeView) await treeView.refresh();
+        loadTabsForKey(getTabKey(entry));
         setScreen(true);
         closeConnectModal();
       });
@@ -762,10 +1015,12 @@ export function initHome({ api }) {
       return;
     }
     recordRecentConnection(config);
+    saveTabsForActive();
     upsertConnectionTab(config);
     if (treeView) treeView.setActiveSchema(config.database || '');
     await refreshDatabases();
     if (treeView) await treeView.refresh();
+    loadTabsForKey(getTabKey(config));
     setScreen(true);
     closeConnectModal();
   };
@@ -837,6 +1092,10 @@ export function initHome({ api }) {
 
   if (homeBtn) {
     homeBtn.addEventListener('click', () => {
+      if (tabConnectionsView) {
+        const key = tabConnectionsView.getActiveKey();
+        if (key) saveTabsForKey(key);
+      }
       setScreen(false);
       if (tabConnectionsView) tabConnectionsView.clearActive();
       renderConnectionTabs();
@@ -898,6 +1157,80 @@ export function initHome({ api }) {
     sidebarSnippetsBtn.addEventListener('click', () => setSidebarView('snippets'));
   }
 
+  if (runBtn) {
+    runBtn.addEventListener('click', async () => {
+      await handleRun();
+    });
+  }
+
+  if (runSelectionBtn) {
+    runSelectionBtn.addEventListener('click', async () => {
+      await handleRunSelection();
+    });
+  }
+
+  if (formatBtn) {
+    formatBtn.addEventListener('click', () => {
+      const source = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
+      if (!source || !source.trim()) return;
+      const active = getActiveConnection();
+      const language = active && active.type === 'postgres' ? 'postgresql' : 'mysql';
+      const formatted = formatSql(source, { language });
+      if (codeEditor) codeEditor.setValue(formatted);
+      else if (query) query.value = formatted;
+    });
+  }
+
+  if (stopBtn) {
+    stopBtn.addEventListener('click', async () => {
+      const res = await safeApi.cancelQuery();
+      if (!res || !res.ok) {
+        await safeApi.showError((res && res.error) || 'Nao foi possivel cancelar.');
+      } else {
+        setQueryStatus({ state: 'error', message: 'Cancelada' });
+      }
+      if (runBtn) runBtn.disabled = false;
+      if (runSelectionBtn) runSelectionBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = true;
+    });
+  }
+
+  if (toggleEditorBtn) {
+    toggleEditorBtn.addEventListener('click', () => {
+      const isHidden = editorBody ? editorBody.classList.contains('hidden') : false;
+      setEditorVisible(isHidden);
+    });
+  }
+
+  if (countBtn) {
+    countBtn.addEventListener('click', async () => {
+      const sql = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
+      if (!sql || !sql.trim()) {
+        await safeApi.showError('Query vazia.');
+        return;
+      }
+      const countSql = buildCountSql(sql);
+      if (!countSql) return;
+      lastSort = null;
+      await runSql(countSql);
+    });
+  }
+
+  if (applyFilterBtn) {
+    applyFilterBtn.addEventListener('click', async () => {
+      await applyTableFilter();
+    });
+  }
+
+  if (queryFilter) {
+    queryFilter.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        applyTableFilter();
+      }
+    });
+  }
+
   if (dbSelect) {
     dbSelect.addEventListener('change', async () => {
       const name = dbSelect.value;
@@ -926,20 +1259,11 @@ export function initHome({ api }) {
 
   if (refreshSchemaBtn) {
     refreshSchemaBtn.addEventListener('click', async () => {
-      if (treeView) await treeView.refresh();
-    });
-  }
-
-  if (tableSettingsBtn) {
-    tableSettingsBtn.addEventListener('click', () => {
-      const active = getActiveConnection();
-      if (!active) {
-        safeApi.showError('Conecte para editar a conexao.');
-        return;
+      if (treeView) {
+        setGlobalLoading(true, 'Atualizando schema...');
+        await treeView.refresh();
+        setGlobalLoading(false);
       }
-      applyEntryToForm(active);
-      setEditMode(true);
-      openConnectModal({ keepForm: true, mode: 'full' });
     });
   }
 
@@ -954,15 +1278,190 @@ export function initHome({ api }) {
     tableList,
     tableSearch,
     tableSearchClear,
-    resultsTable,
-    queryStatus,
-    getActiveConnection
+    getActiveConnection,
+    onOpenTable: (_schema, name, sql) => {
+      if (tabTablesView) tabTablesView.createWithQuery(name, sql);
+      setEditorVisible(false);
+      lastSort = null;
+      runSql(sql);
+    }
   });
-  tabConnectionsView = createTabConnections({
+  codeEditor = createCodeEditor({ textarea: query });
+  codeEditor.init();
+  if (snippetQueryInput) {
+    snippetEditor = createCodeEditor({ textarea: snippetQueryInput });
+    snippetEditor.init();
+  }
+  codeEditor.setHandlers({
+    run: () => handleRun(),
+    runSelection: () => handleRunSelection()
+  });
+  updateRunAvailability();
+  tabTablesView = createTabTables({
+    tabBar,
+    newTabBtn,
+    queryInput: query,
+    getValue: () => (codeEditor ? codeEditor.getValue() : (query ? query.value : '')),
+    setValue: (value) => {
+      if (codeEditor) codeEditor.setValue(value || '');
+      else if (query) query.value = value || '';
+      refreshEditor();
+    },
+    onInput: (handler) => {
+      if (codeEditor) codeEditor.onChange(() => {
+        handler();
+        updateRunAvailability();
+      });
+    },
+    onChange: () => {
+      if (!tabConnectionsView) return;
+      const key = tabConnectionsView.getActiveKey();
+      if (key) saveTabsForKey(key);
+      if (tabTablesView) {
+        const state = tabTablesView.getState();
+        const ids = new Set((state.tabs || []).map((t) => t.id));
+        for (const id of resultsByTabId.keys()) {
+          if (!ids.has(id)) resultsByTabId.delete(id);
+        }
+      }
+    },
+    onActiveChange: (id) => {
+      if (!tableView) return;
+      if (!id) {
+        tableView.clearUi();
+        return;
+      }
+      const snapshot = resultsByTabId.get(id);
+      if (snapshot && Array.isArray(snapshot.rows)) {
+        tableView.setResults(snapshot);
+      } else {
+        tableView.clearUi();
+      }
+      updateRunAvailability();
+    }
+  });
+  historyManager = createQueryHistory({
+    historyList,
+    getCurrentHistoryKey,
+    getActiveTab: () => (tabTablesView ? tabTablesView.getActiveTab() : null),
+    isTableTab: () => false,
+    isTableEditor: () => true,
+    createNewQueryTab: (sql) => {
+      if (!tabTablesView) return;
+      tabTablesView.create();
+      if (codeEditor) codeEditor.setValue(sql || '');
+      if (tabTablesView) tabTablesView.syncActiveTabContent();
+    },
+    setQueryValue: (sql) => {
+      if (codeEditor) codeEditor.setValue(sql || '');
+      if (tabTablesView) tabTablesView.syncActiveTabContent();
+    }
+  });
+  snippetsManager = createSnippetsManager({
+    snippetsList,
+    addSnippetBtn,
+    snippetModal,
+    snippetModalBackdrop,
+    snippetCloseBtn,
+    snippetCancelBtn,
+    snippetSaveBtn,
+    snippetNameInput,
+    snippetQueryInput,
+    getSnippetValue: () => (snippetEditor ? snippetEditor.getValue() : (snippetQueryInput ? snippetQueryInput.value : '')),
+    setSnippetValue: (value) => {
+      if (snippetEditor) {
+        snippetEditor.setValue(value || '');
+        snippetEditor.refresh();
+      } else if (snippetQueryInput) {
+        snippetQueryInput.value = value || '';
+      }
+    },
+    getCurrentHistoryKey,
+    getQueryValue: () => (codeEditor ? codeEditor.getValue() : (query ? query.value : '')),
+    setQueryValue: (sql) => {
+      if (codeEditor) codeEditor.setValue(sql || '');
+      if (tabTablesView) tabTablesView.syncActiveTabContent();
+    },
+    createNewQueryTab: (sql) => {
+      if (!tabTablesView) return;
+      tabTablesView.create();
+      if (codeEditor) codeEditor.setValue(sql || '');
+      if (tabTablesView) tabTablesView.syncActiveTabContent();
+    },
+    runSnippet: async (sql) => {
+      const text = String(sql || '').trim();
+      if (!text) return;
+      if (codeEditor) codeEditor.setValue(text);
+      if (tabTablesView) tabTablesView.syncActiveTabContent();
+      lastSort = null;
+      await runSql(text);
+    },
+    showError: safeApi.showError
+  });
+  const buildOrderBy = (sql, column, direction) => {
+    const clean = normalizeSql(sql);
+    if (!clean) return clean;
+    const upper = clean.toUpperCase();
+    const limitIndex = upper.lastIndexOf(' LIMIT ');
+    const offsetIndex = upper.lastIndexOf(' OFFSET ');
+    let cutIndex = -1;
+    if (limitIndex !== -1) cutIndex = limitIndex;
+    if (offsetIndex !== -1) cutIndex = cutIndex === -1 ? offsetIndex : Math.min(cutIndex, offsetIndex);
+
+    let base = clean;
+    let suffix = '';
+    if (cutIndex !== -1) {
+      base = clean.slice(0, cutIndex).trimEnd();
+      suffix = clean.slice(cutIndex).trimStart();
+    }
+
+    const upperBase = base.toUpperCase();
+    const orderIndex = upperBase.lastIndexOf(' ORDER BY ');
+    if (orderIndex !== -1) {
+      base = base.slice(0, orderIndex).trimEnd();
+    }
+
+    const orderSql = `${base} ORDER BY ${quoteIdentifier(column)} ${direction.toUpperCase()}`;
+    return suffix ? `${orderSql} ${suffix}` : orderSql;
+  };
+
+  const rerunSortedQuery = async (column, active) => {
+    const base = active && active.baseSql ? active.baseSql : '';
+    if (!base) return;
+    if (lastSort && lastSort.column === column) {
+      if (lastSort.direction === 'asc') {
+        lastSort = { column, direction: 'desc' };
+        const orderSql = buildOrderBy(base, column, 'desc');
+        if (orderSql) await runSql(orderSql);
+        return;
+      }
+      if (lastSort.direction === 'desc') {
+        lastSort = null;
+        await runSql(base);
+        return;
+      }
+    }
+    lastSort = { column, direction: 'asc' };
+    const orderSql = buildOrderBy(base, column, 'asc');
+    if (!orderSql) return;
+    await runSql(orderSql);
+  };
+
+  tableView = createTableView({
+    resultsTable,
+    tableActionsBar,
+    copyCellBtn,
+    copyRowBtn,
+    exportCsvBtn,
+    exportJsonBtn,
+    onShowError: safeApi.showError,
+    onSort: rerunSortedQuery
+  });
+tabConnectionsView = createTabConnections({
     container: tabConnections,
     getTitle: (entry) => connectionTitle(entry),
-    onSelect: (_key, entry) => {
-      activateConnection(entry);
+    onSelect: (_key, entry, previousKey) => {
+      activateConnection(entry, previousKey);
     },
     onClose: async (key, entry) => {
       if (!tabConnectionsView) return;

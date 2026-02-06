@@ -222,15 +222,6 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowEr
   const actions = document.createElement('div');
   actions.className = 'tree-actions';
 
-  const infoBtn = document.createElement('button');
-  infoBtn.className = 'icon-btn tree-action';
-  infoBtn.title = 'Mostrar colunas';
-  infoBtn.innerHTML = '<i class="bi bi-info-circle"></i>';
-  infoBtn.addEventListener('click', async (event) => {
-    event.stopPropagation();
-    await toggle();
-  });
-
   const openBtn = document.createElement('button');
   openBtn.className = 'icon-btn tree-action';
   openBtn.title = 'SELECT * FROM table LIMIT 100';
@@ -258,7 +249,6 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowEr
     if (onCopyQualified) await onCopyQualified(schema, name);
   });
 
-  actions.appendChild(infoBtn);
   actions.appendChild(openBtn);
   actions.appendChild(copyNameBtn);
   actions.appendChild(copyQualifiedBtn);

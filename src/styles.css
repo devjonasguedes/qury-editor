@@ -873,6 +873,9 @@ sidebar tree
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
+  background: linear-gradient(90deg, rgba(18, 18, 18, 0) 0%, rgba(18, 18, 18, 0.92) 35%, rgba(18, 18, 18, 1) 100%);
+  padding: 2px 4px 2px 10px;
+  border-radius: 6px;
 }
 
 .tree-item:hover .tree-actions {
@@ -885,10 +888,10 @@ sidebar tree
   font-size: 12px;
   border-radius: 4px;
   padding: 0;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.06);
   border: none;
-  color: var(--text-muted-2);
-  opacity: 0.7;
+  color: var(--text);
+  opacity: 0.9;
 }
 
 .tree-action:hover {
@@ -1181,7 +1184,7 @@ sidebar panel
   min-height: 0;
   box-shadow: var(--shadow);
   width: 260px;
-  min-width: 200px;
+  min-width: 300px;
   max-width: 520px;
   flex: 0 0 auto;
 }
@@ -1472,13 +1475,18 @@ body.theme-light .tab-bar {
 }
 
 .tab-close {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  color: var(--text-soft);
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
 
 .icon-btn i,
@@ -1487,7 +1495,11 @@ body.theme-light .tab-bar {
 }
 
 .tab:hover .tab-close {
-  color: var(--text-soft);
+  opacity: 1;
+}
+
+.tab.active .tab-close {
+  opacity: 1;
 }
 
 .editor-toolbar {
@@ -1619,6 +1631,22 @@ body.theme-light .tab-bar {
   background: var(--accent-dark);
 }
 
+.run-btn.ready i {
+  color: #1d9bf0;
+}
+
+body:not(.theme-light) .run-btn.ready:not(:disabled) {
+  background: rgba(29, 155, 240, 0.2);
+  border-color: rgba(29, 155, 240, 0.35);
+}
+
+.run-btn:active,
+.run-btn.active {
+  background: #1d9bf0;
+  border-color: #1d9bf0;
+  color: #ffffff;
+}
+
 .format-btn {
   background: var(--surface-2);
 }
@@ -1704,30 +1732,53 @@ body.theme-light .CodeMirror {
 }
 
 .CodeMirror-gutters {
-  background: var(--surface-1) !important;
-  border-right: 1px solid var(--surface-4) !important;
+  background: var(--surface-3) !important;
+  border-right: 1px solid var(--surface-5) !important;
+  min-width: 36px;
+  padding: 0;
+  width: 36px;
 }
 
 body.theme-light .CodeMirror-gutters {
-  background: var(--code-gutter-bg) !important;
+  background: var(--surface-3) !important;
   border-right-color: var(--border) !important;
+}
+
+body.theme-light .tree-actions {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(245, 245, 245, 0.9) 35%, rgba(245, 245, 245, 1) 100%);
+}
+
+body.theme-light .tree-action {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
 }
 
 .CodeMirror-linenumber {
   color: var(--text-muted-2);
+  padding: 0 6px;
+  min-width: 28px;
+  text-align: right;
 }
 
 .CodeMirror-lines {
-  padding: 6px 0;
+  padding: 2px 0 2px 4px;
 }
 
 .CodeMirror pre.CodeMirror-line,
 .CodeMirror pre.CodeMirror-line-like {
-  padding: 0 12px;
+  padding: 0 2px;
+}
+
+.CodeMirror-sizer {
+  margin-left: 40px !important;
+}
+
+.CodeMirror-gutter-wrapper {
+  left: -40px !important;
 }
 
 .CodeMirror-cursor {
-  border-left: 2px solid var(--text);
+  border-left: 2px solid #ffffff;
 }
 
 .CodeMirror-selected {
@@ -1736,6 +1787,28 @@ body.theme-light .CodeMirror-gutters {
 
 body.theme-light .CodeMirror-selected {
   background: var(--selection);
+}
+
+body:not(.theme-light) .CodeMirror-selected {
+  background: #ffffff !important;
+}
+
+body:not(.theme-light) .CodeMirror-selectedtext {
+  color: #000000 !important;
+}
+
+body:not(.theme-light) .CodeMirror-line::selection,
+body:not(.theme-light) .CodeMirror-line > span::selection,
+body:not(.theme-light) .CodeMirror-line > span > span::selection {
+  background: #ffffff;
+  color: #000000;
+}
+
+body:not(.theme-light) .CodeMirror-line::-moz-selection,
+body:not(.theme-light) .CodeMirror-line > span::-moz-selection,
+body:not(.theme-light) .CodeMirror-line > span > span::-moz-selection {
+  background: #ffffff;
+  color: #000000;
 }
 
 .CodeMirror-hints {

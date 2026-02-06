@@ -12,23 +12,13 @@ export function createSnippetsManager({
   snippetSaveBtn,
   snippetNameInput,
   snippetQueryInput,
-  getSnippetEditor,
+  getSnippetValue,
+  setSnippetValue,
   getCurrentHistoryKey,
   getQueryValue,
-  getActiveTab,
-  isTableTab,
-  isTableEditor,
-  createNewQueryTab,
   setQueryValue,
-  updateRunAvailability,
-  scheduleSaveTabs,
-  enableQueryFilter,
-  safeRunQueries,
-  runTableTabQuery,
-  isReadOnlyViolation,
-  hasMultipleStatementsWithSelect,
-  hasNonSelect,
-  splitStatements,
+  createNewQueryTab,
+  runSnippet,
   showError
 }) {
   let pendingSnippetSql = '';
@@ -36,56 +26,10 @@ export function createSnippetsManager({
 
   const snippetsStore = createScopedStorage(SNIPPETS_KEY, getCurrentHistoryKey);
 
-  function readSnippets() {
-    return snippetsStore.readList([]);
-  }
+  const readSnippets = () => snippetsStore.readList([]);
+  const writeSnippets = (list) => snippetsStore.writeList(list);
 
-  function writeSnippets(list) {
-    snippetsStore.writeList(list);
-  }
-
-  function loadSnippetSql(sqlText) {
-    const trimmed = String(sqlText || '').trim();
-    if (!trimmed) return;
-    let tab = getActiveTab();
-    if (!tab || (isTableTab(tab) && !isTableEditor(tab))) {
-      tab = createNewQueryTab(trimmed);
-      setQueryValue(trimmed);
-      return;
-    }
-    setQueryValue(trimmed);
-    if (tab) tab.query = trimmed;
-    updateRunAvailability();
-    scheduleSaveTabs();
-  }
-
-  async function runSnippetSql(sqlText) {
-    const trimmed = String(sqlText || '').trim();
-    if (!trimmed) return;
-    let tab = getActiveTab();
-    if (!tab || (isTableTab(tab) && !isTableEditor(tab))) {
-      tab = createNewQueryTab(trimmed);
-    }
-    setQueryValue(trimmed);
-    if (tab) tab.query = trimmed;
-    updateRunAvailability();
-    scheduleSaveTabs();
-    if (isReadOnlyViolation(trimmed)) {
-      await showError('Conexão em modo somente leitura. Comandos de escrita estão bloqueados.');
-      return;
-    }
-    if (hasMultipleStatementsWithSelect(trimmed)) {
-      await showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
-      return;
-    }
-    const ok = await safeRunQueries(trimmed);
-    if (ok) enableQueryFilter(tab, trimmed);
-    if (ok && isTableEditor(tab) && hasNonSelect(splitStatements(trimmed))) {
-      await runTableTabQuery(tab);
-    }
-  }
-
-  function renderSnippetsList() {
+  const renderSnippetsList = () => {
     if (!snippetsList) return;
     if (!getCurrentHistoryKey()) {
       snippetsList.innerHTML = '';
@@ -145,12 +89,15 @@ export function createSnippetsManager({
       actions.appendChild(deleteBtn);
 
       info.addEventListener('click', () => {
-        loadSnippetSql(entry.sql || '');
+        const sqlText = entry.sql || '';
+        if (!sqlText) return;
+        if (createNewQueryTab) createNewQueryTab(sqlText);
+        if (setQueryValue) setQueryValue(sqlText);
       });
 
       runSnippetBtn.addEventListener('click', async (event) => {
         event.stopPropagation();
-        await runSnippetSql(entry.sql || '');
+        if (runSnippet) await runSnippet(entry.sql || '');
       });
 
       editBtn.addEventListener('click', (event) => {
@@ -179,9 +126,9 @@ export function createSnippetsManager({
       item.appendChild(actions);
       snippetsList.appendChild(item);
     });
-  }
+  };
 
-  function openSnippetModal({ sql = '', name = '', id = null } = {}) {
+  const openSnippetModal = ({ sql = '', name = '', id = null } = {}) => {
     if (!snippetModal) return;
     pendingSnippetSql = sql;
     editingSnippetId = id;
@@ -192,39 +139,34 @@ export function createSnippetsManager({
         snippetNameInput.select();
       }, 0);
     }
-    const editor = getSnippetEditor();
-    if (editor) {
-      editor.setValue(sql || '');
-      setTimeout(() => editor.refresh(), 0);
+    if (setSnippetValue) {
+      setSnippetValue(sql || '');
     } else if (snippetQueryInput) {
       snippetQueryInput.value = sql || '';
     }
     snippetModal.classList.remove('hidden');
-  }
+  };
 
-  function closeSnippetModal() {
+  const closeSnippetModal = () => {
     if (!snippetModal) return;
     snippetModal.classList.add('hidden');
     pendingSnippetSql = '';
     editingSnippetId = null;
-  }
+  };
 
-  function saveSnippetFromModal() {
+  const saveSnippetFromModal = async () => {
     if (!getCurrentHistoryKey()) return;
     const name = snippetNameInput ? snippetNameInput.value.trim() : '';
     if (!name) {
-      showError('Informe um nome para o snippet.');
+      if (showError) await showError('Informe um nome para o snippet.');
       return;
     }
-    const editor = getSnippetEditor();
-    const sqlSource = editor
-      ? editor.getValue()
-      : snippetQueryInput
-        ? snippetQueryInput.value
-        : pendingSnippetSql;
+    const sqlSource = getSnippetValue
+      ? getSnippetValue()
+      : (snippetQueryInput ? snippetQueryInput.value : pendingSnippetSql);
     const sql = String(sqlSource || '').trim();
     if (!sql) {
-      showError('Snippet sem query.');
+      if (showError) await showError('Snippet sem query.');
       return;
     }
     const list = readSnippets();
@@ -270,19 +212,19 @@ export function createSnippetsManager({
     writeSnippets(list.slice(0, 100));
     renderSnippetsList();
     closeSnippetModal();
-  }
+  };
 
-  function bindEvents() {
+  const bindEvents = () => {
     if (addSnippetBtn) {
       addSnippetBtn.addEventListener('click', async () => {
         if (!getCurrentHistoryKey()) {
-          await showError('Conecte para salvar snippets.');
+          if (showError) await showError('Conecte para salvar snippets.');
           return;
         }
-        const sqlText = getQueryValue();
+        const sqlText = getQueryValue ? getQueryValue() : '';
         const trimmed = String(sqlText || '').trim();
         if (!trimmed) {
-          await showError('Digite uma query para salvar como snippet.');
+          if (showError) await showError('Digite uma query para salvar como snippet.');
           return;
         }
         const suggestion = trimmed.split('\n')[0].slice(0, 40);
@@ -326,12 +268,13 @@ export function createSnippetsManager({
         }
       });
     }
-  }
+  };
+
+  bindEvents();
 
   return {
     renderSnippetsList,
-    bindEvents,
-    saveSnippetFromModal,
+    openSnippetModal,
     closeSnippetModal
   };
 }

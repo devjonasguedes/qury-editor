@@ -1,8 +1,35 @@
-import { createScopedStorage } from './storage.js';
-
 const HISTORY_KEY = 'sqlEditor.queryHistory';
 
-export function createHistoryManager({
+const safeJsonParse = (raw, fallback) => {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
+};
+
+const readJson = (key, fallback) => {
+  if (!key) return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return safeJsonParse(raw, fallback);
+  } catch (_) {
+    return fallback;
+  }
+};
+
+const writeJson = (key, value) => {
+  if (!key) return false;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (_) {
+    return false;
+  }
+};
+
+export function createQueryHistory({
   historyList,
   getCurrentHistoryKey,
   getActiveTab,
@@ -11,18 +38,25 @@ export function createHistoryManager({
   createNewQueryTab,
   setQueryValue
 }) {
-  const historyStore = createScopedStorage(HISTORY_KEY, getCurrentHistoryKey);
+  const buildKey = () => {
+    const scope = typeof getCurrentHistoryKey === 'function' ? getCurrentHistoryKey() : null;
+    if (!scope) return null;
+    return `${HISTORY_KEY}:${scope}`;
+  };
 
-  function readHistory() {
-    return historyStore.readList([]);
-  }
+  const readHistory = () => {
+    const key = buildKey();
+    return Array.isArray(readJson(key, [])) ? readJson(key, []) : [];
+  };
 
-  function writeHistory(list) {
-    historyStore.writeList(list);
-  }
+  const writeHistory = (list) => {
+    const key = buildKey();
+    if (!key) return;
+    writeJson(key, list);
+  };
 
-  function recordHistory(sqlText) {
-    const key = getCurrentHistoryKey();
+  const recordHistory = (sqlText) => {
+    const key = buildKey();
     if (!key) return;
     const text = String(sqlText || '').trim();
     if (!text) return;
@@ -32,11 +66,11 @@ export function createHistoryManager({
     next.unshift({ sql: normalized, ts: Date.now() });
     writeHistory(next.slice(0, 50));
     renderHistoryList();
-  }
+  };
 
-  function renderHistoryList() {
+  const renderHistoryList = () => {
     if (!historyList) return;
-    if (!getCurrentHistoryKey()) {
+    if (!buildKey()) {
       historyList.innerHTML = '';
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
@@ -59,7 +93,7 @@ export function createHistoryManager({
 
       const title = document.createElement('div');
       title.className = 'history-title';
-      title.textContent = entry.sql.split('\n')[0];
+      title.textContent = String(entry.sql || '').split('\n')[0];
 
       const meta = document.createElement('div');
       meta.className = 'history-meta';
@@ -72,19 +106,19 @@ export function createHistoryManager({
       item.addEventListener('click', () => {
         const sql = entry.sql || '';
         if (!sql) return;
-        const tab = getActiveTab();
-        if (!tab || (isTableTab(tab) && !isTableEditor(tab))) {
-          createNewQueryTab(sql);
-          setQueryValue(sql);
+        const tab = getActiveTab ? getActiveTab() : null;
+        if (!tab || (isTableTab && isTableTab(tab) && isTableEditor && !isTableEditor(tab))) {
+          if (createNewQueryTab) createNewQueryTab(sql);
+          if (setQueryValue) setQueryValue(sql);
           return;
         }
-        setQueryValue(sql);
+        if (setQueryValue) setQueryValue(sql);
         if (tab) tab.query = sql;
       });
 
       historyList.appendChild(item);
     });
-  }
+  };
 
   return {
     recordHistory,

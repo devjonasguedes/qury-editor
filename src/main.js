@@ -3,11 +3,20 @@ const path = require('path');
 const fs = require('fs');
 const mysql = require('mysql2/promise');
 const { Client } = require('pg');
+const initSqlJs = require('sql.js');
 
 let mainWindow = null;
 let current = null; // { type, client }
+let db = null;
+let dbPromise = null;
 
-const connectionsFile = () => path.join(app.getPath('userData'), 'connections.json');
+function dataDir() {
+  if (app.isPackaged) return app.getPath('userData');
+  return path.join(__dirname, '..', 'data');
+}
+
+const connectionsFile = () => path.join(dataDir(), 'connections.json');
+const connectionsDb = () => path.join(dataDir(), 'connections.db');
 
 function readSavedConnections() {
   try {
@@ -22,6 +31,177 @@ function readSavedConnections() {
 function writeSavedConnections(list) {
   fs.mkdirSync(path.dirname(connectionsFile()), { recursive: true });
   fs.writeFileSync(connectionsFile(), JSON.stringify(list, null, 2), 'utf8');
+}
+
+async function initDb() {
+  if (db) return db;
+  if (!dbPromise) {
+    const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm');
+    dbPromise = initSqlJs({
+      locateFile: (file) => {
+        if (file === 'sql-wasm.wasm') return wasmPath;
+        return file;
+      }
+    }).then((SQL) => {
+      const filePath = connectionsDb();
+      let instance = null;
+      if (fs.existsSync(filePath)) {
+        const data = fs.readFileSync(filePath);
+        instance = new SQL.Database(new Uint8Array(data));
+      } else {
+        instance = new SQL.Database();
+      }
+      instance.run(`
+        CREATE TABLE IF NOT EXISTS connections (
+          name TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          host TEXT,
+          port TEXT,
+          user TEXT,
+          password TEXT,
+          database TEXT,
+          read_only INTEGER DEFAULT 0,
+          created_at INTEGER,
+          updated_at INTEGER
+        )
+      `);
+      ensureConnectionsSchema(instance);
+      migrateConnectionsIfNeeded(instance);
+      return instance;
+    });
+  }
+  db = await dbPromise;
+  return db;
+}
+
+function ensureConnectionsSchema(dbInstance) {
+  let changed = false;
+  try {
+    const res = dbInstance.exec('PRAGMA table_info(connections)');
+    const cols = res && res[0] && res[0].values ? res[0].values.map((row) => row[1]) : [];
+    if (!cols.includes('read_only')) {
+      dbInstance.run('ALTER TABLE connections ADD COLUMN read_only INTEGER DEFAULT 0');
+      changed = true;
+    }
+  } catch (err) {
+    console.error('Failed to ensure connections schema:', err);
+  }
+  if (changed) {
+    persistDb(dbInstance);
+  }
+}
+
+function migrateConnectionsIfNeeded(dbInstance) {
+  const count = getScalar(dbInstance, 'SELECT COUNT(*) AS count FROM connections');
+  if (count > 0) return;
+  const list = readSavedConnections();
+  if (!list || list.length === 0) return;
+  const now = Date.now();
+  const byName = new Map();
+  list.forEach((item) => {
+    if (!item || !item.name) return;
+    byName.set(item.name, item);
+  });
+  const stmt = dbInstance.prepare(`
+    INSERT OR REPLACE INTO connections
+      (name, type, host, port, user, password, database, read_only, created_at, updated_at)
+    VALUES
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const item of byName.values()) {
+    const readOnly = item.read_only || item.readOnly ? 1 : 0;
+    stmt.run([
+      item.name,
+      item.type,
+      item.host || '',
+      item.port || '',
+      item.user || '',
+      item.password || '',
+      item.database || '',
+      readOnly,
+      now,
+      now
+    ]);
+  }
+  stmt.free();
+  persistDb(dbInstance);
+}
+
+function getScalar(dbInstance, sql) {
+  const stmt = dbInstance.prepare(sql);
+  const row = stmt.getAsObject();
+  stmt.free();
+  return row && row.count ? row.count : 0;
+}
+
+function rowsFromExec(result) {
+  if (!result || result.length === 0) return [];
+  const { columns, values } = result[0];
+  return values.map((row) => {
+    const obj = {};
+    columns.forEach((col, idx) => {
+      obj[col] = row[idx];
+    });
+    return obj;
+  });
+}
+
+function persistDb(dbInstance) {
+  const data = dbInstance.export();
+  fs.mkdirSync(path.dirname(connectionsDb()), { recursive: true });
+  fs.writeFileSync(connectionsDb(), Buffer.from(data));
+}
+
+async function listConnections() {
+  const dbInstance = await initDb();
+  const res = dbInstance.exec(
+    'SELECT name, type, host, port, user, password, database, read_only FROM connections ORDER BY name'
+  );
+  return rowsFromExec(res);
+}
+
+async function saveConnection(entry) {
+  const dbInstance = await initDb();
+  const now = Date.now();
+  const stmt = dbInstance.prepare(`
+    INSERT INTO connections
+      (name, type, host, port, user, password, database, read_only, created_at, updated_at)
+    VALUES
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      type = excluded.type,
+      host = excluded.host,
+      port = excluded.port,
+      user = excluded.user,
+      password = excluded.password,
+      database = excluded.database,
+      read_only = excluded.read_only,
+      updated_at = excluded.updated_at
+  `);
+  stmt.run([
+    entry.name,
+    entry.type,
+    entry.host || '',
+    entry.port || '',
+    entry.user || '',
+    entry.password || '',
+    entry.database || '',
+    entry.read_only ? 1 : 0,
+    now,
+    now
+  ]);
+  stmt.free();
+  persistDb(dbInstance);
+  return listConnections();
+}
+
+async function deleteConnection(name) {
+  const dbInstance = await initDb();
+  const stmt = dbInstance.prepare('DELETE FROM connections WHERE name = ?');
+  stmt.run([name]);
+  stmt.free();
+  persistDb(dbInstance);
+  return listConnections();
 }
 
 async function disconnect() {
@@ -59,6 +239,8 @@ process.on('unhandledRejection', (reason) => {
 
 app.on('before-quit', () => {
   disconnect();
+  db = null;
+  dbPromise = null;
 });
 
 app.on('window-all-closed', () => {
@@ -74,21 +256,15 @@ app.on('activate', () => {
 });
 
 ipcMain.handle('connections:list', async () => {
-  return readSavedConnections();
+  return listConnections();
 });
 
 ipcMain.handle('connections:save', async (_evt, entry) => {
-  const list = readSavedConnections();
-  const filtered = list.filter((c) => c.name !== entry.name);
-  filtered.push(entry);
-  writeSavedConnections(filtered);
-  return filtered;
+  return saveConnection(entry);
 });
 
 ipcMain.handle('connections:delete', async (_evt, name) => {
-  const list = readSavedConnections().filter((c) => c.name !== name);
-  writeSavedConnections(list);
-  return list;
+  return deleteConnection(name);
 });
 
 ipcMain.handle('db:connect', async (_evt, config) => {

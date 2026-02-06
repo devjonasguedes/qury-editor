@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQL Editor</title>
+    <link
+      rel="stylesheet"
+      href="../node_modules/bootstrap-icons/font/bootstrap-icons.css"
+    />
+    <link rel="stylesheet" href="../node_modules/codemirror/lib/codemirror.css" />
+    <link rel="stylesheet" href="../node_modules/codemirror/addon/hint/show-hint.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">SQL Editor</div>
+        <div class="status-area">
+          <div class="conn-status" id="connStatus">Desconectado</div>
+          <select id="dbSelect" class="db-select hidden"></select>
+          <span id="connectSpinner" class="spinner hidden"></span>
+          <button id="exitBtn" class="secondary hidden">Desconectar</button>
+          <button id="themeToggle" class="icon-btn" title="Alternar tema">
+            <i class="bi bi-sun"></i>
+          </button>
+        </div>
+      </header>
+
+      <section class="main hidden" id="mainScreen">
+        <div class="sidebar-shell" id="sidebarShell">
+          <div class="sidebar-menu">
+            <button id="sidebarTreeBtn" class="sidebar-icon active" title="Tree View">
+              <i class="bi bi-diagram-3"></i>
+            </button>
+            <button id="sidebarHistoryBtn" class="sidebar-icon" title="Histórico">
+              <i class="bi bi-clock-history"></i>
+            </button>
+          </div>
+          <aside class="tables">
+            <div id="tablePanel" class="sidebar-panel">
+              <div class="panel-title">Database</div>
+              <div class="table-search">
+                <i class="bi bi-search"></i>
+                <input
+                  id="tableSearch"
+                  placeholder="Search tables..."
+                />
+                <button id="tableSearchClear" class="table-search-clear" title="Limpar">
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+              <div id="tableList"></div>
+            </div>
+            <div id="historyPanel" class="sidebar-panel hidden">
+              <div class="panel-title">Histórico</div>
+              <div id="historyList" class="history-list"></div>
+            </div>
+          </aside>
+        </div>
+        <div id="sidebarResizer" class="sidebar-resizer"></div>
+
+        <div class="workspace">
+          <div class="welcome-screen hidden" id="welcomeScreen">
+            <div class="onboard welcome-card">
+              <div class="onboard-header">
+                <div>
+                  <div class="connect-title">Bem-vindo</div>
+                  <div class="connect-subtitle">Conecte-se rapidamente ou escolha uma conexão salva.</div>
+                </div>
+                <div class="welcome-actions">
+                  <button id="quickConnectBtn" class="secondary">Conexão rápida</button>
+                  <button id="openConnectModalBtn">Nova conexão</button>
+                </div>
+              </div>
+              <div class="welcome-note">Conexão rápida não fica salva após desconectar.</div>
+              <div class="onboard-grid">
+                <div class="saved-card">
+                  <div class="saved-header">Conexões salvas</div>
+                  <div id="savedList" class="saved-list"></div>
+                </div>
+                <div class="saved-card">
+                  <div class="saved-header">Últimas conexões</div>
+                  <div id="recentList" class="saved-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="editor">
+            <div class="tab-bar" id="tabBar">
+              <button
+                id="newTabBtn"
+                class="icon-btn tab-add"
+                title="Nova aba (⌘T)"
+              >
+                <i class="bi bi-plus"></i>
+              </button>
+            </div>
+            <div class="editor-toolbar">
+              <div class="editor-search">
+                <input id="queryFilter" placeholder="id > 100" />
+                <button
+                  id="applyFilterBtn"
+                  class="icon-btn apply-filter-btn hidden"
+                  title="Aplicar filtro (⏎)"
+                >
+                  <i class="bi bi-funnel"></i>
+                </button>
+                <span id="querySpinner" class="spinner hidden"></span>
+              </div>
+              <div class="editor-actions">
+                <select
+                  id="limitSelect"
+                  class="limit-select"
+                  title="Limite padrão"
+                >
+                  <option value="50">50</option>
+                  <option value="100" selected>100</option>
+                  <option value="200">200</option>
+                  <option value="500">500</option>
+                  <option value="1000">1000</option>
+                  <option value="none">Sem limite</option>
+                </select>
+                <button
+                  id="countBtn"
+                  class="icon-btn count-btn"
+                  title="Contar registros"
+                >
+                  <i class="bi bi-123"></i>
+                </button>
+                <button
+                  id="toggleEditorBtn"
+                  class="icon-btn toggle-editor-btn"
+                  title="Editar SQL"
+                >
+                  <i class="bi bi-code-slash"></i>
+                </button>
+                <button
+                  id="formatBtn"
+                  class="icon-btn format-btn"
+                  title="Formatar (⌥⇧F)"
+                >
+                  <i class="bi bi-braces"></i>
+                </button>
+                <button
+                  id="runSelectionBtn"
+                  class="icon-btn run-selection-btn"
+                  title="Executar seleção (⇧⏎)"
+                >
+                  <i class="bi bi-cursor-text"></i>
+                </button>
+                <button
+                  id="runBtn"
+                  class="icon-btn run-btn"
+                  title="Executar (⌘⏎)"
+                >
+                  <i class="bi bi-lightning-charge-fill"></i>
+                </button>
+              </div>
+            </div>
+            <div class="editor-body">
+              <textarea
+                id="query"
+                placeholder="Digite sua query SQL"
+              ></textarea>
+            </div>
+          </div>
+          <div class="results" id="resultsPanel">
+            <div class="results-table">
+              <table id="resultsTable"></table>
+            </div>
+            <div class="results-footer">
+              <div id="queryStatus" class="query-status"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div id="connectModal" class="modal hidden">
+        <div id="connectModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card">
+          <div class="connect-panel">
+            <div class="connect-header">
+              <div>
+                <div id="connectModalTitle" class="connect-title">Nova conexão</div>
+                <div id="connectModalSubtitle" class="connect-subtitle">
+                  Preencha os dados para conectar ao banco.
+                </div>
+              </div>
+              <button id="closeConnectModalBtn" class="icon-btn" title="Fechar">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label>Tipo</label>
+                <select id="dbType">
+                  <option value="mysql">MySQL</option>
+                  <option value="postgres">PostgreSQL</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label>Host</label>
+                <input id="host" placeholder="localhost" />
+              </div>
+
+              <div class="field">
+                <label>Porta</label>
+                <input id="port" placeholder="3306 / 5432" />
+              </div>
+
+              <div class="field">
+                <label>Usuário</label>
+                <input id="user" />
+              </div>
+
+              <div class="field">
+                <label>Senha</label>
+                <input id="password" type="password" />
+              </div>
+
+              <div class="field">
+                <label>Database</label>
+                <input id="database" placeholder="opcional" />
+              </div>
+
+              <div class="field span-2 checkbox-field">
+                <label>
+                  <input id="readOnly" type="checkbox" />
+                  Somente leitura (produção)
+                </label>
+                <div class="field-hint">Bloqueia INSERT/UPDATE/DELETE/DDL.</div>
+              </div>
+
+              <div class="field span-2 save-only">
+                <label>Nome p/ salvar</label>
+                <input id="saveName" placeholder="ex: Produção" />
+              </div>
+
+              <div class="actions">
+                <button id="connectBtn">Conectar</button>
+                <button id="saveBtn" class="save-only">Salvar</button>
+                <button id="testBtn" class="secondary">Testar</button>
+                <button id="clearFormBtn" class="secondary">Limpar</button>
+                <button id="cancelEditBtn" class="secondary hidden">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="../node_modules/codemirror/lib/codemirror.js"></script>
+    <script src="../node_modules/codemirror/mode/sql/sql.js"></script>
+    <script src="../node_modules/codemirror/addon/hint/show-hint.js"></script>
+    <script src="../node_modules/codemirror/addon/hint/sql-hint.js"></script>
+    <script src="../node_modules/sql-formatter/dist/sql-formatter.min.js"></script>
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>

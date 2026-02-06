@@ -4,17 +4,11 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;"
+      content="default-src 'self' http://localhost:5173; script-src 'self' 'unsafe-eval' http://localhost:5173; style-src 'self' 'unsafe-inline' http://localhost:5173; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173;"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SQL Editor</title>
-    <link
-      rel="stylesheet"
-      href="../node_modules/bootstrap-icons/font/bootstrap-icons.css"
-    />
-    <link rel="stylesheet" href="../node_modules/codemirror/lib/codemirror.css" />
-    <link rel="stylesheet" href="../node_modules/codemirror/addon/hint/show-hint.css" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
     <div id="app">
@@ -40,6 +34,9 @@
             <button id="sidebarHistoryBtn" class="sidebar-icon" title="Histórico">
               <i class="bi bi-clock-history"></i>
             </button>
+            <button id="sidebarSnippetsBtn" class="sidebar-icon" title="Snippets">
+              <i class="bi bi-bookmark-star"></i>
+            </button>
           </div>
           <aside class="tables">
             <div id="tablePanel" class="sidebar-panel">
@@ -64,6 +61,15 @@
             <div id="historyPanel" class="sidebar-panel hidden">
               <div class="panel-title">Histórico</div>
               <div id="historyList" class="history-list"></div>
+            </div>
+            <div id="snippetsPanel" class="sidebar-panel hidden">
+              <div class="panel-title with-actions">
+                <span>Snippets</span>
+                <button id="addSnippetBtn" class="icon-btn mini" title="Salvar snippet">
+                  <i class="bi bi-plus-lg"></i>
+                </button>
+              </div>
+              <div id="snippetsList" class="snippets-list"></div>
             </div>
           </aside>
         </div>
@@ -376,13 +382,37 @@
           </div>
         </div>
       </div>
+
+      <div id="snippetModal" class="modal hidden">
+        <div id="snippetModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card small">
+          <div class="connect-panel">
+            <div class="connect-header">
+              <div>
+                <div class="connect-title">Salvar snippet</div>
+                <div class="connect-subtitle">Guarde sua query para reutilizar depois.</div>
+              </div>
+              <button id="snippetCloseBtn" class="icon-btn" title="Fechar">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="field">
+              <label>Nome do snippet</label>
+              <input id="snippetNameInput" placeholder="ex: Pedidos pendentes" />
+            </div>
+            <div class="field">
+              <label>Query</label>
+              <textarea id="snippetQueryInput" rows="6" placeholder="SELECT ..."></textarea>
+            </div>
+            <div class="actions end">
+              <button id="snippetCancelBtn" class="secondary">Cancelar</button>
+              <button id="snippetSaveBtn">Salvar</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <script src="../node_modules/codemirror/lib/codemirror.js"></script>
-    <script src="../node_modules/codemirror/mode/sql/sql.js"></script>
-    <script src="../node_modules/codemirror/addon/hint/show-hint.js"></script>
-    <script src="../node_modules/codemirror/addon/hint/sql-hint.js"></script>
-    <script src="../node_modules/sql-formatter/dist/sql-formatter.min.js"></script>
-    <script type="module" src="renderer.js"></script>
+    <script type="module" src="/src/renderer.js"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-@import "../node_modules/@fontsource/fira-code/index.css";
+@import "@fontsource/fira-code/index.css";
 
 /* ====
 global
@@ -395,6 +395,10 @@ body.theme-light .welcome-screen .onboard {
   overflow: auto;
 }
 
+.modal-card.small {
+  width: min(520px, 92vw);
+}
+
 .row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -505,6 +509,10 @@ actions & buttons
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.actions.end {
+  justify-content: flex-end;
 }
 
 button {
@@ -1078,6 +1086,14 @@ body.theme-light .table-search {
   min-height: 0;
 }
 
+.snippets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-height: 0;
+}
+
 .history-item {
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1105,6 +1121,53 @@ body.theme-light .table-search {
 .history-meta {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.snippet-item {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.snippet-item:hover {
+  background: var(--surface-4);
+}
+
+.snippet-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+}
+
+.snippet-title {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snippet-sql {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snippet-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ====
@@ -1383,6 +1446,18 @@ editor (CodeMirror)
   font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 14px;
   line-height: 22px;
+}
+
+#snippetModal .CodeMirror {
+  height: 180px;
+  background: var(--surface-6);
+  border: 1px solid var(--surface-5);
+  border-radius: 4px;
+}
+
+#snippetModal .CodeMirror-gutters {
+  background: var(--surface-6);
+  border-right: 1px solid var(--surface-5);
 }
 
 .editor-resizer {

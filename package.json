@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dev": "electronmon ."
+    "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && VITE_DEV_SERVER_URL=http://localhost:5173 electronmon .\"",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@fontsource/fira-code": "^5.2.7",
@@ -19,6 +21,9 @@
     "sql.js": "^1.10.3"
   },
   "devDependencies": {
-    "electronmon": "^2.0.3"
+    "concurrently": "^9.1.2",
+    "electronmon": "^2.0.3",
+    "vite": "^5.4.14",
+    "wait-on": "^7.2.0"
   }
 }

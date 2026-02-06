@@ -94,7 +94,7 @@ ipcMain.handle('connections:delete', async (_evt, name) => {
 ipcMain.handle('db:connect', async (_evt, config) => {
   try {
     await disconnect();
-    const type = config.type;
+    const type = config.type === 'postgres' ? 'postgresql' : config.type;
 
     if (type === 'mysql') {
     const client = await mysql.createConnection({
@@ -171,6 +171,31 @@ ipcMain.handle('db:listTables', async () => {
   return { ok: false, error: 'Tipo de banco não suportado.' };
 });
 
+ipcMain.handle('db:listColumns', async (_evt, payload) => {
+  if (!current) return { ok: false, error: 'Não conectado.' };
+  const schema = payload && payload.schema ? payload.schema : current.database || '';
+  const table = payload && payload.table ? payload.table : '';
+  if (!table) return { ok: false, error: 'Tabela inválida.' };
+
+  if (current.type === 'mysql') {
+    const [rows] = await current.client.query(
+      'SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position',
+      [schema, table]
+    );
+    return { ok: true, columns: rows };
+  }
+
+  if (current.type === 'postgresql' || current.type === 'postgres') {
+    const res = await current.client.query(
+      'SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position',
+      [schema, table]
+    );
+    return { ok: true, columns: res.rows || [] };
+  }
+
+  return { ok: false, error: 'Tipo de banco não suportado.' };
+});
+
 ipcMain.handle('db:listDatabases', async () => {
   if (!current) return { ok: false, error: 'Não conectado.' };
 
@@ -220,6 +245,44 @@ ipcMain.handle('db:useDatabase', async (_evt, name) => {
   }
 
   return { ok: false, error: 'Tipo de banco não suportado.' };
+});
+
+ipcMain.handle('db:testConnection', async (_evt, config) => {
+  try {
+    const type = config.type;
+    if (type === 'mysql') {
+      const client = await mysql.createConnection({
+        host: config.host,
+        port: Number(config.port || 3306),
+        user: config.user,
+        password: config.password,
+        database: config.database || undefined
+      });
+      await client.query('SELECT 1');
+      await client.end();
+      return { ok: true };
+    }
+
+    if (type === 'postgres') {
+      const database = config.database || config.user || 'postgres';
+      const client = new Client({
+        host: config.host,
+        port: Number(config.port || 5432),
+        user: config.user,
+        password: config.password,
+        database
+      });
+      await client.connect();
+      await client.query('SELECT 1');
+      await client.end();
+      return { ok: true };
+    }
+
+    return { ok: false, error: 'Tipo de banco não suportado.' };
+  } catch (err) {
+    const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao testar conexão.';
+    return { ok: false, error: message };
+  }
 });
 
 ipcMain.handle('db:runQuery', async (_evt, sql) => {

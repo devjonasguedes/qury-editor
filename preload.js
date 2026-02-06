@@ -7,8 +7,10 @@ contextBridge.exposeInMainWorld('api', {
   connect: (config) => ipcRenderer.invoke('db:connect', config),
   disconnect: () => ipcRenderer.invoke('db:disconnect'),
   listTables: () => ipcRenderer.invoke('db:listTables'),
+  listColumns: (payload) => ipcRenderer.invoke('db:listColumns', payload),
   listDatabases: () => ipcRenderer.invoke('db:listDatabases'),
   useDatabase: (name) => ipcRenderer.invoke('db:useDatabase', name),
+  testConnection: (config) => ipcRenderer.invoke('db:testConnection', config),
   runQuery: (sql) => ipcRenderer.invoke('db:runQuery', sql),
   showError: (message) => ipcRenderer.invoke('dialog:error', message)
 });

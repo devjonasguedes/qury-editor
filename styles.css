@@ -93,12 +93,29 @@ login
 .connect-panel {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 14px;
   padding: 18px 24px 22px;
   background: var(--panel);
   box-shadow: var(--shadow);
   margin: 12px 24px 0;
   border-radius: 14px;
+}
+
+.connect-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connect-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e9edf1;
+}
+
+.connect-subtitle {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .connect-screen {
@@ -118,20 +135,26 @@ login
 
 .row {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   align-items: end;
 }
 
-.row label {
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--muted);
 }
 
-.row input,
-.row select {
+.field input,
+.field select {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -139,13 +162,18 @@ login
   color: var(--text);
 }
 
+.field.span-2 {
+  grid-column: span 2;
+}
+
 /* ====
 actions & buttons
 ==== */
 .actions {
-  grid-column: span 6;
+  grid-column: 1 / -1;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 button {
@@ -267,6 +295,11 @@ saved connections
   color: #ffffff;
 }
 
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ====
 sidebar tree
 ==== */
@@ -281,12 +314,46 @@ sidebar tree
 .tree-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   padding: 4px 6px;
   border-radius: 6px;
   color: var(--text);
   cursor: pointer;
   font-size: 14px;
+}
+
+.tree-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tree-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  opacity: 0.6;
+  transition: opacity 0.12s ease;
+}
+
+.tree-item:hover .tree-actions {
+  opacity: 1;
+}
+
+.tree-action {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 0;
+}
+
+.tree-action i {
+  pointer-events: none;
 }
 
 .tree-item:hover {
@@ -300,6 +367,18 @@ sidebar tree
 
 .tree-leaf {
   color: #c9ced6;
+}
+
+.tree-column {
+  color: #9ea5b0;
+  font-size: 12px;
+}
+
+.tree-column-type {
+  margin-left: auto;
+  color: #6f7682;
+  font-size: 11px;
+  letter-spacing: 0.2px;
 }
 
 .tree-label {
@@ -473,10 +552,54 @@ workspace & editor
   gap: 8px;
 }
 
+.editor-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.editor-search input {
+  width: 100%;
+  max-width: 360px;
+  background: #1f2023;
+  color: var(--text);
+  border: 1px solid #2f3136;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.editor-search input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.apply-filter-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: #25272c;
+}
+
+.apply-filter-btn:hover {
+  background: #2f3239;
+}
+
 .editor-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.limit-select {
+  background: #1f2023;
+  color: var(--text);
+  border: 1px solid #2f3136;
+  border-radius: 10px;
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 .run-btn {
@@ -699,7 +822,7 @@ responsive
   }
 
   .row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 
   .main {

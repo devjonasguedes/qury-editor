@@ -1,3 +1,13 @@
+import {
+  splitStatements,
+  stripLeadingComments,
+  firstDmlKeyword,
+  hasMultipleStatementsWithSelect,
+  insertWhere,
+  isDangerousStatement
+} from './sql.js';
+import { renderTableTree, resetTreeCache } from './tree.js';
+
 const byId = (id) => document.getElementById(id);
 
 const connStatus = byId('connStatus');
@@ -10,6 +20,7 @@ const database = byId('database');
 const saveName = byId('saveName');
 const connectBtn = byId('connectBtn');
 const saveBtn = byId('saveBtn');
+const testBtn = byId('testBtn');
 const clearFormBtn = byId('clearFormBtn');
 const cancelEditBtn = byId('cancelEditBtn');
 const savedList = byId('savedList');
@@ -29,10 +40,14 @@ const connectSpinner = byId('connectSpinner');
 const dbSelect = byId('dbSelect');
 const formatBtn = byId('formatBtn');
 const runSelectionBtn = byId('runSelectionBtn');
+const limitSelect = byId('limitSelect');
+const queryFilter = byId('queryFilter');
+const applyFilterBtn = byId('applyFilterBtn');
+const countBtn = byId('countBtn');
+const editorBody = document.querySelector('.editor-body');
 
 let isConnected = false;
 const MAX_RENDER_ROWS = 2000;
-let currentSort = { column: null, direction: 'asc' };
 let isLoading = false;
 let isConnecting = false;
 let tabs = [];
@@ -135,6 +150,10 @@ function getActiveTab() {
   return tabs.find((t) => t.id === activeTabId) || null;
 }
 
+function isTableTab(tab) {
+  return !!tab && tab.kind === 'table';
+}
+
 function renderTabBar() {
   if (!tabBar) return;
   tabBar.innerHTML = '';
@@ -169,20 +188,59 @@ function setActiveTab(tabId) {
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
     return;
   }
-  setQueryValue(tab.query || '');
+  const tableTab = isTableTab(tab);
+  const filterEnabled = tableTab || !!tab.filterEnabled;
+  if (queryFilter) {
+    queryFilter.value = tab.filter || '';
+    queryFilter.disabled = !filterEnabled;
+  }
+  if (editorBody) editorBody.classList.toggle('hidden', tableTab);
+  if (formatBtn) formatBtn.classList.toggle('hidden', tableTab);
+  if (runSelectionBtn) runSelectionBtn.classList.toggle('hidden', tableTab);
+  if (runBtn) runBtn.classList.toggle('hidden', tableTab);
+  if (applyFilterBtn) {
+    applyFilterBtn.classList.toggle('hidden', false);
+    applyFilterBtn.disabled = !filterEnabled || isLoading || isConnecting;
+  }
+  if (countBtn) {
+    countBtn.disabled = !tableTab || isLoading || isConnecting;
+  }
+  if (!tableTab) {
+    setQueryValue(tab.query || '');
+  } else {
+    setQueryValue(tab.baseQuery || tab.query || '', { focus: false });
+  }
   if (tab.rows) {
     buildTable(tab.rows);
   } else {
     resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
   }
+  updateRunAvailability();
 }
 
-function createTab(title, queryText) {
+function createTab(title, queryText, options = {}) {
+  let resolvedTitle = title;
+  let resolvedQuery = queryText;
+  let resolvedOptions = options;
+
+  if (typeof title === 'object' && title !== null) {
+    resolvedOptions = title;
+    resolvedTitle = resolvedOptions.title;
+    resolvedQuery = resolvedOptions.query || '';
+  }
+
+  const kind = resolvedOptions.kind || 'query';
+  const baseQuery = resolvedOptions.baseQuery || (kind === 'table' ? resolvedQuery : '');
   const tab = {
     id: `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    title: title || `Query ${tabCounter++}`,
-    query: queryText || '',
-    rows: null
+    title: resolvedTitle || `Query ${tabCounter++}`,
+    query: resolvedQuery || '',
+    baseQuery: baseQuery || '',
+    filter: resolvedOptions.filter || '',
+    filterEnabled: kind === 'table',
+    filterSource: resolvedOptions.filterSource || '',
+    rows: null,
+    kind
   };
   tabs.push(tab);
   setActiveTab(tab.id);
@@ -257,6 +315,7 @@ function setConnecting(loading) {
   if (connectSpinner) connectSpinner.classList.toggle('hidden', !loading);
   if (connectBtn) connectBtn.disabled = loading;
   if (saveBtn) saveBtn.disabled = loading;
+  if (testBtn) testBtn.disabled = loading;
   if (clearFormBtn) clearFormBtn.disabled = loading;
   if (cancelEditBtn) cancelEditBtn.disabled = loading;
   if (dbSelect) dbSelect.disabled = loading;
@@ -300,6 +359,18 @@ async function connectWithLoading(config) {
   }
 }
 
+async function testConnectionWithLoading(config) {
+  if (isConnecting) return { ok: false, error: 'Conexão em andamento.' };
+  setConnecting(true);
+  try {
+    return await window.api.testConnection(config);
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : 'Erro ao testar conexão.' };
+  } finally {
+    setConnecting(false);
+  }
+}
+
 function initEditor() {
   if (!window.CodeMirror || !query) return;
   editor = window.CodeMirror.fromTextArea(query, {
@@ -313,27 +384,39 @@ function initEditor() {
     extraKeys: {
       'Ctrl-Enter': () => {
         ensureActiveTab();
+        const tab = getActiveTab();
+        if (isTableTab(tab)) return;
         const full = getQueryValue();
         if (hasMultipleStatementsWithSelect(full)) {
           window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
           return;
         }
-        safeRunQueries(full).catch(() => {});
+        safeRunQueries(full).then((ok) => {
+          if (ok) enableQueryFilter(tab, full);
+        });
       },
       'Cmd-Enter': () => {
         ensureActiveTab();
+        const tab = getActiveTab();
+        if (isTableTab(tab)) return;
         const full = getQueryValue();
         if (hasMultipleStatementsWithSelect(full)) {
           window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
           return;
         }
-        safeRunQueries(full).catch(() => {});
+        safeRunQueries(full).then((ok) => {
+          if (ok) enableQueryFilter(tab, full);
+        });
       },
       'Shift-Enter': () => {
         ensureActiveTab();
-        const sql = getSelectionOrStatement();
-        if (!sql) return;
-        safeRunQueries(sql).catch(() => {});
+        const tab = getActiveTab();
+        if (isTableTab(tab)) return;
+        const baseSql = getSelectionOrStatement(false);
+        if (!baseSql) return;
+        safeRunQueries(baseSql).then((ok) => {
+          if (ok) enableQueryFilter(tab, baseSql);
+        });
       },
       'Shift-Alt-F': () => {
         formatSQL();
@@ -347,13 +430,26 @@ function initEditor() {
   editor.on('change', () => {
     if (isSettingEditor) return;
     const tab = getActiveTab();
-    if (tab) tab.query = editor.getValue();
+    if (tab && !isTableTab(tab)) {
+      tab.query = editor.getValue();
+      if (tab.filterEnabled) {
+        if (queryFilter && queryFilter.value.trim()) {
+          queryFilter.value = '';
+          tab.filter = '';
+        }
+        tab.filterSource = tab.query;
+      }
+    }
     updateRunAvailability();
   });
 
 }
 
 function getQueryValue() {
+  const tab = getActiveTab();
+  if (isTableTab(tab)) {
+    return tab.baseQuery || tab.query || '';
+  }
   return editor ? editor.getValue() : query.value;
 }
 
@@ -365,10 +461,13 @@ function getSelectedQuery() {
   return null;
 }
 
-function getSelectionOrStatement() {
+function getSelectionOrStatement(withLimit = true) {
   if (!editor) return null;
   const selection = editor.getSelection();
-  if (selection && selection.trim()) return selection;
+  if (selection && selection.trim()) {
+    const trimmed = selection.trim();
+    return withLimit ? applyLimit(trimmed) : trimmed;
+  }
 
   const doc = editor.getDoc();
   const cursor = doc.getCursor();
@@ -379,7 +478,8 @@ function getSelectionOrStatement() {
   const statements = splitStatements(fullText);
   if (statements.length <= 1) {
     const stmt = (statements[0] || '').trim();
-    return stmt || null;
+    if (!stmt) return null;
+    return withLimit ? applyLimit(stmt) : stmt;
   }
 
   // Map each statement back to its position in the original text
@@ -392,161 +492,136 @@ function getSelectionOrStatement() {
     const semiPos = fullText.indexOf(';', stmtEnd);
     const blockEnd = semiPos !== -1 ? semiPos + 1 : stmtEnd;
     if (cursorIndex >= idx && cursorIndex <= blockEnd) {
-      return stmt.trim() || null;
+      const cleaned = stmt.trim();
+      if (!cleaned) return null;
+      return withLimit ? applyLimit(cleaned) : cleaned;
     }
     searchFrom = stmtEnd;
   }
 
   // Fallback: return the last statement if cursor is past all statements
   const last = statements[statements.length - 1].trim();
-  return last || null;
+  if (!last) return null;
+  return withLimit ? applyLimit(last) : last;
 }
 
-function splitStatements(sql) {
-  const statements = [];
-  let current = '';
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inLineComment = false;
-  let inBlockComment = false;
+function applyLimit(sqlText) {
+  if (!limitSelect) return sqlText;
+  const value = limitSelect.value;
+  if (!value || value === 'none') return sqlText;
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit <= 0) return sqlText;
 
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i];
-    const next = sql[i + 1];
+  const clean = sqlText.trim().replace(/;$/, '');
+  const upper = clean.toUpperCase();
+  if (upper.includes(' LIMIT ')) return `${clean};`;
+  return `${clean} LIMIT ${limit};`;
+}
 
-    if (inLineComment) {
-      current += ch;
-      if (ch === '\n') inLineComment = false;
-      continue;
-    }
+function confirmDangerous(statements) {
+  const risky = statements.filter((stmt) => isDangerousStatement(stmt));
+  if (risky.length === 0) return true;
+  const summary = risky
+    .map((stmt) => stripLeadingComments(stmt).trim().split('\n')[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('\n');
+  return confirm(
+    `Atenção: você está executando ${risky.length} comando(s) perigoso(s) (DELETE/DROP sem WHERE).\nDeseja continuar?\n\n${summary}`
+  );
+}
 
-    if (inBlockComment) {
-      current += ch;
-      if (ch === '*' && next === '/') {
-        current += next;
-        i++;
-        inBlockComment = false;
-      }
-      continue;
-    }
+function getWhereFilter() {
+  const tab = getActiveTab();
+  if (tab && typeof tab.filter === 'string') return tab.filter.trim();
+  return queryFilter && queryFilter.value ? queryFilter.value.trim() : '';
+}
 
-    if (!inSingle && !inDouble && !inBacktick) {
-      if (ch === '-' && next === '-') {
-        inLineComment = true;
-        current += ch + next;
-        i++;
-        continue;
-      }
-      if (ch === '/' && next === '*') {
-        inBlockComment = true;
-        current += ch + next;
-        i++;
-        continue;
-      }
-    }
-
-    if (!inDouble && !inBacktick && ch === "'") {
-      if (inSingle && next === "'") {
-        current += ch + next;
-        i++;
-        continue;
-      }
-      inSingle = !inSingle;
-      current += ch;
-      continue;
-    }
-
-    if (!inSingle && !inBacktick && ch === '"') {
-      if (inDouble && next === '"') {
-        current += ch + next;
-        i++;
-        continue;
-      }
-      inDouble = !inDouble;
-      current += ch;
-      continue;
-    }
-
-    if (!inSingle && !inDouble && ch === '`') {
-      inBacktick = !inBacktick;
-      current += ch;
-      continue;
-    }
-
-    if (!inSingle && !inDouble && !inBacktick && ch === ';') {
-      const stmt = current.trim();
-      if (stmt) statements.push(stmt);
-      current = '';
-      continue;
-    }
-
-    current += ch;
+function applyQueryModifiers(sqlText) {
+  const tab = getActiveTab();
+  if (isTableTab(tab)) {
+    const withWhere = insertWhere(sqlText, getWhereFilter());
+    return applyLimit(withWhere);
   }
-
-  const tail = current.trim();
-  if (tail) statements.push(tail);
-  return statements;
+  return applyLimit(sqlText);
 }
 
-function stripLeadingComments(sql) {
-  let s = sql;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    s = s.trimStart();
-    if (s.startsWith('--')) {
-      const idx = s.indexOf('\n');
-      s = idx === -1 ? '' : s.slice(idx + 1);
-      changed = true;
-      continue;
-    }
-    if (s.startsWith('/*')) {
-      const idx = s.indexOf('*/');
-      s = idx === -1 ? '' : s.slice(idx + 2);
-      changed = true;
-    }
+function buildTableSql(tab) {
+  if (!tab) return '';
+  const base = tab.baseQuery || tab.query || '';
+  const filter = tab.filter || '';
+  let sql = insertWhere(base, filter);
+  if (tab.sort && tab.sort.column) {
+    sql = buildOrderBy(sql, tab.sort.column, tab.sort.direction || 'asc');
   }
-  return s.trimStart();
+  return applyLimit(sql);
 }
 
-function firstDmlKeyword(sql) {
-  const s = stripLeadingComments(sql).toLowerCase();
-  if (!s) return '';
-  if (s.startsWith('with')) {
-    const match = s.match(/\b(select|update|insert|delete)\b/);
-    return match ? match[1] : '';
-  }
-  const match = s.match(/^(select|update|insert|delete)\b/);
-  return match ? match[1] : '';
+function buildCountSql(tab) {
+  if (!tab) return '';
+  const base = (tab.baseQuery || tab.query || '').trim();
+  if (!base) return '';
+  const clean = base.replace(/;$/, '');
+  const upper = clean.toUpperCase();
+  const fromIndex = upper.indexOf(' FROM ');
+  if (fromIndex === -1) return '';
+  const fromClause = clean.slice(fromIndex);
+  const countBase = `SELECT COUNT(*) AS total${fromClause}`;
+  return insertWhere(countBase, tab.filter || '');
 }
 
-function hasMultipleStatementsWithSelect(sqlText) {
-  const statements = splitStatements(sqlText);
-  if (statements.length <= 1) return false;
-  return statements.some((stmt) => firstDmlKeyword(stmt) === 'select');
+async function runTableTabQuery(tab) {
+  if (!tab) return;
+  tab.filter = getWhereFilter();
+  const sql = buildTableSql(tab);
+  await runQuery(sql, { storeQuery: false });
+}
+
+function enableQueryFilter(tab, baseSql) {
+  if (!tab || isTableTab(tab)) return;
+  tab.filterEnabled = true;
+  tab.filterSource = baseSql || tab.query || '';
+  if (queryFilter) queryFilter.disabled = false;
+  updateRunAvailability();
 }
 
 function updateRunAvailability() {
   if (!runBtn) return;
-  const sqlText = getQueryValue();
-  const blocked = hasMultipleStatementsWithSelect(sqlText);
-  runBtn.disabled = blocked || isLoading || isConnecting;
+  const tab = getActiveTab();
+  const isTable = isTableTab(tab);
+  if (!tab || isTable) {
+    runBtn.disabled = true;
+  } else {
+    const sqlText = getQueryValue();
+    const blocked = hasMultipleStatementsWithSelect(sqlText);
+    runBtn.disabled = blocked || isLoading || isConnecting;
+  }
+
+  if (applyFilterBtn) {
+    const filterEnabled = !!tab && (isTable || tab.filterEnabled);
+    applyFilterBtn.disabled = !filterEnabled || isLoading || isConnecting;
+  }
+  if (countBtn) {
+    countBtn.disabled = !isTable || isLoading || isConnecting;
+  }
 }
 
-function setQueryValue(value) {
+function setQueryValue(value, options = {}) {
+  const { focus = true, skipUpdate = false } = options;
   if (editor) {
     isSettingEditor = true;
     editor.setValue(value || '');
-    editor.focus();
+    if (focus) editor.focus();
     isSettingEditor = false;
   } else {
     query.value = value || '';
   }
-  updateRunAvailability();
+  if (!skipUpdate) updateRunAvailability();
 }
 
 function formatSQL() {
+  const tab = getActiveTab();
+  if (isTableTab(tab)) return;
   if (!window.sqlFormatter || !window.sqlFormatter.format) {
     window.api.showError('Formatador SQL não disponível.');
     return;
@@ -556,7 +631,6 @@ function formatSQL() {
   const language = dbType.value === 'postgres' ? 'postgresql' : 'mysql';
   const formatted = window.sqlFormatter.format(source, { language });
   setQueryValue(formatted);
-  const tab = getActiveTab();
   if (tab) tab.query = formatted;
 }
 
@@ -564,7 +638,7 @@ function formatSQL() {
 function quoteIdentifier(name) {
   if (!name) return name;
   const parts = String(name).split('.');
-  if (dbType.value === 'postgresql') {
+  if (dbType.value === 'postgres') {
     return parts.map((p) => (p.startsWith('"') ? p : `"${p.replace(/"/g, '""')}"`)).join('.');
   }
   return parts.map((p) => (p.startsWith('`') ? p : `\`${p.replace(/`/g, '``')}\``)).join('.');
@@ -598,170 +672,69 @@ function buildOrderBy(sql, column, direction) {
 }
 
 async function applySort(column) {
-  if (currentSort.column === column) {
-    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+  const tab = getActiveTab();
+  if (!tab) return;
+
+  const sortState = tab.sort || { column: null, direction: 'asc' };
+  if (sortState.column === column) {
+    sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
   } else {
-    currentSort.column = column;
-    currentSort.direction = 'asc';
+    sortState.column = column;
+    sortState.direction = 'asc';
+  }
+  tab.sort = sortState;
+
+  if (isTableTab(tab)) {
+    const sql = buildTableSql(tab);
+    await runQuery(sql, { storeQuery: false });
+    return;
   }
 
-  const sql = buildOrderBy(getQueryValue(), column, currentSort.direction);
+  const sql = buildOrderBy(getQueryValue(), column, sortState.direction);
   setQueryValue(sql);
   await runQuery(sql);
 }
 
 function tableQuery(schema, table) {
-  if (dbType.value === 'postgresql') {
-    return `SELECT * FROM "${schema}"."${table}" LIMIT 500;`;
+  if (dbType.value === 'postgres') {
+    return `SELECT * FROM "${schema}"."${table}";`;
   }
   if (schema) {
-    return `SELECT * FROM \`${schema}\`.\`${table}\` LIMIT 500;`;
+    return `SELECT * FROM \`${schema}\`.\`${table}\`;`;
   }
-  return `SELECT * FROM \`${table}\` LIMIT 500;`;
-}
-
-function getField(row, candidates) {
-  for (const key of candidates) {
-    if (row && Object.prototype.hasOwnProperty.call(row, key)) return row[key];
-  }
-  const lower = Object.keys(row || {}).reduce((acc, k) => {
-    acc[k.toLowerCase()] = row[k];
-    return acc;
-  }, {});
-  for (const key of candidates) {
-    const val = lower[key.toLowerCase()];
-    if (val !== undefined) return val;
-  }
-  return undefined;
+  return `SELECT * FROM \`${table}\`;`;
 }
 
 let tableCache = [];
 function resetTableState() {
   tableCache = [];
+  resetTreeCache();
   tableList.innerHTML = '';
   if (tableSearch) tableSearch.value = '';
   resultsTable.innerHTML = '';
 }
 
-function typeLabel(rawType) {
-  const type = String(rawType || '').toUpperCase();
-  if (type.includes('VIEW')) return 'Views';
-  if (type.includes('BASE')) return 'Tables';
-  return 'Outros';
-}
-
-function buildTreeData(rows, filterText) {
-  const filter = (filterText || '').toLowerCase().trim();
-  const map = new Map();
-  rows.forEach((row) => {
-    const schema = getField(row, ['table_schema', 'schema', 'table_schema_name']) || 'default';
-    const name = getField(row, ['table_name', 'name', 'table']) || '';
-    const rawType = getField(row, ['table_type', 'type']) || '';
-    if (filter && !name.toLowerCase().includes(filter)) return;
-
-    if (!map.has(schema)) {
-      map.set(schema, { Tables: [], Views: [], Outros: [] });
-    }
-    const group = map.get(schema);
-    const label = typeLabel(rawType);
-    group[label] = group[label] || [];
-    group[label].push(name);
+async function openTableTab(schema, name) {
+  const sql = tableQuery(schema, name);
+  const tab = createTab({
+    title: `${schema}.${name}`,
+    kind: 'table',
+    baseQuery: sql,
+    query: sql,
+    filter: ''
   });
-  return map;
+  await runTableTabQuery(tab);
 }
 
-function createGroup(label, depth, expanded = true) {
-  const item = document.createElement('div');
-  item.className = 'tree-item tree-group' + (expanded ? ' expanded' : '');
-  item.style.paddingLeft = `${8 + depth * 14}px`;
-
-  const caret = document.createElement('span');
-  caret.className = 'tree-caret';
-  caret.textContent = '▸';
-  item.appendChild(caret);
-
-  const text = document.createElement('span');
-  text.className = 'tree-label';
-  text.textContent = label;
-  item.appendChild(text);
-
-  const children = document.createElement('div');
-  children.className = 'tree-children' + (expanded ? '' : ' hidden');
-
-  item.addEventListener('click', (event) => {
-    if (event.target.closest('.tree-item') !== item) return;
-    item.classList.toggle('expanded');
-    children.classList.toggle('hidden');
+function renderSidebarTree(filterText) {
+  renderTableTree({
+    tableList,
+    tableCache,
+    filterText,
+    onOpenTable: openTableTab,
+    listColumns: window.api.listColumns,
+    onShowError: window.api.showError
   });
-
-  return { item, children };
-}
-
-function createLeaf(label, depth, onClick) {
-  const item = document.createElement('div');
-  item.className = 'tree-item tree-leaf';
-  item.style.paddingLeft = `${8 + depth * 14}px`;
-
-  const caret = document.createElement('span');
-  caret.className = 'tree-caret';
-  caret.textContent = ' ';
-  item.appendChild(caret);
-
-  const text = document.createElement('span');
-  text.className = 'tree-label';
-  text.textContent = label;
-  item.appendChild(text);
-
-  item.addEventListener('click', onClick);
-  return item;
-}
-
-function renderTableTree(filterText) {
-  tableList.innerHTML = '';
-  tableList.className = 'tree';
-
-  if (!tableCache || tableCache.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'Sem tabelas encontradas.';
-    tableList.appendChild(empty);
-    return;
-  }
-
-  const treeData = buildTreeData(tableCache, filterText);
-  if (treeData.size === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'Sem tabelas encontradas.';
-    tableList.appendChild(empty);
-    return;
-  }
-
-  for (const [schema, groups] of treeData.entries()) {
-    const schemaNode = createGroup(schema, 0, true);
-    tableList.appendChild(schemaNode.item);
-    tableList.appendChild(schemaNode.children);
-
-    ['Tables', 'Views', 'Outros'].forEach((groupLabel) => {
-      const items = groups[groupLabel] || [];
-      if (items.length === 0) return;
-
-      const groupNode = createGroup(groupLabel, 1, true);
-      schemaNode.children.appendChild(groupNode.item);
-      schemaNode.children.appendChild(groupNode.children);
-
-      items.sort((a, b) => a.localeCompare(b));
-      items.forEach((name) => {
-        const leaf = createLeaf(name, 2, async () => {
-          const sql = tableQuery(schema, name);
-          createTab(`${schema}.${name}`, sql);
-          setQueryValue(sql);
-          await runQuery(sql);
-        });
-        groupNode.children.appendChild(leaf);
-      });
-    });
-  }
 }
 
 async function refreshTables() {
@@ -782,13 +755,20 @@ async function refreshTables() {
   }
 
   tableCache = res.rows;
-  renderTableTree(tableSearch.value);
+  renderSidebarTree(tableSearch.value);
 }
 
-async function runQuery(sql) {
+async function runQuery(sql, options = {}) {
   if (isLoading) return;
   const tab = ensureActiveTab();
-  tab.query = sql;
+  const storeQuery = options.storeQuery !== false;
+  if (tab) {
+    if (storeQuery && !isTableTab(tab)) {
+      tab.query = sql;
+    } else if (isTableTab(tab)) {
+      tab.lastQuery = sql;
+    }
+  }
   const prevHtml = resultsTable.innerHTML;
   const prevClass = resultsTable.className;
   setLoading(true);
@@ -814,14 +794,20 @@ async function runQueriesSequential(sqlText) {
     await window.api.showError('Query vazia.');
     return false;
   }
+  if (!confirmDangerous(statements)) {
+    return false;
+  }
   if (statements.length === 1) {
-    await runQuery(statements[0]);
+    const tab = ensureActiveTab();
+    await runQuery(applyQueryModifiers(statements[0]), {
+      storeQuery: tab ? !isTableTab(tab) : true
+    });
     return true;
   }
 
   if (isLoading) return;
   const tab = ensureActiveTab();
-  tab.query = sqlText;
+  if (tab && !isTableTab(tab)) tab.query = sqlText;
 
   const prevHtml = resultsTable.innerHTML;
   const prevClass = resultsTable.className;
@@ -830,7 +816,7 @@ async function runQueriesSequential(sqlText) {
   let lastTotalRows = 0;
   try {
     for (const stmt of statements) {
-      const res = await window.api.runQuery(stmt);
+      const res = await window.api.runQuery(applyQueryModifiers(stmt));
       if (!res || !res.ok) {
         throw new Error((res && res.error) || 'Erro ao executar query.');
       }
@@ -986,6 +972,12 @@ saveBtn.addEventListener('click', async () => {
     database: database.value || ''
   };
 
+  const testRes = await testConnectionWithLoading(entry);
+  if (!testRes.ok) {
+    await window.api.showError(testRes.error || 'Falha ao validar conexão.');
+    return;
+  }
+
   await window.api.saveConnection(entry);
   await refreshSaved();
   setEditMode(false);
@@ -999,6 +991,25 @@ cancelEditBtn.addEventListener('click', () => {
 clearFormBtn.addEventListener('click', () => {
   resetConnectionForm();
   setEditMode(false);
+});
+
+testBtn.addEventListener('click', async () => {
+  const entry = {
+    name: saveName.value.trim(),
+    type: dbType.value,
+    host: host.value || 'localhost',
+    port: port.value || '',
+    user: user.value || '',
+    password: password.value || '',
+    database: database.value || ''
+  };
+
+  const testRes = await testConnectionWithLoading(entry);
+  if (!testRes.ok) {
+    await window.api.showError(testRes.error || 'Falha ao validar conexão.');
+    return;
+  }
+  await window.api.showError('Conexão OK.');
 });
 
 exitBtn.addEventListener('click', async () => {
@@ -1018,29 +1029,102 @@ exitBtn.addEventListener('click', async () => {
 
 runBtn.addEventListener('click', async () => {
   ensureActiveTab();
+  const tab = getActiveTab();
+  if (isTableTab(tab)) {
+    await runTableTabQuery(tab);
+    return;
+  }
   const full = getQueryValue();
   if (hasMultipleStatementsWithSelect(full)) {
     await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
     return;
   }
-  await safeRunQueries(full);
+  const ok = await safeRunQueries(full);
+  if (ok) enableQueryFilter(tab, full);
 });
 
 runSelectionBtn.addEventListener('click', async () => {
   ensureActiveTab();
-  const sql = getSelectionOrStatement();
-  if (!sql) {
+  const tab = getActiveTab();
+  if (isTableTab(tab)) return;
+  const baseSql = getSelectionOrStatement(false);
+  if (!baseSql) {
     await window.api.showError('Selecione um trecho ou posicione o cursor em uma instrução.');
     return;
   }
   try {
-    await safeRunQueries(sql);
+    const ok = await safeRunQueries(baseSql);
+    if (ok) enableQueryFilter(tab, baseSql);
   } catch (err) {
     await window.api.showError(err && err.message ? err.message : 'Erro ao executar seleção.');
   }
 });
 
+if (queryFilter) {
+  queryFilter.addEventListener('input', () => {
+    const tab = getActiveTab();
+    if (!tab) return;
+    tab.filter = queryFilter.value;
+    if (isTableTab(tab)) return;
+    if (!tab.filterEnabled) return;
+    const filter = queryFilter.value.trim();
+    const base = tab.filterSource || tab.query || getQueryValue();
+    if (!tab.filterSource) tab.filterSource = base;
+    const nextSql = filter ? insertWhere(base, filter) : base;
+    setQueryValue(nextSql, { focus: false, skipUpdate: true });
+    tab.query = nextSql;
+    updateRunAvailability();
+  });
+
+  queryFilter.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const tab = getActiveTab();
+    if (isTableTab(tab)) {
+      await runTableTabQuery(tab);
+      return;
+    }
+    if (!tab || !tab.filterEnabled) return;
+    const base = tab.filterSource || tab.query || getQueryValue();
+    const filter = queryFilter.value.trim();
+    const nextSql = filter ? insertWhere(base, filter) : base;
+    setQueryValue(nextSql, { focus: false, skipUpdate: true });
+    tab.query = nextSql;
+    updateRunAvailability();
+    if (hasMultipleStatementsWithSelect(nextSql)) {
+      await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+      return;
+    }
+    await safeRunQueries(nextSql);
+  });
+}
+
+if (applyFilterBtn) {
+  applyFilterBtn.addEventListener('click', async () => {
+    const tab = getActiveTab();
+    if (!tab) return;
+    if (isTableTab(tab)) {
+      await runTableTabQuery(tab);
+      return;
+    }
+    if (!tab.filterEnabled) return;
+    const filter = queryFilter ? queryFilter.value.trim() : '';
+    const base = tab.filterSource || tab.query || getQueryValue();
+    const nextSql = filter ? insertWhere(base, filter) : base;
+    setQueryValue(nextSql, { focus: false, skipUpdate: true });
+    tab.query = nextSql;
+    updateRunAvailability();
+    if (hasMultipleStatementsWithSelect(nextSql)) {
+      await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
+      return;
+    }
+    await safeRunQueries(nextSql);
+  });
+}
+
 query.addEventListener('keydown', async (event) => {
+  const tab = getActiveTab();
+  if (isTableTab(tab)) return;
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault();
     ensureActiveTab();
@@ -1049,21 +1133,40 @@ query.addEventListener('keydown', async (event) => {
       await window.api.showError('Há múltiplos SELECTs. Use execução por seleção/instrução.');
       return;
     }
-    await safeRunQueries(full);
+    const ok = await safeRunQueries(full);
+    if (ok) enableQueryFilter(tab, full);
   }
 });
 
 tableSearch.addEventListener('input', () => {
-  renderTableTree(tableSearch.value);
+  renderSidebarTree(tableSearch.value);
 });
 
 newTabBtn.addEventListener('click', () => {
   createTab(`Query ${tabCounter++}`, '');
 });
 
+limitSelect.addEventListener('change', () => {
+  updateRunAvailability();
+});
+
 formatBtn.addEventListener('click', () => {
   formatSQL();
 });
+
+if (countBtn) {
+  countBtn.addEventListener('click', async () => {
+    const tab = getActiveTab();
+    if (!isTableTab(tab)) return;
+    tab.filter = getWhereFilter();
+    const sql = buildCountSql(tab);
+    if (!sql) {
+      await window.api.showError('Não foi possível montar o COUNT.');
+      return;
+    }
+    await runQuery(sql, { storeQuery: false });
+  });
+}
 
 dbSelect.addEventListener('change', async () => {
   const name = dbSelect.value;

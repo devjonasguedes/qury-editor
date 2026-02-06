@@ -1,5 +1,5 @@
 import {
-  buildConnectionKey,
+  buildConnectionBaseKey,
   connectionTitle,
   getEntrySshConfig,
   isEntryReadOnly,
@@ -12,6 +12,8 @@ import { createTabConnections } from './modules/tabConnections.js';
 
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const THEME_KEY = 'sqlEditor.theme';
+const SIDEBAR_KEY = 'sqlEditor.sidebarWidth';
+const EDITOR_HEIGHT_KEY = 'sqlEditor.editorHeight';
 
 export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
@@ -69,7 +71,14 @@ export function initHome({ api }) {
   const editorResizer = byId('editorResizer');
   const sidebar = document.querySelector('.tables');
   const editorPanel = document.querySelector('.editor');
+  const editorBody = document.querySelector('.editor-body');
+  const mainLayout = document.querySelector('.main');
+  const workspace = document.querySelector('.workspace');
   const resultsPanel = byId('resultsPanel');
+  const resultsTable = byId('resultsTable');
+  const queryStatus = byId('queryStatus');
+  const refreshSchemaBtn = byId('refreshSchemaBtn');
+  const tableSettingsBtn = byId('tableSettingsBtn');
   let globalLoading = byId('globalLoading');
 
   let isConnecting = false;
@@ -234,7 +243,7 @@ export function initHome({ api }) {
 
   const upsertConnectionTab = (entry) => {
     if (!entry || !tabConnectionsView) return;
-    const key = buildConnectionKey(entry);
+    const key = getTabKey(entry);
     tabConnectionsView.upsert(key, entry);
     renderConnectionTabs();
   };
@@ -250,8 +259,212 @@ export function initHome({ api }) {
     ssh: getEntrySshConfig(entry)
   });
 
+  const getTabKey = (entry) => buildConnectionBaseKey(entry);
+
+  const getActiveConnection = () => {
+    if (!tabConnectionsView) return null;
+    const key = tabConnectionsView.getActiveKey();
+    return key ? tabConnectionsView.getEntry(key) : null;
+  };
+
+  const applyEntryToForm = (entry) => {
+    if (!entry) return;
+    if (dbType) dbType.value = entry.type || 'mysql';
+    if (host) host.value = entry.host || '';
+    if (port) port.value = entry.port || '';
+    if (user) user.value = entry.user || '';
+    if (password) password.value = entry.password || '';
+    if (database) database.value = entry.database || '';
+    if (saveName) saveName.value = entry.name || '';
+    if (readOnly) readOnly.checked = isEntryReadOnly(entry);
+    const ssh = getEntrySshConfig(entry);
+    setConnectTab(ssh.enabled ? 'ssh' : 'direct');
+    if (sshHost) sshHost.value = ssh.host || '';
+    if (sshPort) sshPort.value = ssh.port || '';
+    if (sshUser) sshUser.value = ssh.user || '';
+    if (sshPassword) sshPassword.value = ssh.password || '';
+    if (sshPrivateKey) sshPrivateKey.value = ssh.privateKey || '';
+    if (sshPassphrase) sshPassphrase.value = ssh.passphrase || '';
+    if (sshLocalPort) sshLocalPort.value = ssh.localPort || '';
+  };
+
+  const loadSidebarWidth = () => {
+    if (!sidebar) return;
+    const raw = localStorage.getItem(SIDEBAR_KEY);
+    const width = Number(raw);
+    if (Number.isFinite(width) && width >= 200 && width <= 520) {
+      sidebar.style.width = `${width}px`;
+    }
+  };
+
+  const initSidebarResizer = () => {
+    if (!sidebarResizer || !sidebar || !mainLayout) return;
+    let dragging = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    const onMove = (event) => {
+      if (!dragging) return;
+      const delta = event.clientX - startX;
+      const next = Math.min(520, Math.max(200, startWidth + delta));
+      sidebar.style.width = `${next}px`;
+    };
+
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const width = parseFloat(getComputedStyle(sidebar).width);
+      if (Number.isFinite(width)) {
+        localStorage.setItem(SIDEBAR_KEY, String(Math.round(width)));
+      }
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    sidebarResizer.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      dragging = true;
+      startX = event.clientX;
+      startWidth = parseFloat(getComputedStyle(sidebar).width) || sidebar.offsetWidth || 260;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  };
+
+  const getEditorHeaderHeight = () => {
+    if (!editorPanel) return 0;
+    const tab = editorPanel.querySelector('.tab-bar');
+    const toolbar = editorPanel.querySelector('.editor-toolbar');
+    return (tab ? tab.offsetHeight : 0) + (toolbar ? toolbar.offsetHeight : 0);
+  };
+
+  const clampEditorBodyHeight = (rawHeight) => {
+    const minEditor = 120;
+    const minResults = 180;
+    const resizerHeight = editorResizer ? editorResizer.offsetHeight : 6;
+    const workspaceRect = workspace ? workspace.getBoundingClientRect() : null;
+    const headerHeight = getEditorHeaderHeight();
+    let maxBody = Number.isFinite(rawHeight) ? rawHeight : minEditor;
+
+    if (workspaceRect && workspaceRect.height) {
+      maxBody = workspaceRect.height - headerHeight - resizerHeight - minResults;
+    }
+
+    if (!Number.isFinite(maxBody)) {
+      maxBody = minEditor;
+    }
+
+    if (maxBody < minEditor) {
+      maxBody = minEditor;
+    }
+
+    const clamped = Math.min(Math.max(rawHeight, minEditor), maxBody);
+    return Math.round(clamped);
+  };
+
+  const applyEditorBodyHeight = (height, { save = true } = {}) => {
+    if (!editorBody) return;
+    const next = clampEditorBodyHeight(height);
+    editorBody.style.height = `${next}px`;
+    if (save) {
+      localStorage.setItem(EDITOR_HEIGHT_KEY, String(next));
+    }
+  };
+
+  const loadEditorHeight = () => {
+    const raw = Number(localStorage.getItem(EDITOR_HEIGHT_KEY));
+    if (!Number.isFinite(raw) || raw <= 0) return;
+    applyEditorBodyHeight(raw, { save: false });
+  };
+
+  const initEditorResizer = () => {
+    if (!editorResizer || !editorPanel || !workspace) return;
+    let dragging = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    const onMove = (event) => {
+      if (!dragging) return;
+      const delta = event.clientY - startY;
+      const rawHeight = startHeight + delta;
+      applyEditorBodyHeight(rawHeight);
+    };
+
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    editorResizer.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      dragging = true;
+      startY = event.clientY;
+      const current = parseFloat(editorBody ? editorBody.style.height : '');
+      startHeight = Number.isFinite(current) && current > 0
+        ? current
+        : (editorBody ? editorBody.offsetHeight : 220);
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+
+    window.addEventListener('resize', () => {
+      const current = parseFloat(editorBody ? editorBody.style.height : '');
+      if (Number.isFinite(current) && current > 0) {
+        applyEditorBodyHeight(current, { save: false });
+      }
+    });
+  };
+
+  const refreshDatabases = async () => {
+    if (!dbSelect) return;
+    const res = await safeApi.listDatabases();
+    if (!res || !res.ok) {
+      await safeApi.showError((res && res.error) || 'Erro ao listar databases.');
+      return;
+    }
+    dbSelect.innerHTML = '';
+    (res.databases || []).forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (res.current && res.current === name) opt.selected = true;
+      dbSelect.appendChild(opt);
+    });
+    const active = getActiveConnection();
+    const hasPreferredDb = active && active.database;
+    if ((!res.current || !dbSelect.value) && dbSelect.options.length > 0) {
+      dbSelect.value = dbSelect.options[0].value;
+      if (!hasPreferredDb) {
+        const useRes = await safeApi.useDatabase(dbSelect.value);
+        if (!useRes || !useRes.ok) {
+          await safeApi.showError((useRes && useRes.error) || 'Erro ao selecionar database.');
+          return;
+        }
+        if (active) {
+          const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+          active.database = dbSelect.value;
+          if (tabConnectionsView && key) {
+            tabConnectionsView.upsert(key, active);
+            renderConnectionTabs();
+          }
+        }
+        if (treeView) treeView.setActiveSchema(dbSelect.value);
+      }
+    }
+  };
+
   const activateConnection = async (entry) => {
-    const key = buildConnectionKey(entry);
+    const key = getTabKey(entry);
     setScreen(true);
     if (tabConnectionsView) tabConnectionsView.setActive(key);
 
@@ -261,13 +474,14 @@ export function initHome({ api }) {
       return false;
     }
     if (treeView) treeView.setActiveSchema(entry.database || '');
+    await refreshDatabases();
     if (treeView) await treeView.refresh();
     return true;
   };
 
   const tryActivateExistingConnection = async (entry) => {
     if (!entry) return false;
-    const key = buildConnectionKey(entry);
+    const key = getTabKey(entry);
     if (!tabConnectionsView || !tabConnectionsView.has(key)) return false;
     const ok = await activateConnection(entry);
     if (ok) closeConnectModal();
@@ -433,6 +647,7 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         upsertConnectionTab(entry);
         if (treeView) treeView.setActiveSchema(entry.database || '');
+        await refreshDatabases();
         if (treeView) await treeView.refresh();
         setScreen(true);
         closeConnectModal();
@@ -503,29 +718,14 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         upsertConnectionTab(entry);
         if (treeView) treeView.setActiveSchema(entry.database || '');
+        await refreshDatabases();
         if (treeView) await treeView.refresh();
         setScreen(true);
         closeConnectModal();
       });
 
       editBtn.addEventListener('click', () => {
-        if (dbType) dbType.value = entry.type;
-        if (host) host.value = entry.host;
-        if (port) port.value = entry.port || '';
-        if (user) user.value = entry.user || '';
-        if (password) password.value = entry.password || '';
-        if (database) database.value = entry.database || '';
-        if (saveName) saveName.value = entry.name || '';
-        if (readOnly) readOnly.checked = isEntryReadOnly(entry);
-        const ssh = getEntrySshConfig(entry);
-        setConnectTab(ssh.enabled ? 'ssh' : 'direct');
-        if (sshHost) sshHost.value = ssh.host || '';
-        if (sshPort) sshPort.value = ssh.port || '';
-        if (sshUser) sshUser.value = ssh.user || '';
-        if (sshPassword) sshPassword.value = ssh.password || '';
-        if (sshPrivateKey) sshPrivateKey.value = ssh.privateKey || '';
-        if (sshPassphrase) sshPassphrase.value = ssh.passphrase || '';
-        if (sshLocalPort) sshLocalPort.value = ssh.localPort || '';
+        applyEntryToForm(entry);
         setEditMode(true);
         openConnectModal({ keepForm: true, mode: 'full' });
       });
@@ -564,6 +764,7 @@ export function initHome({ api }) {
     recordRecentConnection(config);
     upsertConnectionTab(config);
     if (treeView) treeView.setActiveSchema(config.database || '');
+    await refreshDatabases();
     if (treeView) await treeView.refresh();
     setScreen(true);
     closeConnectModal();
@@ -697,13 +898,65 @@ export function initHome({ api }) {
     sidebarSnippetsBtn.addEventListener('click', () => setSidebarView('snippets'));
   }
 
+  if (dbSelect) {
+    dbSelect.addEventListener('change', async () => {
+      const name = dbSelect.value;
+      if (!name) return;
+      setGlobalLoading(true, 'Alterando database...');
+      const res = await safeApi.useDatabase(name);
+      if (!res || !res.ok) {
+        await safeApi.showError((res && res.error) || 'Erro ao selecionar database.');
+        setGlobalLoading(false);
+        return;
+      }
+      const active = getActiveConnection();
+      if (active) {
+        const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+        active.database = name;
+        if (tabConnectionsView && key) {
+          tabConnectionsView.upsert(key, active);
+          renderConnectionTabs();
+        }
+      }
+      if (treeView) treeView.setActiveSchema(name);
+      if (treeView) await treeView.refresh();
+      setGlobalLoading(false);
+    });
+  }
+
+  if (refreshSchemaBtn) {
+    refreshSchemaBtn.addEventListener('click', async () => {
+      if (treeView) await treeView.refresh();
+    });
+  }
+
+  if (tableSettingsBtn) {
+    tableSettingsBtn.addEventListener('click', () => {
+      const active = getActiveConnection();
+      if (!active) {
+        safeApi.showError('Conecte para editar a conexao.');
+        return;
+      }
+      applyEntryToForm(active);
+      setEditMode(true);
+      openConnectModal({ keepForm: true, mode: 'full' });
+    });
+  }
+
   setScreen(false);
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  loadSidebarWidth();
+  loadEditorHeight();
+  initSidebarResizer();
+  initEditorResizer();
   treeView = createTreeView({
     api: safeApi,
     tableList,
     tableSearch,
-    tableSearchClear
+    tableSearchClear,
+    resultsTable,
+    queryStatus,
+    getActiveConnection
   });
   tabConnectionsView = createTabConnections({
     container: tabConnections,

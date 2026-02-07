@@ -2,17 +2,14 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
-const mysql = require('mysql2/promise');
-const { Client } = require('pg');
 const { Client: SshClient } = require('ssh2');
 const initSqlJs = require('sql.js');
+const { createDriver } = require('./drivers');
 
 let mainWindow = null;
-let current = null; // { type, client }
+let currentDriver = null;
 let db = null;
 let dbPromise = null;
-let currentQuery = null;
-let currentTunnel = null;
 
 function dataDir() {
   if (app.isPackaged) return app.getPath('userData');
@@ -360,19 +357,11 @@ async function deleteConnection(name) {
 
 async function disconnect() {
   try {
-    if (current) {
-      if (current.type === 'mysql') {
-        await current.client.end();
-      } else if (current.type === 'postgresql') {
-        await current.client.end();
-      }
+    if (currentDriver) {
+      await currentDriver.disconnect();
     }
   } finally {
-    current = null;
-    if (currentTunnel) {
-      closeTunnel(currentTunnel);
-      currentTunnel = null;
-    }
+    currentDriver = null;
   }
 }
 
@@ -456,71 +445,11 @@ ipcMain.handle('db:connect', async (_evt, config) => {
     await disconnect();
     const type = config.type === 'postgres' ? 'postgresql' : config.type;
     const sshConfig = normalizeSshConfig(config.ssh);
-
-    if (type === 'mysql') {
-    let connectHost = config.host;
-    let connectPort = Number(config.port || 3306);
-    let tunnel = null;
-    try {
-      if (sshConfig) {
-        tunnel = await createSshTunnel(sshConfig, connectHost, connectPort);
-        connectHost = tunnel.localHost;
-        connectPort = tunnel.localPort;
-      }
-      const client = await mysql.createConnection({
-        host: connectHost,
-        port: connectPort,
-        user: config.user,
-        password: config.password,
-        database: config.database || undefined
-      });
-      let dbName = config.database || '';
-      if (!dbName) {
-        const [rows] = await client.query('SELECT DATABASE() AS db');
-        dbName = rows && rows[0] && rows[0].db ? rows[0].db : '';
-      }
-      currentTunnel = tunnel;
-      current = { type, client, database: dbName, config: { host: connectHost, port: connectPort, user: config.user, password: config.password, database: config.database || undefined } };
-      return { ok: true };
-    } catch (err) {
-      if (tunnel) closeTunnel(tunnel);
-      throw err;
-    }
-    }
-
-    if (type === 'postgresql') {
-      let connectHost = config.host;
-      let connectPort = Number(config.port || 5432);
-      let tunnel = null;
-      try {
-        if (sshConfig) {
-          tunnel = await createSshTunnel(sshConfig, connectHost, connectPort);
-          connectHost = tunnel.localHost;
-          connectPort = tunnel.localPort;
-        }
-        const client = new Client({
-          host: connectHost,
-          port: connectPort,
-          user: config.user,
-          password: config.password,
-          database: config.database || undefined
-        });
-        await client.connect();
-        let dbName = config.database || '';
-        if (!dbName) {
-          const res = await client.query('SELECT current_database() AS db');
-          dbName = res && res.rows && res.rows[0] && res.rows[0].db ? res.rows[0].db : '';
-        }
-        currentTunnel = tunnel;
-        current = { type, client, database: dbName, config: { host: connectHost, port: connectPort, user: config.user, password: config.password, database: config.database || undefined } };
-        return { ok: true };
-      } catch (err) {
-        if (tunnel) closeTunnel(tunnel);
-        throw err;
-      }
-    }
-
-    return { ok: false, error: 'Tipo de banco não suportado.' };
+    const driver = createDriver(type, { createTunnel: createSshTunnel, closeTunnel });
+    const res = await driver.connect(config, sshConfig);
+    if (!res || !res.ok) return res || { ok: false, error: 'Erro ao conectar.' };
+    currentDriver = driver;
+    return { ok: true };
   } catch (err) {
     const message = err && err.message ? err.message : 'Erro ao conectar.';
     return { ok: false, error: message };
@@ -533,166 +462,41 @@ ipcMain.handle('db:disconnect', async () => {
 });
 
 ipcMain.handle('db:listTables', async () => {
-  if (!current) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  return currentDriver.listTables();
+});
 
-  if (current.type === 'mysql') {
-    if (current.database) {
-      const [rows] = await current.client.query(
-        "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema = ? ORDER BY table_type, table_name",
-        [current.database]
-      );
-      return { ok: true, rows };
-    }
-
-    const [rows] = await current.client.query(
-      "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') ORDER BY table_schema, table_type, table_name"
-    );
-    return { ok: true, rows };
-  }
-
-  if (current.type === 'postgresql') {
-    const res = await current.client.query(
-      "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_type, table_name"
-    );
-    return { ok: true, rows: res.rows };
-  }
-
-  return { ok: false, error: 'Tipo de banco não suportado.' };
+ipcMain.handle('db:listRoutines', async () => {
+  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  return currentDriver.listRoutines();
 });
 
 ipcMain.handle('db:listColumns', async (_evt, payload) => {
-  if (!current) return { ok: false, error: 'Não conectado.' };
-  const schema = payload && payload.schema ? payload.schema : current.database || '';
-  const table = payload && payload.table ? payload.table : '';
-  if (!table) return { ok: false, error: 'Tabela inválida.' };
+  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  return currentDriver.listColumns(payload);
+});
 
-  if (current.type === 'mysql') {
-    const [rows] = await current.client.query(
-      'SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position',
-      [schema, table]
-    );
-    return { ok: true, columns: rows };
-  }
-
-  if (current.type === 'postgresql' || current.type === 'postgres') {
-    const res = await current.client.query(
-      'SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position',
-      [schema, table]
-    );
-    return { ok: true, columns: res.rows || [] };
-  }
-
-  return { ok: false, error: 'Tipo de banco não suportado.' };
+ipcMain.handle('db:listTableInfo', async (_evt, payload) => {
+  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  return currentDriver.listTableInfo(payload);
 });
 
 ipcMain.handle('db:listDatabases', async () => {
-  if (!current) return { ok: false, error: 'Não conectado.' };
-
-  if (current.type === 'mysql') {
-    const [rows] = await current.client.query('SHOW DATABASES');
-    const dbs = rows
-      .map((r) => r.Database)
-      .filter((name) => !['mysql', 'information_schema', 'performance_schema', 'sys'].includes(name));
-    return { ok: true, databases: dbs, current: current.database || '' };
-  }
-
-  if (current.type === 'postgresql') {
-    const res = await current.client.query(
-      "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
-    );
-    const dbs = res.rows.map((r) => r.datname);
-    return { ok: true, databases: dbs, current: current.database || '' };
-  }
-
-  return { ok: false, error: 'Tipo de banco não suportado.' };
+  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  return currentDriver.listDatabases();
 });
 
 ipcMain.handle('db:useDatabase', async (_evt, name) => {
-  if (!current) return { ok: false, error: 'Não conectado.' };
-  if (!name) return { ok: false, error: 'Database inválido.' };
-
-  if (current.type === 'mysql') {
-    await current.client.changeUser({ database: name });
-    current.database = name;
-    return { ok: true };
-  }
-
-  if (current.type === 'postgresql') {
-    const cfg = current.config || current.client.connectionParameters || {};
-    const client = new Client({
-      host: cfg.host,
-      port: cfg.port,
-      user: cfg.user,
-      password: cfg.password,
-      database: name
-    });
-    await client.connect();
-    await current.client.end();
-    current.client = client;
-    current.database = name;
-    return { ok: true };
-  }
-
-  return { ok: false, error: 'Tipo de banco não suportado.' };
+  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  return currentDriver.useDatabase(name);
 });
 
 ipcMain.handle('db:testConnection', async (_evt, config) => {
   try {
-    const type = config.type;
+    const type = config.type === 'postgres' ? 'postgresql' : config.type;
     const sshConfig = normalizeSshConfig(config.ssh);
-    if (type === 'mysql') {
-      let connectHost = config.host;
-      let connectPort = Number(config.port || 3306);
-      let tunnel = null;
-      try {
-        if (sshConfig) {
-          tunnel = await createSshTunnel(sshConfig, connectHost, connectPort);
-          connectHost = tunnel.localHost;
-          connectPort = tunnel.localPort;
-        }
-        const client = await mysql.createConnection({
-          host: connectHost,
-          port: connectPort,
-          user: config.user,
-          password: config.password,
-          database: config.database || undefined
-        });
-        await client.query('SELECT 1');
-        await client.end();
-      } finally {
-        if (tunnel) closeTunnel(tunnel);
-      }
-      return { ok: true };
-    }
-
-    if (type === 'postgres') {
-      const database = config.database || config.user || 'postgres';
-      let connectHost = config.host;
-      let connectPort = Number(config.port || 5432);
-      let tunnel = null;
-      try {
-        if (sshConfig) {
-          tunnel = await createSshTunnel(sshConfig, connectHost, connectPort);
-          connectHost = tunnel.localHost;
-          connectPort = tunnel.localPort;
-        }
-        const client = new Client({
-          host: connectHost,
-          port: connectPort,
-          user: config.user,
-          password: config.password,
-          database
-        });
-        await client.connect();
-        await client.query('SELECT 1');
-        await client.end();
-      } finally {
-        if (tunnel) closeTunnel(tunnel);
-      }
-      return { ok: true };
-    }
-
-    return { ok: false, error: 'Tipo de banco não suportado.' };
+    const driver = createDriver(type, { createTunnel: createSshTunnel, closeTunnel });
+    return await driver.testConnection(config, sshConfig);
   } catch (err) {
     const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao testar conexão.';
     return { ok: false, error: message };
@@ -700,128 +504,13 @@ ipcMain.handle('db:testConnection', async (_evt, config) => {
 });
 
 ipcMain.handle('db:runQuery', async (_evt, payload) => {
-  const MAX_IPC_ROWS = 5000;
-  const input = typeof payload === 'string' ? { sql: payload } : (payload || {});
-  const sql = input.sql || '';
-  const timeoutMs = Number(input.timeoutMs || 0);
-  const applyTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
-  try {
-    if (!current) return { ok: false, error: 'Não conectado.' };
-    if (!sql || !sql.trim()) return { ok: false, error: 'Query vazia.' };
-
-    if (current.type === 'mysql') {
-      const threadId = current.client.threadId || (current.client.connection && current.client.connection.threadId);
-      currentQuery = { type: 'mysql', threadId };
-      const [rows] = await current.client.query({
-        sql,
-        timeout: applyTimeout ? timeoutMs : undefined
-      });
-      currentQuery = null;
-      let payload = rows;
-      let affectedRows = null;
-      let changedRows = null;
-      if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[0])) {
-        payload = rows[rows.length - 1];
-      } else if (Array.isArray(rows) && rows.length > 0) {
-        const packet = rows.slice().reverse().find((item) => item && item.affectedRows !== undefined);
-        const changed = rows.slice().reverse().find((item) => item && item.changedRows !== undefined);
-        if (packet || changed) {
-          if (packet) affectedRows = packet.affectedRows;
-          if (changed) changedRows = changed.changedRows;
-          payload = [];
-        }
-      } else if (rows && rows.affectedRows !== undefined) {
-        affectedRows = rows.affectedRows;
-        if (rows && rows.changedRows !== undefined) changedRows = rows.changedRows;
-      }
-      const arr = payload || [];
-      const truncated = arr.length > MAX_IPC_ROWS;
-      return {
-        ok: true,
-        rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr,
-        totalRows: arr.length,
-        truncated,
-        affectedRows: Number.isFinite(affectedRows) ? affectedRows : undefined,
-        changedRows: Number.isFinite(changedRows) ? changedRows : undefined
-      };
-    }
-
-    if (current.type === 'postgresql') {
-      currentQuery = { type: 'postgresql', pid: current.client.processID };
-      try {
-        if (applyTimeout) {
-          await current.client.query('SET statement_timeout = $1', [timeoutMs]);
-        }
-        const res = await current.client.query(sql);
-        const arr = res.rows || [];
-        const truncated = arr.length > MAX_IPC_ROWS;
-        return {
-          ok: true,
-          rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr,
-          totalRows: arr.length,
-          truncated,
-          affectedRows: Number.isFinite(res.rowCount) ? res.rowCount : undefined
-        };
-      } finally {
-        if (applyTimeout) {
-          try {
-            await current.client.query('SET statement_timeout = 0');
-          } catch (_) {
-            // ignore
-          }
-        }
-        currentQuery = null;
-      }
-    }
-
-    return { ok: false, error: 'Tipo de banco não suportado.' };
-  } catch (err) {
-    currentQuery = null;
-    const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao executar query.';
-    return { ok: false, error: message };
-  }
+  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  return currentDriver.runQuery(payload);
 });
 
 ipcMain.handle('db:cancelQuery', async () => {
-  try {
-    if (!current || !currentQuery) return { ok: false, error: 'Nenhuma query em execução.' };
-
-    if (currentQuery.type === 'mysql') {
-      const threadId = currentQuery.threadId;
-      if (!threadId) return { ok: false, error: 'Não foi possível identificar a query.' };
-      const killer = await mysql.createConnection({
-        host: current.config.host,
-        port: current.config.port,
-        user: current.config.user,
-        password: current.config.password,
-        database: current.config.database || undefined
-      });
-      await killer.query(`KILL QUERY ${threadId}`);
-      await killer.end();
-      return { ok: true };
-    }
-
-    if (currentQuery.type === 'postgresql') {
-      const pid = currentQuery.pid;
-      if (!pid) return { ok: false, error: 'Não foi possível identificar a query.' };
-      const killer = new Client({
-        host: current.config.host,
-        port: current.config.port,
-        user: current.config.user,
-        password: current.config.password,
-        database: current.config.database || undefined
-      });
-      await killer.connect();
-      await killer.query('SELECT pg_cancel_backend($1)', [pid]);
-      await killer.end();
-      return { ok: true };
-    }
-
-    return { ok: false, error: 'Tipo de banco não suportado.' };
-  } catch (err) {
-    const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao cancelar query.';
-    return { ok: false, error: message };
-  }
+  if (!currentDriver) return { ok: false, error: 'Nenhuma query em execução.' };
+  return currentDriver.cancelQuery();
 });
 
 ipcMain.handle('dialog:error', async (_evt, message) => {

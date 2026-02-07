@@ -1,38 +1,63 @@
 import { getField, normalizeName } from './utils.js';
 
 let columnCache = new Map();
+let tableInfoCache = new Map();
 let selectedKey = null;
 
 export function resetTreeCache() {
   columnCache = new Map();
+  tableInfoCache = new Map();
   selectedKey = null;
 }
 
-function typeLabel(rawType) {
+function tableTypeLabel(rawType) {
   const type = String(rawType || '').toUpperCase();
   if (type.includes('VIEW')) return 'Views';
   if (type.includes('BASE')) return 'Tables';
   return 'Outros';
 }
 
-function buildTreeData(rows, filterText, activeSchema) {
+function routineTypeLabel(rawType) {
+  const type = String(rawType || '').toUpperCase();
+  if (type.includes('PROCEDURE')) return 'Procedures';
+  if (type.includes('FUNCTION')) return 'Functions';
+  return 'Outros';
+}
+
+function ensureGroup(map, schema) {
+  if (!map.has(schema)) {
+    map.set(schema, { Tables: [], Views: [], Procedures: [], Functions: [], Outros: [] });
+  }
+  return map.get(schema);
+}
+
+function buildTreeData(tableRows, routineRows, filterText, activeSchema) {
   const filter = (filterText || '').toLowerCase().trim();
   const map = new Map();
-  rows.forEach((row) => {
+  (tableRows || []).forEach((row) => {
     const schema = getField(row, ['table_schema', 'schema', 'table_schema_name'])
       || activeSchema
       || 'default';
     const name = getField(row, ['table_name', 'name', 'table']) || '';
     const rawType = getField(row, ['table_type', 'type']) || '';
     if (filter && !name.toLowerCase().includes(filter)) return;
-
-    if (!map.has(schema)) {
-      map.set(schema, { Tables: [], Views: [], Outros: [] });
-    }
-    const group = map.get(schema);
-    const label = typeLabel(rawType);
+    const group = ensureGroup(map, schema);
+    const label = tableTypeLabel(rawType);
     group[label] = group[label] || [];
-    group[label].push(name);
+    group[label].push({ name, itemType: 'table', isView: label === 'Views' });
+  });
+
+  (routineRows || []).forEach((row) => {
+    const schema = getField(row, ['routine_schema', 'schema', 'routine_schema_name'])
+      || activeSchema
+      || 'default';
+    const name = getField(row, ['routine_name', 'name', 'routine']) || '';
+    const rawType = getField(row, ['routine_type', 'type']) || '';
+    if (filter && !name.toLowerCase().includes(filter)) return;
+    const group = ensureGroup(map, schema);
+    const label = routineTypeLabel(rawType);
+    group[label] = group[label] || [];
+    group[label].push({ name, itemType: 'routine', routineType: rawType });
   });
   return map;
 }
@@ -122,9 +147,9 @@ function createGroup({ label, depth, expanded = true, icon, count, key, level, o
   return { item, children };
 }
 
-function createColumnLeaf(label, type, depth) {
+function createColumnLeaf(label, type, depth, className = 'tree-column') {
   const item = document.createElement('div');
-  item.className = 'tree-item tree-column';
+  item.className = `tree-item ${className}`;
   item.style.paddingLeft = `${8 + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
@@ -169,28 +194,191 @@ async function fetchColumns(schema, table, listColumns, onShowError) {
   return cols;
 }
 
-function renderColumns(container, columns, depth) {
-  container.innerHTML = '';
-  if (!columns || columns.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'Sem colunas.';
-    container.appendChild(empty);
+async function fetchTableInfo(schema, table, listTableInfo, onShowError) {
+  const key = `${schema}.${table}`;
+  if (tableInfoCache.has(key)) return tableInfoCache.get(key);
+  if (!listTableInfo) return { indexes: [], constraints: [] };
+  const res = await listTableInfo({ schema, table });
+  if (!res || !res.ok) {
+    if (onShowError) await onShowError((res && res.error) || 'Erro ao listar informacoes da tabela.');
+    return null;
+  }
+  const info = {
+    indexes: Array.isArray(res.indexes) ? res.indexes : [],
+    constraints: Array.isArray(res.constraints) ? res.constraints : []
+  };
+  tableInfoCache.set(key, info);
+  return info;
+}
+
+function createSectionHeader(label, depth, icon) {
+  const item = document.createElement('div');
+  item.className = 'tree-item tree-section';
+  item.style.paddingLeft = `${8 + depth * INDENT}px`;
+  item.setAttribute('role', 'treeitem');
+  item.setAttribute('aria-level', String(depth + 1));
+
+  const content = document.createElement('div');
+  content.className = 'tree-content';
+
+  const caret = document.createElement('span');
+  caret.className = 'tree-caret';
+  caret.innerHTML = '&nbsp;';
+  content.appendChild(caret);
+
+  const iconEl = document.createElement('span');
+  iconEl.className = 'tree-icon';
+  if (icon) {
+    iconEl.innerHTML = icon;
+  } else {
+    iconEl.classList.add('placeholder');
+  }
+  content.appendChild(iconEl);
+
+  const text = document.createElement('span');
+  text.className = 'tree-label';
+  text.textContent = label;
+  content.appendChild(text);
+
+  item.appendChild(content);
+  return item;
+}
+
+function normalizeList(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function formatIndexMeta(index) {
+  const parts = [];
+  if (index.primary) parts.push('PRIMARY');
+  if (index.unique && !index.primary) parts.push('UNIQUE');
+  const method = index.method || index.type || index.index_type;
+  if (method) parts.push(String(method).toUpperCase());
+  const cols = normalizeList(index.columns);
+  if (cols.length) parts.push(`(${cols.join(', ')})`);
+  return parts.join(' ');
+}
+
+function isKeyConstraint(constraint) {
+  const type = String(constraint.type || constraint.constraint_type || '').toUpperCase();
+  return type.includes('PRIMARY') || type.includes('FOREIGN');
+}
+
+function formatKeyMeta(constraint) {
+  const type = String(constraint.type || constraint.constraint_type || '').toUpperCase();
+  const cols = normalizeList(constraint.columns);
+  const colPart = cols.length ? `(${cols.join(', ')})` : '';
+  if (type.includes('FOREIGN')) {
+    const ref = constraint.ref || constraint.reference || {};
+    const refSchema = ref.schema ? `${ref.schema}.` : '';
+    const refTable = ref.table || '';
+    const refCols = normalizeList(ref.columns);
+    const refPart = refTable
+      ? ` -> ${refSchema}${refTable}${refCols.length ? `(${refCols.join(', ')})` : ''}`
+      : '';
+    return `FOREIGN KEY ${colPart}${refPart}`;
+  }
+  return `PRIMARY KEY ${colPart}`.trim();
+}
+
+function formatConstraintMeta(constraint) {
+  const type = String(constraint.type || constraint.constraint_type || '').toUpperCase();
+  const cols = normalizeList(constraint.columns);
+  const colPart = cols.length ? `(${cols.join(', ')})` : '';
+  if (type.includes('CHECK')) {
+    const clause = constraint.definition || constraint.check_clause || '';
+    if (clause) {
+      const trimmed = String(clause).trim();
+      return `CHECK ${trimmed.startsWith('(') ? trimmed : `(${trimmed})`}`;
+    }
+    return `CHECK ${colPart}`.trim();
+  }
+  if (type.includes('UNIQUE')) {
+    return `UNIQUE ${colPart}`.trim();
+  }
+  return `${type}${colPart ? ` ${colPart}` : ''}`.trim();
+}
+
+function renderSection(container, options) {
+  const { label, icon, items, emptyText, depth, renderItem } = options;
+  container.appendChild(createSectionHeader(label, depth, icon));
+  if (!items || items.length === 0) {
+    const emptyLeaf = createColumnLeaf(emptyText, '', depth + 1, 'tree-meta tree-muted');
+    container.appendChild(emptyLeaf);
     return;
   }
-
-  columns.forEach((col) => {
-    const name = getField(col, ['column_name', 'name']) || '';
-    const type = getField(col, ['data_type', 'type']) || '';
-    const leaf = createColumnLeaf(name, type, depth);
-    container.appendChild(leaf);
+  items.forEach((item) => {
+    const leaf = renderItem(item, depth + 1);
+    if (leaf) container.appendChild(leaf);
   });
 }
 
-function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowError, isView, highlightText, options = {}) {
+function renderTableDetails(container, columns, tableInfo, depth) {
+  container.innerHTML = '';
+  const cols = Array.isArray(columns) ? columns : [];
+  const info = tableInfo || {};
+  const indexes = normalizeList(info.indexes);
+  const constraints = normalizeList(info.constraints);
+  const keyConstraints = constraints.filter((constraint) => isKeyConstraint(constraint));
+  const otherConstraints = constraints.filter((constraint) => !isKeyConstraint(constraint));
+
+  renderSection(container, {
+    label: 'Colunas',
+    icon: '<i class="bi bi-list-ul"></i>',
+    items: cols,
+    emptyText: 'Sem colunas.',
+    depth,
+    renderItem: (col, itemDepth) => {
+      const name = getField(col, ['column_name', 'name']) || '';
+      const type = getField(col, ['data_type', 'type']) || '';
+      return createColumnLeaf(name, type, itemDepth, 'tree-column');
+    }
+  });
+
+  renderSection(container, {
+    label: 'Indices',
+    icon: '<i class="bi bi-hash"></i>',
+    items: indexes,
+    emptyText: 'Sem indices.',
+    depth,
+    renderItem: (index, itemDepth) => {
+      const label = index.name || (index.primary ? 'PRIMARY' : 'INDEX');
+      const meta = formatIndexMeta(index);
+      return createColumnLeaf(label, meta, itemDepth, 'tree-meta');
+    }
+  });
+
+  renderSection(container, {
+    label: 'Chaves',
+    icon: '<i class="bi bi-key"></i>',
+    items: keyConstraints,
+    emptyText: 'Sem chaves.',
+    depth,
+    renderItem: (constraint, itemDepth) => {
+      const label = constraint.name || 'KEY';
+      const meta = formatKeyMeta(constraint);
+      return createColumnLeaf(label, meta, itemDepth, 'tree-meta');
+    }
+  });
+
+  renderSection(container, {
+    label: 'Constraints',
+    icon: '<i class="bi bi-shield-check"></i>',
+    items: otherConstraints,
+    emptyText: 'Sem constraints.',
+    depth,
+    renderItem: (constraint, itemDepth) => {
+      const label = constraint.name || 'CONSTRAINT';
+      const meta = formatConstraintMeta(constraint);
+      return createColumnLeaf(label, meta, itemDepth, 'tree-meta');
+    }
+  });
+}
+
+function createTableNode(schema, name, depth, onOpenTable, listColumns, listTableInfo, onShowError, isView, highlightText, options = {}) {
   const { expanded = false, onToggle, onCopyName, onCopyQualified, key } = options;
   const item = document.createElement('div');
-  item.className = 'tree-item tree-leaf tree-table';
+  item.className = 'tree-item tree-leaf tree-routine';
   item.style.paddingLeft = `${8 + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
@@ -267,8 +455,11 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowEr
     if (onToggle) onToggle(item.classList.contains('expanded'));
     if (!children.classList.contains('hidden') && !loaded) {
       children.innerHTML = '<div class="tree-empty">Carregando...</div>';
-      const cols = await fetchColumns(schema, name, listColumns, onShowError);
-      renderColumns(children, cols || [], depth + 1);
+      const [cols, info] = await Promise.all([
+        fetchColumns(schema, name, listColumns, onShowError),
+        fetchTableInfo(schema, name, listTableInfo, onShowError)
+      ]);
+      renderTableDetails(children, cols || [], info || {}, depth + 1);
       loaded = true;
     }
   };
@@ -297,13 +488,103 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, onShowEr
   return { item, children };
 }
 
+function createRoutineNode(schema, name, routineType, depth, onOpenRoutine, highlightText, options = {}) {
+  const { onCopyName, onCopyQualified, key } = options;
+  const item = document.createElement('div');
+  item.className = 'tree-item tree-leaf tree-table';
+  item.style.paddingLeft = `${8 + depth * INDENT}px`;
+  item.setAttribute('role', 'treeitem');
+  item.setAttribute('aria-level', String(depth + 1));
+  item.dataset.key = key || `${schema}.${name}`;
+  if (selectedKey === item.dataset.key) {
+    item.classList.add('selected');
+    item.setAttribute('aria-selected', 'true');
+  }
+
+  const content = document.createElement('div');
+  content.className = 'tree-content';
+
+  const caret = document.createElement('span');
+  caret.className = 'tree-caret';
+  caret.innerHTML = '&nbsp;';
+  content.appendChild(caret);
+
+  const iconEl = document.createElement('span');
+  iconEl.className = 'tree-icon';
+  const isProcedure = String(routineType || '').toUpperCase() === 'PROCEDURE';
+  iconEl.innerHTML = isProcedure ? '<i class="bi bi-gear"></i>' : '<i class="bi bi-braces"></i>';
+  content.appendChild(iconEl);
+
+  const text = document.createElement('span');
+  text.className = 'tree-label';
+  text.appendChild(makeHighlight(name, highlightText));
+  content.appendChild(text);
+
+  const actions = document.createElement('div');
+  actions.className = 'tree-actions';
+
+  const openBtn = document.createElement('button');
+  openBtn.className = 'icon-btn tree-action';
+  openBtn.title = isProcedure ? 'CALL routine()' : 'SELECT routine()';
+  openBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
+  openBtn.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (onOpenRoutine) await onOpenRoutine(schema, name, routineType);
+  });
+
+  const copyNameBtn = document.createElement('button');
+  copyNameBtn.className = 'icon-btn tree-action';
+  copyNameBtn.title = 'Copiar nome';
+  copyNameBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+  copyNameBtn.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (onCopyName) await onCopyName(name);
+  });
+
+  const copyQualifiedBtn = document.createElement('button');
+  copyQualifiedBtn.className = 'icon-btn tree-action';
+  copyQualifiedBtn.title = 'Copiar nome qualificado';
+  copyQualifiedBtn.innerHTML = '<i class="bi bi-clipboard2-plus"></i>';
+  copyQualifiedBtn.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (onCopyQualified) await onCopyQualified(schema, name);
+  });
+
+  actions.appendChild(openBtn);
+  actions.appendChild(copyNameBtn);
+  actions.appendChild(copyQualifiedBtn);
+
+  item.appendChild(content);
+  item.appendChild(actions);
+
+  const children = document.createElement('div');
+  children.className = 'tree-children hidden';
+
+  item.addEventListener('click', async (event) => {
+    if (event.target.closest('.tree-actions')) return;
+    if (event.target.closest('.tree-caret')) return;
+    setSelected(item);
+  });
+
+  item.addEventListener('dblclick', async (event) => {
+    if (event.target.closest('.tree-actions')) return;
+    if (event.target.closest('.tree-caret')) return;
+    if (onOpenRoutine) await onOpenRoutine(schema, name, routineType);
+  });
+
+  return { item, children };
+}
+
 export function renderTableTree({
   tableList,
   tableCache,
+  routineCache,
   filterText,
   activeSchema,
   onOpenTable,
+  onOpenRoutine,
   listColumns,
+  listTableInfo,
   onShowError,
   expandedState,
   onToggleExpand,
@@ -315,19 +596,21 @@ export function renderTableTree({
   tableList.className = 'tree';
   tableList.setAttribute('role', 'tree');
 
-  if (!tableCache || tableCache.length === 0) {
+  const hasTables = Array.isArray(tableCache) && tableCache.length > 0;
+  const hasRoutines = Array.isArray(routineCache) && routineCache.length > 0;
+  if (!hasTables && !hasRoutines) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
-    empty.textContent = 'Sem tabelas encontradas.';
+    empty.textContent = 'Sem objetos encontrados.';
     tableList.appendChild(empty);
     return;
   }
 
-  const treeData = buildTreeData(tableCache, filterText, activeSchema);
+  const treeData = buildTreeData(tableCache, routineCache, filterText, activeSchema);
   if (treeData.size === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
-    empty.textContent = 'Sem tabelas encontradas.';
+    empty.textContent = 'Sem objetos encontrados.';
     tableList.appendChild(empty);
     return;
   }
@@ -356,7 +639,7 @@ export function renderTableTree({
     tableList.appendChild(schemaNode.item);
     tableList.appendChild(schemaNode.children);
 
-    ['Tables', 'Views', 'Outros'].forEach((groupLabel) => {
+    ['Tables', 'Views', 'Procedures', 'Functions', 'Outros'].forEach((groupLabel) => {
       const items = groups[groupLabel] || [];
       if (items.length === 0) return;
 
@@ -390,33 +673,55 @@ export function renderTableTree({
       schemaNode.children.appendChild(groupNode.item);
       schemaNode.children.appendChild(groupNode.children);
 
-      items.sort((a, b) => a.localeCompare(b));
-      items.forEach((name) => {
-        const tableKey = `table:${schema}.${name}`;
-        const tableExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, tableKey)
-          ? !!expandedState[tableKey]
-          : false;
-        const tableNode = createTableNode(
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      items.forEach((item) => {
+        if (item.itemType === 'table') {
+          const name = item.name;
+          const tableKey = `table:${schema}.${name}`;
+          const tableExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, tableKey)
+            ? !!expandedState[tableKey]
+            : false;
+          const tableNode = createTableNode(
+            schema,
+            name,
+            2,
+            onOpenTable,
+            listColumns,
+            listTableInfo,
+            onShowError,
+            item.isView,
+            filterText,
+            {
+              key: tableKey,
+              expanded: tableExpanded,
+              onToggle: (expanded) => {
+                if (onToggleExpand) onToggleExpand(tableKey, expanded);
+              },
+              onCopyName,
+              onCopyQualified
+            }
+          );
+          groupNode.children.appendChild(tableNode.item);
+          groupNode.children.appendChild(tableNode.children);
+          return;
+        }
+
+        const routineKey = `routine:${schema}.${item.name}`;
+        const routineNode = createRoutineNode(
           schema,
-          name,
+          item.name,
+          item.routineType,
           2,
-          onOpenTable,
-          listColumns,
-          onShowError,
-          groupLabel === 'Views',
+          onOpenRoutine,
           filterText,
           {
-            key: tableKey,
-            expanded: tableExpanded,
-            onToggle: (expanded) => {
-              if (onToggleExpand) onToggleExpand(tableKey, expanded);
-            },
+            key: routineKey,
             onCopyName,
             onCopyQualified
           }
         );
-        groupNode.children.appendChild(tableNode.item);
-        groupNode.children.appendChild(tableNode.children);
+        groupNode.children.appendChild(routineNode.item);
+        groupNode.children.appendChild(routineNode.children);
       });
     });
   }

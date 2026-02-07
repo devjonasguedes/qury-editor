@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('api', {
   disconnect: () => ipcRenderer.invoke('db:disconnect'),
   listTables: () => ipcRenderer.invoke('db:listTables'),
   listColumns: (payload) => ipcRenderer.invoke('db:listColumns', payload),
+  listTableInfo: (payload) => ipcRenderer.invoke('db:listTableInfo', payload),
+  listRoutines: () => ipcRenderer.invoke('db:listRoutines'),
   listDatabases: () => ipcRenderer.invoke('db:listDatabases'),
   useDatabase: (name) => ipcRenderer.invoke('db:useDatabase', name),
   testConnection: (config) => ipcRenderer.invoke('db:testConnection', config),

@@ -9,6 +9,7 @@ export function createTreeView({
   onOpenTable
 }) {
   let tableCache = [];
+  let routineCache = [];
   let treeExpanded = {};
   let activeSchema = '';
 
@@ -36,14 +37,28 @@ export function createTreeView({
     }
   };
 
+  const runOpenRoutine = async (schema, name, routineType) => {
+    if (onOpenTable) {
+      const conn = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
+      const type = conn && conn.type ? conn.type : 'mysql';
+      const qualified = buildQualified(schema, name, type);
+      const isProcedure = String(routineType || '').toUpperCase() === 'PROCEDURE';
+      const sql = isProcedure ? `CALL ${qualified}();` : `SELECT ${qualified}();`;
+      onOpenTable(schema, name, sql);
+    }
+  };
+
   const render = (filterText = '') => {
     renderTableTree({
       tableList,
       tableCache,
+      routineCache,
       filterText,
       activeSchema,
       onOpenTable: runOpenTable,
+      onOpenRoutine: runOpenRoutine,
       listColumns: api.listColumns,
+      listTableInfo: api.listTableInfo,
       onShowError: api.showError,
       expandedState: treeExpanded,
       onToggleExpand: (key, expanded) => {
@@ -73,16 +88,30 @@ export function createTreeView({
 
   const refresh = async () => {
     if (!tableList) return;
-    const res = await api.listTables();
-    if (!res || !res.ok) {
+    const resTables = await api.listTables();
+    if (!resTables || !resTables.ok) {
       tableCache = [];
-      render(tableSearch ? tableSearch.value : '');
       if (api.showError) {
-        await api.showError((res && res.error) || 'Erro ao listar tabelas.');
+        await api.showError((resTables && resTables.error) || 'Erro ao listar tabelas.');
       }
-      return tableCache;
+    } else {
+      tableCache = resTables.rows || [];
     }
-    tableCache = res.rows || [];
+
+    if (api.listRoutines) {
+      const resRoutines = await api.listRoutines();
+      if (!resRoutines || !resRoutines.ok) {
+        routineCache = [];
+        if (api.showError) {
+          await api.showError((resRoutines && resRoutines.error) || 'Erro ao listar routines.');
+        }
+      } else {
+        routineCache = resRoutines.rows || [];
+      }
+    } else {
+      routineCache = [];
+    }
+
     resetTreeCache();
     treeExpanded = {};
     render(tableSearch ? tableSearch.value : '');

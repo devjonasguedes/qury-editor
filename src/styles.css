@@ -45,6 +45,9 @@ global
   --tree-leaf: #c9ced6;
   --tree-column: #9ea5b0;
   --tree-column-type: #6f7682;
+  --tree-section: #b7bec8;
+  --tree-meta: #9aa2ad;
+  --tree-meta-type: #7a828d;
   --tree-caret: #7f8794;
   --tree-icon: var(--text-muted-2);
   --badge-bg: var(--surface-5);
@@ -111,6 +114,9 @@ body.theme-light {
   --tree-leaf: #475569;
   --tree-column: #64748b;
   --tree-column-type: #94a3b8;
+  --tree-section: #475569;
+  --tree-meta: #64748b;
+  --tree-meta-type: #94a3b8;
   --tree-caret: #94a3b8;
   --tree-icon: var(--text-muted-2);
   --badge-bg: #e5e7eb;
@@ -915,6 +921,14 @@ sidebar tree
   font-weight: 600;
 }
 
+.tree-section {
+  color: var(--tree-section);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
 .tree-group.active-schema {
   color: var(--text-strong);
 }
@@ -932,11 +946,24 @@ sidebar tree
   font-size: 12px;
 }
 
+.tree-meta {
+  color: var(--tree-meta);
+  font-size: 12px;
+}
+
+.tree-meta.tree-muted {
+  color: var(--muted);
+}
+
 .tree-column-type {
   margin-left: auto;
   color: var(--tree-column-type);
   font-size: 11px;
   letter-spacing: 0.2px;
+}
+
+.tree-meta .tree-column-type {
+  color: var(--tree-meta-type);
 }
 
 .tree-label {
@@ -1569,6 +1596,38 @@ body.theme-light .tab-bar {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.tx-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.tx-status {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-6);
+  color: var(--muted);
+}
+
+.tx-status.active {
+  color: var(--token-type);
+  background: rgba(78, 201, 176, 0.12);
+  border: 1px solid rgba(78, 201, 176, 0.32);
+}
+
+.tx-btn {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
 }
 
 .query-status {

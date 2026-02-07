@@ -17,7 +17,7 @@ import { createTableView } from './modules/tableView.js';
 import { createQueryHistory } from './modules/queryHistory.js';
 import { createSnippetsManager } from './modules/snippets.js';
 import { createSqlAutocomplete } from './modules/sqlAutocomplete.js';
-import { firstDmlKeyword, insertWhere, isDangerousStatement, splitStatements } from './sql.js';
+import { firstDmlKeyword, insertWhere, isDangerousStatement, splitStatements, stripLeadingComments } from './sql.js';
 
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const THEME_KEY = 'sqlEditor.theme';
@@ -115,6 +115,10 @@ export function initHome({ api }) {
   const timeoutSelect = byId('timeoutSelect');
   const toggleEditorBtn = byId('toggleEditorBtn');
   const countBtn = byId('countBtn');
+  const txBeginBtn = byId('txBeginBtn');
+  const txCommitBtn = byId('txCommitBtn');
+  const txRollbackBtn = byId('txRollbackBtn');
+  const txStatus = byId('txStatus');
   const queryFilter = byId('queryFilter');
   const applyFilterBtn = byId('applyFilterBtn');
   let globalLoading = byId('globalLoading');
@@ -142,6 +146,7 @@ export function initHome({ api }) {
   let historyManager = null;
   let snippetsManager = null;
   let sqlAutocomplete = null;
+  let txStateByConnection = new Map();
 
   const safeApi = api || {};
 
@@ -330,11 +335,44 @@ export function initHome({ api }) {
     return key ? tabConnectionsView.getEntry(key) : null;
   };
 
+  const getActiveConnectionKey = () => (tabConnectionsView ? tabConnectionsView.getActiveKey() : null);
+
   sqlAutocomplete = createSqlAutocomplete({ api: safeApi, getActiveConnection });
 
   const getCurrentHistoryKey = () => {
     if (!tabConnectionsView) return null;
     return tabConnectionsView.getActiveKey();
+  };
+
+  const getTransactionCommand = (sql) => {
+    const cleaned = stripLeadingComments(sql || '').trim().replace(/;$/, '').trim();
+    if (!cleaned) return '';
+    const upper = cleaned.toUpperCase();
+    if (/^BEGIN\b/.test(upper) || /^START\s+TRANSACTION\b/.test(upper)) return 'begin';
+    if (/^COMMIT\b/.test(upper) || /^END\b/.test(upper)) return 'commit';
+    if (/^ROLLBACK\b/.test(upper)) return 'rollback';
+    if (/^SET\s+AUTOCOMMIT\s*=\s*0\b/.test(upper)) return 'begin';
+    if (/^SET\s+AUTOCOMMIT\s*=\s*1\b/.test(upper)) return 'commit';
+    return '';
+  };
+
+  const updateTxControls = () => {
+    const key = getActiveConnectionKey();
+    const active = key ? !!txStateByConnection.get(key) : false;
+    if (txBeginBtn) txBeginBtn.disabled = !key || active;
+    if (txCommitBtn) txCommitBtn.disabled = !key || !active;
+    if (txRollbackBtn) txRollbackBtn.disabled = !key || !active;
+    if (txStatus) {
+      txStatus.classList.toggle('active', active);
+      txStatus.classList.toggle('inactive', !active);
+      txStatus.title = active ? 'Transacao ativa' : 'Sem transacao ativa';
+    }
+  };
+
+  const setTxState = (active, key = getActiveConnectionKey()) => {
+    if (!key) return;
+    txStateByConnection.set(key, !!active);
+    updateTxControls();
   };
 
   const tabsStorageKey = (key) => (key ? `sqlEditor.tabs:${key}` : null);
@@ -770,6 +808,9 @@ export function initHome({ api }) {
       }
       lastResult = { rows: res.rows || [], totalRows: res.totalRows, truncated: res.truncated, stmt };
       if (historyManager) historyManager.recordHistory(stmt);
+      const txCommand = getTransactionCommand(stmt);
+      if (txCommand === 'begin') setTxState(true);
+      else if (txCommand === 'commit' || txCommand === 'rollback') setTxState(false);
       if (tabTablesView) {
         const tab = tabTablesView.getActiveTab();
         if (tab && tab.id) {
@@ -938,6 +979,8 @@ export function initHome({ api }) {
       await safeApi.showError(res.error || 'Erro ao conectar.');
       return false;
     }
+    txStateByConnection.set(key, false);
+    updateTxControls();
     if (treeView) treeView.setActiveSchema(entry.database || '');
     if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
     await refreshDatabases();
@@ -1120,6 +1163,7 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         saveTabsForActive();
         upsertConnectionTab(entry);
+        setTxState(false, getTabKey(entry));
         if (treeView) treeView.setActiveSchema(entry.database || '');
         if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
@@ -1195,6 +1239,7 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         saveTabsForActive();
         upsertConnectionTab(entry);
+        setTxState(false, getTabKey(entry));
         if (treeView) treeView.setActiveSchema(entry.database || '');
         if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
@@ -1245,6 +1290,7 @@ export function initHome({ api }) {
     recordRecentConnection(config);
     saveTabsForActive();
     upsertConnectionTab(config);
+    setTxState(false, getTabKey(config));
     if (treeView) treeView.setActiveSchema(config.database || '');
     if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(config.database || '');
     await refreshDatabases();
@@ -1431,6 +1477,24 @@ export function initHome({ api }) {
   if (runSelectionBtn) {
     runSelectionBtn.addEventListener('click', async () => {
       await handleRunSelection();
+    });
+  }
+
+  if (txBeginBtn) {
+    txBeginBtn.addEventListener('click', async () => {
+      await runSql('BEGIN');
+    });
+  }
+
+  if (txCommitBtn) {
+    txCommitBtn.addEventListener('click', async () => {
+      await runSql('COMMIT');
+    });
+  }
+
+  if (txRollbackBtn) {
+    txRollbackBtn.addEventListener('click', async () => {
+      await runSql('ROLLBACK');
     });
   }
 
@@ -1755,6 +1819,8 @@ tabConnectionsView = createTabConnections({
       renderConnectionTabs();
       if (tabConnectionsView.size() === 0) {
         setScreen(false);
+        txStateByConnection = new Map();
+        updateTxControls();
         return;
       }
       if (wasActive) {
@@ -1765,6 +1831,7 @@ tabConnectionsView = createTabConnections({
       }
     }
   });
+  updateTxControls();
   renderSavedList();
   renderRecentList();
 }

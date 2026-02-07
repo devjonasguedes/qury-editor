@@ -199,6 +199,38 @@
                   </button>
                 </div>
                 <div class="editor-actions-right">
+                  <div class="tx-controls">
+                    <span
+                      id="txStatus"
+                      class="tx-status inactive"
+                      title="Sem transacao ativa"
+                    >
+                      TX
+                    </span>
+                    <button
+                      id="txBeginBtn"
+                      class="icon-btn tx-btn"
+                      title="BEGIN (iniciar transacao)"
+                    >
+                      <i class="bi bi-play-circle"></i>
+                    </button>
+                    <button
+                      id="txCommitBtn"
+                      class="icon-btn tx-btn"
+                      title="COMMIT (confirmar transacao)"
+                      disabled
+                    >
+                      <i class="bi bi-check2-circle"></i>
+                    </button>
+                    <button
+                      id="txRollbackBtn"
+                      class="icon-btn tx-btn"
+                      title="ROLLBACK (desfazer transacao)"
+                      disabled
+                    >
+                      <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                  </div>
                   <button
                     id="stopBtn"
                     class="icon-btn stop-btn"

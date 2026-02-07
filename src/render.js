@@ -160,7 +160,7 @@ export function initHome({ api }) {
     const spinner = document.createElement('span');
     spinner.className = 'spinner';
     const label = document.createElement('span');
-    label.textContent = 'Conectando...';
+    label.textContent = 'Connecting...';
     card.appendChild(spinner);
     card.appendChild(label);
     overlay.appendChild(card);
@@ -231,16 +231,16 @@ export function initHome({ api }) {
     const panel = connectModal ? connectModal.querySelector('.connect-panel') : null;
     if (panel) panel.classList.toggle('quick', mode === 'quick');
     if (connectModalTitle) {
-      connectModalTitle.textContent = mode === 'quick' ? 'Conexao rapida' : 'Nova conexao';
+      connectModalTitle.textContent = mode === 'quick' ? 'Quick connect' : 'New connection';
     }
     if (connectModalSubtitle) {
       connectModalSubtitle.textContent =
         mode === 'quick'
-          ? 'Conecte sem salvar a conexao.'
-          : 'Preencha os dados para conectar ao banco.';
+          ? 'Connect without saving.'
+          : 'Fill in the details to connect.';
     }
     if (connectBtn) {
-      connectBtn.textContent = mode === 'quick' ? 'Conectar rapido' : 'Conectar';
+      connectBtn.textContent = mode === 'quick' ? 'Quick connect' : 'Connect';
     }
   };
 
@@ -365,7 +365,7 @@ export function initHome({ api }) {
     if (txStatus) {
       txStatus.classList.toggle('active', active);
       txStatus.classList.toggle('inactive', !active);
-      txStatus.title = active ? 'Transacao ativa' : 'Sem transacao ativa';
+      txStatus.title = active ? 'Transaction active' : 'No active transaction';
     }
   };
 
@@ -574,7 +574,7 @@ export function initHome({ api }) {
     if (!queryStatus) return;
     const parts = [];
     if (state === 'success') parts.push('Sucesso');
-    if (state === 'error') parts.push('Erro');
+    if (state === 'error') parts.push('Error');
     if (state === 'running') parts.push('Executando');
     if (message) parts.push(message);
     if (Number.isFinite(duration)) parts.push(`${Math.round(duration)}ms`);
@@ -617,7 +617,7 @@ export function initHome({ api }) {
     const preferredAffected = Number.isFinite(changedRows) && changedRows > 0
       ? changedRows
       : (Number.isFinite(affectedRows) ? affectedRows : undefined);
-    let response = error || 'Erro';
+    let response = error || 'Error';
     if (ok) {
       if (Number.isFinite(preferredAffected)) {
         response = `Rows affected: ${preferredAffected}`;
@@ -640,7 +640,7 @@ export function initHome({ api }) {
   const ensureOutputState = (tabId) => {
     if (!tabId) return null;
     if (!outputByTabId.has(tabId)) {
-      outputByTabId.set(tabId, { seq: 0, items: [], subtitle: 'Último resultado' });
+      outputByTabId.set(tabId, { seq: 0, items: [], subtitle: 'Latest result' });
     }
     return outputByTabId.get(tabId);
   };
@@ -664,7 +664,7 @@ export function initHome({ api }) {
         const preview = `${last.action} • ${last.response}`;
         queryOutputPreview.textContent = truncatePreview(preview);
       } else {
-        queryOutputPreview.textContent = 'Sem output.';
+        queryOutputPreview.textContent = 'No output.';
       }
     }
     if (queryOutputBtn) {
@@ -675,7 +675,7 @@ export function initHome({ api }) {
   const openOutputModal = () => {
     if (!outputModal || !currentOutput || !currentOutput.items) return;
     if (outputModalSubtitle) {
-      outputModalSubtitle.textContent = currentOutput.subtitle || 'Último resultado';
+      outputModalSubtitle.textContent = currentOutput.subtitle || 'Latest result';
     }
     if (outputLogBody) {
       outputLogBody.innerHTML = '';
@@ -773,9 +773,9 @@ export function initHome({ api }) {
       if (isDangerousStatement(stmt)) {
         const keyword = firstDmlKeyword(stmt);
         const actionLabel = keyword ? keyword.toUpperCase() : 'QUERY';
-        const confirmed = confirm(`Confirmar ${actionLabel} sem WHERE?`);
+        const confirmed = confirm(`Confirm ${actionLabel} without WHERE?`);
         if (!confirmed) {
-          setQueryStatus({ state: 'error', message: 'Cancelada pelo usuario' });
+          setQueryStatus({ state: 'error', message: 'Canceled by user' });
           if (runBtn) runBtn.disabled = false;
           if (runSelectionBtn) runSelectionBtn.disabled = false;
           if (stopBtn) stopBtn.disabled = true;
@@ -787,15 +787,15 @@ export function initHome({ api }) {
       setQueryStatus({ state: 'running', message: `Executando ${i + 1}/${total}...` });
       const res = await safeApi.runQuery({ sql, timeoutMs: getTimeoutMs() || undefined });
       if (!res || !res.ok) {
-        await safeApi.showError((res && res.error) || 'Erro ao executar query.');
-        setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Erro' });
+        await safeApi.showError((res && res.error) || 'Failed to run query.');
+        setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Error' });
         if (tabTablesView) {
           const tab = tabTablesView.getActiveTab();
           if (tab && tab.id) {
             appendOutputEntry(tab.id, buildOutputEntry({
               sql: stmt,
               ok: false,
-              error: res && res.error ? res.error : 'Erro',
+              error: res && res.error ? res.error : 'Error',
               duration: Date.now() - startedAt
             }));
             updateOutputForActiveTab();
@@ -862,7 +862,7 @@ export function initHome({ api }) {
   const handleRun = async () => {
     const sql = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
     if (!sql || !sql.trim()) {
-      await safeApi.showError('Query vazia.');
+      await safeApi.showError('Empty query.');
       return;
     }
     lastSort = null;
@@ -873,7 +873,7 @@ export function initHome({ api }) {
     const selection = codeEditor ? codeEditor.getSelection() : '';
     const sql = selection && selection.trim() ? selection : '';
     if (!sql) {
-      await safeApi.showError('Selecione uma query.');
+      await safeApi.showError('Select a query.');
       return;
     }
     lastSort = null;
@@ -893,7 +893,7 @@ export function initHome({ api }) {
       ? (active.sourceSql || active.baseSql)
       : (codeEditor ? codeEditor.getValue() : (query ? query.value : ''));
     if (!base || !base.trim()) {
-      await safeApi.showError('Query vazia.');
+      await safeApi.showError('Empty query.');
       return;
     }
     if (!filter) {
@@ -933,7 +933,7 @@ export function initHome({ api }) {
     if (!dbSelect) return;
     const res = await safeApi.listDatabases();
     if (!res || !res.ok) {
-      await safeApi.showError((res && res.error) || 'Erro ao listar databases.');
+      await safeApi.showError((res && res.error) || 'Failed to list databases.');
       return;
     }
     dbSelect.innerHTML = '';
@@ -952,7 +952,7 @@ export function initHome({ api }) {
     if (targetDb && res.current !== targetDb) {
       const useRes = await safeApi.useDatabase(targetDb);
       if (!useRes || !useRes.ok) {
-        await safeApi.showError((useRes && useRes.error) || 'Erro ao selecionar database.');
+        await safeApi.showError((useRes && useRes.error) || 'Failed to select database.');
         return;
       }
       if (active) {
@@ -976,7 +976,7 @@ export function initHome({ api }) {
 
     const res = await connectWithLoading(configFromEntry(entry));
     if (!res.ok) {
-      await safeApi.showError(res.error || 'Erro ao conectar.');
+      await safeApi.showError(res.error || 'Failed to connect.');
       return false;
     }
     txStateByConnection.set(key, false);
@@ -1040,13 +1040,13 @@ export function initHome({ api }) {
   };
 
   const connectWithLoading = async (config) => {
-    if (isConnecting) return { ok: false, error: 'Conexao em andamento.' };
+    if (isConnecting) return { ok: false, error: 'Connection in progress.' };
     setConnecting(true);
-    setGlobalLoading(true, 'Conectando...');
+    setGlobalLoading(true, 'Connecting...');
     try {
       return await safeApi.connect(config);
     } catch (err) {
-      return { ok: false, error: err && err.message ? err.message : 'Erro ao conectar.' };
+      return { ok: false, error: err && err.message ? err.message : 'Failed to connect.' };
     } finally {
       setConnecting(false);
       setGlobalLoading(false);
@@ -1054,12 +1054,12 @@ export function initHome({ api }) {
   };
 
   const testConnectionWithLoading = async (config) => {
-    if (isConnecting) return { ok: false, error: 'Conexao em andamento.' };
+    if (isConnecting) return { ok: false, error: 'Connection in progress.' };
     setConnecting(true);
     try {
       return await safeApi.testConnection(config);
     } catch (err) {
-      return { ok: false, error: err && err.message ? err.message : 'Erro ao testar conexao.' };
+      return { ok: false, error: err && err.message ? err.message : 'Failed to test connection.' };
     } finally {
       setConnecting(false);
     }
@@ -1111,7 +1111,7 @@ export function initHome({ api }) {
     if (list.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
-      empty.textContent = 'Nenhuma conexao recente.';
+      empty.textContent = 'No recent connections.';
       recentList.appendChild(empty);
       return;
     }
@@ -1124,7 +1124,7 @@ export function initHome({ api }) {
 
       const title = document.createElement('div');
       title.className = 'saved-title';
-      title.textContent = entry.name || entry.database || entry.host || 'Conexao';
+      title.textContent = entry.name || entry.database || entry.host || 'Connection';
 
       const meta = document.createElement('div');
       meta.className = 'saved-meta';
@@ -1142,7 +1142,7 @@ export function initHome({ api }) {
       const removeBtn = document.createElement('button');
       removeBtn.className = 'icon-btn';
       removeBtn.innerHTML = '<i class="bi bi-x"></i>';
-      removeBtn.title = 'Remover da lista';
+      removeBtn.title = 'Remove from list';
       removeBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         removeRecentConnection(entry);
@@ -1157,7 +1157,7 @@ export function initHome({ api }) {
         const res = await connectWithLoading(configFromEntry(entry));
 
         if (!res.ok) {
-          await safeApi.showError(res.error || 'Erro ao conectar.');
+          await safeApi.showError(res.error || 'Failed to connect.');
           return;
         }
         recordRecentConnection(entry);
@@ -1185,7 +1185,7 @@ export function initHome({ api }) {
     if (!Array.isArray(list) || list.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
-      empty.textContent = 'Nenhuma conexao salva.';
+      empty.textContent = 'No saved connections.';
       savedList.appendChild(empty);
       return;
     }
@@ -1216,12 +1216,12 @@ export function initHome({ api }) {
       const editBtn = document.createElement('button');
       editBtn.className = 'icon-btn';
       editBtn.innerHTML = '<i class="bi bi-pencil"></i>';
-      editBtn.title = 'Editar';
+      editBtn.title = 'Edit';
 
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'icon-btn';
       deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
-      deleteBtn.title = 'Excluir';
+      deleteBtn.title = 'Delete';
 
       actions.appendChild(editBtn);
       actions.appendChild(deleteBtn);
@@ -1233,7 +1233,7 @@ export function initHome({ api }) {
         const res = await connectWithLoading(configFromEntry(entry));
 
         if (!res.ok) {
-          await safeApi.showError(res.error || 'Erro ao conectar.');
+          await safeApi.showError(res.error || 'Failed to connect.');
           return;
         }
         recordRecentConnection(entry);
@@ -1258,7 +1258,7 @@ export function initHome({ api }) {
 
       deleteBtn.addEventListener('click', async () => {
         const name = entry.name || connectionTitle(entry);
-        const confirmed = confirm(`Remover conexao "${name}"?`);
+        const confirmed = confirm(`Remove connection "${name}"?`);
         if (!confirmed) return;
         await safeApi.deleteConnection(entry.name);
         await renderSavedList();
@@ -1284,7 +1284,7 @@ export function initHome({ api }) {
 
     const res = await connectWithLoading(config);
     if (!res.ok) {
-      await safeApi.showError(res.error || 'Erro ao conectar.');
+      await safeApi.showError(res.error || 'Failed to connect.');
       return;
     }
     recordRecentConnection(config);
@@ -1303,7 +1303,7 @@ export function initHome({ api }) {
 
   const saveConnection = async () => {
     if (!saveName || !saveName.value.trim()) {
-      await safeApi.showError('Informe um nome para salvar.');
+      await safeApi.showError('Enter a name to save.');
       return;
     }
 
@@ -1330,7 +1330,7 @@ export function initHome({ api }) {
       ssh: entry.ssh
     });
     if (!res.ok) {
-      await safeApi.showError(res.error || 'Erro ao testar conexao.');
+      await safeApi.showError(res.error || 'Failed to test connection.');
       return;
     }
     await safeApi.saveConnection(entry);
@@ -1353,10 +1353,10 @@ export function initHome({ api }) {
 
     const res = await testConnectionWithLoading(config);
     if (!res.ok) {
-      await safeApi.showError(res.error || 'Erro ao testar conexao.');
+      await safeApi.showError(res.error || 'Failed to test connection.');
       return;
     }
-    alert('Conexao OK.');
+    alert('Connection OK.');
   };
 
   if (tabDirectBtn) {
@@ -1426,7 +1426,7 @@ export function initHome({ api }) {
         ].join('\t'));
         await navigator.clipboard.writeText([header, ...lines].join('\n'));
       } catch (_) {
-        if (safeApi.showError) await safeApi.showError('Nao foi possivel copiar o output.');
+        if (safeApi.showError) await safeApi.showError('Unable to copy output.');
       }
     });
   }
@@ -1514,9 +1514,9 @@ export function initHome({ api }) {
     stopBtn.addEventListener('click', async () => {
       const res = await safeApi.cancelQuery();
       if (!res || !res.ok) {
-        await safeApi.showError((res && res.error) || 'Nao foi possivel cancelar.');
+        await safeApi.showError((res && res.error) || 'Unable to cancel.');
       } else {
-        setQueryStatus({ state: 'error', message: 'Cancelada' });
+        setQueryStatus({ state: 'error', message: 'Canceled' });
       }
       if (runBtn) runBtn.disabled = false;
       if (runSelectionBtn) runSelectionBtn.disabled = false;
@@ -1535,7 +1535,7 @@ export function initHome({ api }) {
     countBtn.addEventListener('click', async () => {
       const sql = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
       if (!sql || !sql.trim()) {
-        await safeApi.showError('Query vazia.');
+        await safeApi.showError('Empty query.');
         return;
       }
       const countSql = buildCountSql(sql);
@@ -1564,10 +1564,10 @@ export function initHome({ api }) {
     dbSelect.addEventListener('change', async () => {
       const name = dbSelect.value;
       if (!name) return;
-      setGlobalLoading(true, 'Alterando database...');
+      setGlobalLoading(true, 'Switching database...');
       const res = await safeApi.useDatabase(name);
       if (!res || !res.ok) {
-        await safeApi.showError((res && res.error) || 'Erro ao selecionar database.');
+        await safeApi.showError((res && res.error) || 'Failed to select database.');
         setGlobalLoading(false);
         return;
       }
@@ -1591,7 +1591,7 @@ export function initHome({ api }) {
   if (refreshSchemaBtn) {
     refreshSchemaBtn.addEventListener('click', async () => {
       if (treeView) {
-        setGlobalLoading(true, 'Atualizando schema...');
+        setGlobalLoading(true, 'Refreshing schema...');
         const tables = await treeView.refresh();
         if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
         setGlobalLoading(false);

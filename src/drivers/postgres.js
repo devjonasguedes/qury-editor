@@ -65,7 +65,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         } catch (_) {}
       }
       if (createdTunnel && closeTunnel) closeTunnel(createdTunnel);
-      const message = err && err.message ? err.message : 'Erro ao conectar.';
+      const message = err && err.message ? err.message : 'Failed to connect.';
       return { ok: false, error: message };
     }
   };
@@ -95,7 +95,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
       connection = null;
       return { ok: true };
     } catch (err) {
-      const message = err && err.message ? err.message : 'Erro ao testar conexao.';
+      const message = err && err.message ? err.message : 'Failed to test connection.';
       return { ok: false, error: message };
     } finally {
       if (connection) {
@@ -108,7 +108,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listTables = async () => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const res = await client.query(
       "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_type, table_name"
     );
@@ -116,7 +116,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listRoutines = async () => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const res = await client.query(
       "SELECT routine_schema, routine_name, routine_type FROM information_schema.routines WHERE routine_schema NOT IN ('pg_catalog','information_schema') ORDER BY routine_schema, routine_type, routine_name"
     );
@@ -124,10 +124,10 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listColumns = async (payload) => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const schema = payload && payload.schema ? payload.schema : database || '';
     const table = payload && payload.table ? payload.table : '';
-    if (!table) return { ok: false, error: 'Tabela invalida.' };
+    if (!table) return { ok: false, error: 'Invalid table.' };
     const res = await client.query(
       'SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position',
       [schema, table]
@@ -136,10 +136,10 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listTableInfo = async (payload) => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const schema = payload && payload.schema ? payload.schema : database || '';
     const table = payload && payload.table ? payload.table : '';
-    if (!table) return { ok: false, error: 'Tabela invalida.' };
+    if (!table) return { ok: false, error: 'Invalid table.' };
     try {
       const indexRes = await client.query(
         'SELECT i.relname AS index_name, ix.indisunique AS is_unique, ix.indisprimary AS is_primary, am.amname AS index_method, array_agg(a.attname ORDER BY x.n) AS columns FROM pg_class t JOIN pg_index ix ON t.oid = ix.indrelid JOIN pg_class i ON i.oid = ix.indexrelid JOIN pg_am am ON i.relam = am.oid JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, n) ON true JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum JOIN pg_namespace nsp ON nsp.oid = t.relnamespace WHERE nsp.nspname = $1 AND t.relname = $2 GROUP BY i.relname, ix.indisunique, ix.indisprimary, am.amname ORDER BY i.relname',
@@ -159,13 +159,13 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         constraints: buildConstraints(constraintRes.rows || [], checkRes.rows || [])
       };
     } catch (err) {
-      const message = err && err.message ? err.message : 'Erro ao listar informacoes.';
+      const message = err && err.message ? err.message : 'Failed to list table info.';
       return { ok: false, error: message };
     }
   };
 
   const listDatabases = async () => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const res = await client.query(
       'SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname'
     );
@@ -174,8 +174,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const useDatabase = async (name) => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
-    if (!name) return { ok: false, error: 'Database invalido.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
+    if (!name) return { ok: false, error: 'Invalid database.' };
     const cfg = config || client.connectionParameters || {};
     const next = new Client({
       host: cfg.host,
@@ -197,8 +197,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     const sql = input.sql || '';
     const timeoutMs = Number(input.timeoutMs || 0);
     const applyTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
-    if (!client) return { ok: false, error: 'Nao conectado.' };
-    if (!sql || !sql.trim()) return { ok: false, error: 'Query vazia.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
+    if (!sql || !sql.trim()) return { ok: false, error: 'Empty query.' };
     currentQuery = { pid: client.processID };
     try {
       if (applyTimeout) {
@@ -215,7 +215,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         affectedRows: Number.isFinite(res.rowCount) ? res.rowCount : undefined
       };
     } catch (err) {
-      const message = err && err.message ? err.message : 'Erro ao executar query.';
+      const message = err && err.message ? err.message : 'Failed to run query.';
       return { ok: false, error: message };
     } finally {
       if (applyTimeout) {
@@ -231,9 +231,9 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
 
   const cancelQuery = async () => {
     try {
-      if (!client || !currentQuery) return { ok: false, error: 'Nenhuma query em execucao.' };
+      if (!client || !currentQuery) return { ok: false, error: 'No query running.' };
       const pid = currentQuery.pid;
-      if (!pid) return { ok: false, error: 'Nao foi possivel identificar a query.' };
+      if (!pid) return { ok: false, error: 'Unable to identify the query.' };
       const killer = new Client({
         host: config.host,
         port: config.port,
@@ -246,7 +246,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
       await killer.end();
       return { ok: true };
     } catch (err) {
-      const message = err && err.message ? err.message : 'Erro ao cancelar query.';
+      const message = err && err.message ? err.message : 'Failed to cancel query.';
       return { ok: false, error: message };
     }
   };

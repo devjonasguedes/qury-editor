@@ -69,7 +69,7 @@ export function createTreeView({
         try {
           await navigator.clipboard.writeText(name);
         } catch (_) {
-          if (api.showError) await api.showError('Nao foi possivel copiar.');
+          if (api.showError) await api.showError('Unable to copy.');
         }
       },
       onCopyQualified: async (schema, name) => {
@@ -80,7 +80,7 @@ export function createTreeView({
         try {
           await navigator.clipboard.writeText(qualified);
         } catch (_) {
-          if (api.showError) await api.showError('Nao foi possivel copiar.');
+          if (api.showError) await api.showError('Unable to copy.');
         }
       }
     });
@@ -92,7 +92,7 @@ export function createTreeView({
     if (!resTables || !resTables.ok) {
       tableCache = [];
       if (api.showError) {
-        await api.showError((resTables && resTables.error) || 'Erro ao listar tabelas.');
+        await api.showError((resTables && resTables.error) || 'Failed to list tables.');
       }
     } else {
       tableCache = resTables.rows || [];
@@ -103,7 +103,7 @@ export function createTreeView({
       if (!resRoutines || !resRoutines.ok) {
         routineCache = [];
         if (api.showError) {
-          await api.showError((resRoutines && resRoutines.error) || 'Erro ao listar routines.');
+          await api.showError((resRoutines && resRoutines.error) || 'Failed to list routines.');
         }
       } else {
         routineCache = resRoutines.rows || [];

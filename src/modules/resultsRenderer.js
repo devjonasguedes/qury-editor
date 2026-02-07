@@ -50,14 +50,14 @@ export function createResultsRenderer({
     resultsTable.innerHTML = '';
     resultsTable.className = '';
     if (!Array.isArray(rows) || rows.length === 0) {
-      resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+      resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
       updateSelectionActions();
       return;
     }
 
     const limitedRows = rows.slice(0, maxRows);
     if (!limitedRows[0] || typeof limitedRows[0] !== 'object') {
-      resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+      resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
       updateSelectionActions();
       return;
     }
@@ -161,7 +161,7 @@ export function createResultsRenderer({
           : String(selectedCell.value)
       );
     } catch (_) {
-      if (showError) await showError('Não foi possível copiar a célula.');
+      if (showError) await showError('Unable to copy cell.');
     }
   }
 
@@ -173,7 +173,7 @@ export function createResultsRenderer({
         : String(selectedRow);
       await navigator.clipboard.writeText(text);
     } catch (_) {
-      if (showError) await showError('Não foi possível copiar a linha.');
+      if (showError) await showError('Unable to copy row.');
     }
   }
 

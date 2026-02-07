@@ -48,7 +48,7 @@ export function createTableView({
       resultsRenderer.updateSelectionActions();
     }
     if (resultsTable) {
-      resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+      resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
       resultsTable.className = '';
     }
   };
@@ -56,7 +56,7 @@ export function createTableView({
   const clearUi = () => {
     if (tableActionsBar) tableActionsBar.classList.add('hidden');
     if (resultsTable) {
-      resultsTable.innerHTML = '<tr><td>Sem resultados.</td></tr>';
+      resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
       resultsTable.className = '';
     }
   };

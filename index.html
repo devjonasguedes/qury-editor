@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -7,22 +7,22 @@
       content="default-src 'self' http://localhost:5173; script-src 'self' 'unsafe-eval' http://localhost:5173; style-src 'self' 'unsafe-inline' http://localhost:5173; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173;"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SQL Editor</title>
+    <title>Qury Editor</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
     <div id="app">
       <header class="topbar">
         <div class="brand-area">
-          <div class="brand">SQL Editor</div>
-          <button id="homeBtn" class="icon-btn mini hidden" title="Voltar para home">
+          <div class="brand">Qury Editor</div>
+          <button id="homeBtn" class="icon-btn mini hidden" title="Back to home">
             <i class="bi bi-house"></i>
           </button>
           <div class="conn-tabs hidden" id="tabConnections"></div>
         </div>
         <div class="status-area">
           <span id="connectSpinner" class="spinner hidden"></span>
-          <button id="themeToggle" class="icon-btn" title="Alternar tema">
+          <button id="themeToggle" class="icon-btn" title="Toggle theme">
             <i class="bi bi-sun"></i>
           </button>
         </div>
@@ -41,7 +41,7 @@
             <button
               id="sidebarHistoryBtn"
               class="sidebar-icon"
-              title="Histórico"
+              title="History"
             >
               <i class="bi bi-clock-history"></i>
             </button>
@@ -62,7 +62,7 @@
                   <button
                     id="refreshSchemaBtn"
                     class="icon-btn mini"
-                    title="Atualizar schema"
+                    title="Refresh schema"
                   >
                     <i class="bi bi-arrow-clockwise"></i>
                   </button>
@@ -74,7 +74,7 @@
                 <button
                   id="tableSearchClear"
                   class="table-search-clear"
-                  title="Limpar"
+                  title="Clear"
                 >
                   <i class="bi bi-x"></i>
                 </button>
@@ -82,7 +82,7 @@
               <div id="tableList"></div>
             </div>
             <div id="historyPanel" class="sidebar-panel hidden">
-              <div class="panel-title">Histórico</div>
+              <div class="panel-title">History</div>
               <div id="historyList" class="history-list"></div>
             </div>
             <div id="snippetsPanel" class="sidebar-panel hidden">
@@ -91,7 +91,7 @@
                 <button
                   id="addSnippetBtn"
                   class="icon-btn mini"
-                  title="Salvar snippet"
+                  title="Save snippet"
                 >
                   <i class="bi bi-plus-lg"></i>
                 </button>
@@ -105,45 +105,86 @@
         <div class="workspace">
           <div class="welcome-screen hidden" id="welcomeScreen">
             <div class="welcome-hero">
-              <pre class="welcome-ascii" aria-hidden="true">
- ____   ___  _       _____    _ _ _
-/ ___| / _ \| |     | ____|__| (_) |_ ___  _ __
-\___ \| | | | |     |  _| / _` | | __/ _ \| '__|
- ___) | |_| | |___  | |__| (_| | | || (_) | |
-|____/ \__\_\_____| |_____\__,_|_|\__\___/|_|
-              </pre>
-              <div class="welcome-copy">
-                <div class="connect-title">Bem-vindo ao SQL Editor</div>
-                <div class="connect-subtitle">
-                  Inicialize uma conexão e comece a explorar suas tabelas em segundos.
+              <div class="hero-copy">
+                <div class="hero-badge">Qury Editor</div>
+                <div class="hero-title">Straightforward SQL, fast and reliable.</div>
+                <div class="hero-subtitle">
+                  A simple, fast, professional tool to run queries.
                 </div>
-                <div class="welcome-actions">
+                <div class="hero-actions">
                   <button id="quickConnectBtn" class="secondary">
-                    Conexão rápida
+                    Quick connect
                   </button>
-                  <button id="openConnectModalBtn">Nova conexão</button>
+                  <button id="openConnectModalBtn">New connection</button>
                 </div>
-                <div class="welcome-note">
-                  Conexão rápida não fica salva após desconectar.
+                <div class="hero-note">
+                  Quick connect is not saved after disconnect.
                 </div>
+              </div>
+              <div class="hero-visual" aria-hidden="true">
+                <div class="hero-panel hero-panel-primary">
+                  <div class="hero-panel-header">
+                    <span class="hero-dot"></span>
+                    <span class="hero-dot"></span>
+                    <span class="hero-dot"></span>
+                    <span class="hero-panel-title">Qury Editor</span>
+                    <span class="hero-live">LIVE</span>
+                  </div>
+                  <div class="hero-panel-body">
+                    <div class="hero-chip">SELECT</div>
+                    <div class="hero-query">
+                      SELECT team, deploys, latency_ms
+                      FROM metrics
+                      WHERE env = 'prod'
+                      ORDER BY latency_ms DESC
+                      LIMIT 5;
+                    </div>
+                    <div class="hero-results">
+                      <div class="hero-row">
+                        <span>core</span><span>142</span><span>118ms</span>
+                      </div>
+                      <div class="hero-row">
+                        <span>billing</span><span>98</span><span>93ms</span>
+                      </div>
+                      <div class="hero-row">
+                        <span>growth</span><span>76</span><span>71ms</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="hero-panel hero-panel-secondary">
+                  <div class="hero-panel-metric">
+                    <span>Transaction</span>
+                    <strong>ACTIVE</strong>
+                  </div>
+                  <div class="hero-panel-metric">
+                    <span>Timeout</span>
+                    <strong>2500ms</strong>
+                  </div>
+                  <div class="hero-panel-metric">
+                    <span>Runs</span>
+                    <strong>1/1</strong>
+                  </div>
+                </div>
+                <div class="hero-orbit"></div>
               </div>
             </div>
             <div class="onboard welcome-card">
               <div class="onboard-header">
                 <div>
-                  <div class="connect-title">Conexões</div>
+                  <div class="connect-title">Connections</div>
                   <div class="connect-subtitle">
-                    Retome conexões salvas ou escolha uma sessão recente.
+                    Resume saved connections or choose a recent session.
                   </div>
                 </div>
               </div>
               <div class="onboard-grid">
                 <div class="saved-card">
-                  <div class="saved-header">Conexões salvas</div>
+                  <div class="saved-header">Saved connections</div>
                   <div id="savedList" class="saved-list"></div>
                 </div>
                 <div class="saved-card">
-                  <div class="saved-header">Últimas conexões</div>
+                  <div class="saved-header">Recent connections</div>
                   <div id="recentList" class="saved-list"></div>
                 </div>
               </div>
@@ -154,7 +195,7 @@
               <button
                 id="newTabBtn"
                 class="icon-btn tab-add"
-                title="Nova aba (⌘T)"
+                title="New tab (⌘T)"
               >
                 <i class="bi bi-plus"></i>
               </button>
@@ -165,35 +206,35 @@
                   <button
                     id="runBtn"
                     class="icon-btn run-btn"
-                    title="Executar (⌘⏎)"
+                    title="Run (⌘⏎)"
                   >
                     <i class="bi bi-lightning-charge-fill"></i>
                   </button>
                   <button
                     id="runSelectionBtn"
                     class="icon-btn run-selection-btn"
-                    title="Executar seleção (⇧⏎)"
+                    title="Run selection (⇧⏎)"
                   >
                     <i class="bi bi-cursor-text"></i>
                   </button>
                   <button
                     id="formatBtn"
                     class="icon-btn format-btn"
-                    title="Formatar (⌥⇧F)"
+                    title="Format (⌥⇧F)"
                   >
                     <i class="bi bi-text-paragraph"></i>
                   </button>
                   <button
                     id="toggleEditorBtn"
                     class="icon-btn toggle-editor-btn"
-                    title="Mostrar/ocultar editor"
+                    title="Show/hide editor"
                   >
                     <i class="bi bi-code-slash"></i>
                   </button>
                   <button
                     id="countBtn"
                     class="icon-btn count-btn"
-                    title="Contar registros"
+                    title="Count rows"
                   >
                     <i class="bi bi-123"></i>
                   </button>
@@ -203,21 +244,21 @@
                     <span
                       id="txStatus"
                       class="tx-status inactive"
-                      title="Sem transacao ativa"
+                      title="No active transaction"
                     >
                       TX
                     </span>
                     <button
                       id="txBeginBtn"
                       class="icon-btn tx-btn"
-                      title="BEGIN (iniciar transacao)"
+                      title="BEGIN (start transaction)"
                     >
                       <i class="bi bi-play-circle"></i>
                     </button>
                     <button
                       id="txCommitBtn"
                       class="icon-btn tx-btn"
-                      title="COMMIT (confirmar transacao)"
+                      title="COMMIT (commit transaction)"
                       disabled
                     >
                       <i class="bi bi-check2-circle"></i>
@@ -225,7 +266,7 @@
                     <button
                       id="txRollbackBtn"
                       class="icon-btn tx-btn"
-                      title="ROLLBACK (desfazer transacao)"
+                      title="ROLLBACK (rollback transaction)"
                       disabled
                     >
                       <i class="bi bi-arrow-counterclockwise"></i>
@@ -234,7 +275,7 @@
                   <button
                     id="stopBtn"
                     class="icon-btn stop-btn"
-                    title="Parar execução"
+                    title="Stop execution"
                     disabled
                   >
                     <i class="bi bi-stop-circle"></i>
@@ -242,25 +283,25 @@
                   <select
                     id="limitSelect"
                     class="limit-select"
-                    title="Limite padrão"
+                    title="Default limit"
                   >
                     <option value="50">50</option>
                     <option value="100" selected>100</option>
                     <option value="200">200</option>
                     <option value="500">500</option>
                     <option value="1000">1000</option>
-                    <option value="none">Sem limite</option>
+                    <option value="none">No limit</option>
                   </select>
                   <select
                     id="timeoutSelect"
                     class="limit-select"
-                    title="Timeout da query"
+                    title="Query timeout"
                   >
                     <option value="5000">5s</option>
                     <option value="15000">15s</option>
                     <option value="30000" selected>30s</option>
                     <option value="60000">60s</option>
-                    <option value="none">Sem timeout</option>
+                    <option value="none">No timeout</option>
                   </select>
                 </div>
               </div>
@@ -268,7 +309,7 @@
             <div class="editor-body">
               <textarea
                 id="query"
-                placeholder="Digite sua query SQL"
+                placeholder="Type your SQL query"
               ></textarea>
             </div>
           </div>
@@ -280,7 +321,7 @@
                 <button
                   id="applyFilterBtn"
                   class="icon-btn apply-filter-btn hidden"
-                  title="Aplicar filtro (⏎)"
+                  title="Apply filter (⏎)"
                 >
                   <i class="bi bi-funnel"></i>
                 </button>
@@ -290,14 +331,14 @@
                 <button
                   id="tableRefreshBtn"
                   class="icon-btn mini"
-                  title="Atualizar tabela"
+                  title="Refresh table"
                 >
                   <i class="bi bi-arrow-clockwise"></i>
                 </button>
                 <button
                   id="copyCellBtn"
                   class="icon-btn mini"
-                  title="Copiar célula"
+                  title="Copy cell"
                   disabled
                 >
                   <i class="bi bi-clipboard"></i>
@@ -305,7 +346,7 @@
                 <button
                   id="copyRowBtn"
                   class="icon-btn mini"
-                  title="Copiar linha (JSON)"
+                  title="Copy row (JSON)"
                   disabled
                 >
                   <i class="bi bi-braces"></i>
@@ -313,7 +354,7 @@
                 <button
                   id="exportCsvBtn"
                   class="icon-btn mini"
-                  title="Exportar CSV"
+                  title="Export CSV"
                   disabled
                 >
                   <i class="bi bi-filetype-csv"></i>
@@ -321,7 +362,7 @@
                 <button
                   id="exportJsonBtn"
                   class="icon-btn mini"
-                  title="Exportar JSON"
+                  title="Export JSON"
                   disabled
                 >
                   <i class="bi bi-filetype-json"></i>
@@ -337,11 +378,11 @@
                 <button
                   id="queryOutputBtn"
                   class="query-output-btn"
-                  title="Ver output completo"
+                  title="View full output"
                   disabled
                 >
                   <span id="queryOutputPreview" class="query-output-preview">
-                    Sem output.
+                    No output.
                   </span>
                   <i class="bi bi-box-arrow-up-right"></i>
                 </button>
@@ -359,19 +400,19 @@
             <div class="connect-header">
               <div>
                 <div id="connectModalTitle" class="connect-title">
-                  Nova conexão
+                  New connection
                 </div>
                 <div id="connectModalSubtitle" class="connect-subtitle">
-                  Preencha os dados para conectar ao banco.
+                  Fill in the details to connect.
                 </div>
               </div>
-              <button id="closeConnectModalBtn" class="icon-btn" title="Fechar">
+              <button id="closeConnectModalBtn" class="icon-btn" title="Close">
                 <i class="bi bi-x"></i>
               </button>
             </div>
             <div class="row">
               <div class="field">
-                <label>Tipo</label>
+                <label>Type</label>
                 <select id="dbType">
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
@@ -384,23 +425,23 @@
               </div>
 
               <div class="field">
-                <label>Porta</label>
+                <label>Port</label>
                 <input id="port" placeholder="3306 / 5432" />
               </div>
 
               <div class="field">
-                <label>Usuário</label>
+                <label>User</label>
                 <input id="user" />
               </div>
 
               <div class="field">
-                <label>Senha</label>
+                <label>Password</label>
                 <input id="password" type="password" />
               </div>
 
               <div class="field">
                 <label>Database</label>
-                <input id="database" placeholder="opcional" />
+                <input id="database" placeholder="optional" />
               </div>
 
               <div class="field span-2">
@@ -410,7 +451,7 @@
                     class="connect-tab active"
                     type="button"
                   >
-                    Direta
+                    Direct
                   </button>
                   <button id="tabSshBtn" class="connect-tab" type="button">
                     SSH
@@ -421,9 +462,9 @@
               <div class="field span-2 checkbox-field">
                 <label>
                   <input id="readOnly" type="checkbox" />
-                  Somente leitura (produção)
+                  Read-only (production)
                 </label>
-                <div class="field-hint">Bloqueia INSERT/UPDATE/DELETE/DDL.</div>
+                <div class="field-hint">Blocks INSERT/UPDATE/DELETE/DDL.</div>
               </div>
 
               <div id="sshFields" class="ssh-fields hidden">
@@ -433,17 +474,17 @@
                 </div>
 
                 <div class="field">
-                  <label>SSH Porta</label>
+                  <label>SSH Port</label>
                   <input id="sshPort" placeholder="22" />
                 </div>
 
                 <div class="field">
-                  <label>SSH Usuário</label>
+                  <label>SSH User</label>
                   <input id="sshUser" />
                 </div>
 
                 <div class="field">
-                  <label>SSH Senha</label>
+                  <label>SSH Password</label>
                   <input id="sshPassword" type="password" />
                 </div>
 
@@ -462,23 +503,23 @@
                 </div>
 
                 <div class="field">
-                  <label>Local Port (opcional)</label>
-                  <input id="sshLocalPort" placeholder="automático" />
+                  <label>Local Port (optional)</label>
+                  <input id="sshLocalPort" placeholder="auto" />
                 </div>
               </div>
 
               <div class="field span-2 save-only">
-                <label>Nome p/ salvar</label>
-                <input id="saveName" placeholder="ex: Produção" />
+                <label>Name to save</label>
+                <input id="saveName" placeholder="e.g. Production" />
               </div>
 
               <div class="actions">
-                <button id="connectBtn">Conectar</button>
-                <button id="saveBtn" class="save-only">Salvar</button>
-                <button id="testBtn" class="secondary">Testar</button>
-                <button id="clearFormBtn" class="secondary">Limpar</button>
+                <button id="connectBtn">Connect</button>
+                <button id="saveBtn" class="save-only">Save</button>
+                <button id="testBtn" class="secondary">Test</button>
+                <button id="clearFormBtn" class="secondary">Clear</button>
                 <button id="cancelEditBtn" class="secondary hidden">
-                  Cancelar
+                  Cancel
                 </button>
               </div>
             </div>
@@ -492,20 +533,20 @@
           <div class="connect-panel">
             <div class="connect-header">
               <div>
-                <div class="connect-title">Salvar snippet</div>
+                <div class="connect-title">Save snippet</div>
                 <div class="connect-subtitle">
-                  Guarde sua query para reutilizar depois.
+                  Save your query to reuse later.
                 </div>
               </div>
-              <button id="snippetCloseBtn" class="icon-btn" title="Fechar">
+              <button id="snippetCloseBtn" class="icon-btn" title="Close">
                 <i class="bi bi-x"></i>
               </button>
             </div>
             <div class="field">
-              <label>Nome do snippet</label>
+              <label>Snippet name</label>
               <input
                 id="snippetNameInput"
-                placeholder="ex: Pedidos pendentes"
+                placeholder="e.g. Pending orders"
               />
             </div>
             <div class="field">
@@ -517,8 +558,8 @@
               ></textarea>
             </div>
             <div class="actions end">
-              <button id="snippetCancelBtn" class="secondary">Cancelar</button>
-              <button id="snippetSaveBtn">Salvar</button>
+              <button id="snippetCancelBtn" class="secondary">Cancel</button>
+              <button id="snippetSaveBtn">Save</button>
             </div>
           </div>
         </div>
@@ -530,37 +571,37 @@
           <div class="connect-panel">
             <div class="connect-header">
               <div>
-                <div class="connect-title">Preferências</div>
+                <div class="connect-title">Preferences</div>
                 <div id="settingsSubtitle" class="connect-subtitle">
-                  Limpar dados salvos desta conexão.
+                  Clear saved data for this connection.
                 </div>
               </div>
-              <button id="settingsCloseBtn" class="icon-btn" title="Fechar">
+              <button id="settingsCloseBtn" class="icon-btn" title="Close">
                 <i class="bi bi-x"></i>
               </button>
             </div>
             <div class="settings-section">
-              <div class="settings-section-title">Dados da conexão</div>
+              <div class="settings-section-title">Connection data</div>
               <label class="settings-option">
                 <input id="clearTabs" type="checkbox" />
-                Tabs abertas
+                Open tabs
               </label>
               <label class="settings-option">
                 <input id="clearHistory" type="checkbox" />
-                Histórico de consultas
+                Query history
               </label>
               <label class="settings-option">
                 <input id="clearSnippets" type="checkbox" />
-                Snippets salvos
+                Saved snippets
               </label>
               <label class="settings-option">
                 <input id="clearTreeState" type="checkbox" />
-                Árvore (expansão)
+                Tree (expansion)
               </label>
             </div>
             <div class="actions end">
-              <button id="settingsCancelBtn" class="secondary">Cancelar</button>
-              <button id="settingsClearBtn" class="danger">Limpar selecionados</button>
+              <button id="settingsCancelBtn" class="secondary">Cancel</button>
+              <button id="settingsClearBtn" class="danger">Clear selected</button>
             </div>
           </div>
         </div>
@@ -572,12 +613,12 @@
           <div class="connect-panel">
             <div class="connect-header">
               <div>
-                <div class="connect-title">Output da consulta</div>
+                <div class="connect-title">Query output</div>
                 <div id="outputModalSubtitle" class="connect-subtitle">
-                  Último resultado
+                  Latest result
                 </div>
               </div>
-              <button id="outputCloseBtn" class="icon-btn" title="Fechar">
+              <button id="outputCloseBtn" class="icon-btn" title="Close">
                 <i class="bi bi-x"></i>
               </button>
             </div>
@@ -596,8 +637,8 @@
               </table>
             </div>
             <div class="actions end">
-              <button id="outputCopyBtn" class="secondary">Copiar</button>
-              <button id="outputCloseBtnBottom">Fechar</button>
+              <button id="outputCopyBtn" class="secondary">Copy</button>
+              <button id="outputCloseBtnBottom">Close</button>
             </div>
           </div>
         </div>

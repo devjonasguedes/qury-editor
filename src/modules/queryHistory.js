@@ -74,7 +74,7 @@ export function createQueryHistory({
       historyList.innerHTML = '';
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
-      empty.textContent = 'Conecte para ver o histórico.';
+      empty.textContent = 'Connect to view history.';
       historyList.appendChild(empty);
       return;
     }
@@ -83,7 +83,7 @@ export function createQueryHistory({
     if (!list || list.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
-      empty.textContent = 'Nenhuma query executada.';
+      empty.textContent = 'No queries executed.';
       historyList.appendChild(empty);
       return;
     }

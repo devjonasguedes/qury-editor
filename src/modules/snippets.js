@@ -35,7 +35,7 @@ export function createSnippetsManager({
       snippetsList.innerHTML = '';
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
-      empty.textContent = 'Conecte para ver os snippets.';
+      empty.textContent = 'Connect to view snippets.';
       snippetsList.appendChild(empty);
       return;
     }
@@ -44,7 +44,7 @@ export function createSnippetsManager({
     if (!list || list.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
-      empty.textContent = 'Nenhum snippet salvo.';
+      empty.textContent = 'No saved snippets.';
       snippetsList.appendChild(empty);
       return;
     }
@@ -71,17 +71,17 @@ export function createSnippetsManager({
 
       const runSnippetBtn = document.createElement('button');
       runSnippetBtn.className = 'icon-btn mini';
-      runSnippetBtn.title = 'Executar snippet';
+      runSnippetBtn.title = 'Run snippet';
       runSnippetBtn.innerHTML = '<i class="bi bi-lightning-charge"></i>';
 
       const editBtn = document.createElement('button');
       editBtn.className = 'icon-btn mini';
-      editBtn.title = 'Editar snippet';
+      editBtn.title = 'Edit snippet';
       editBtn.innerHTML = '<i class="bi bi-pencil"></i>';
 
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'icon-btn mini';
-      deleteBtn.title = 'Excluir snippet';
+      deleteBtn.title = 'Delete snippet';
       deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
 
       actions.appendChild(runSnippetBtn);
@@ -111,7 +111,7 @@ export function createSnippetsManager({
 
       deleteBtn.addEventListener('click', async (event) => {
         event.stopPropagation();
-        const confirmed = confirm(`Remover o snippet "${entry.name || 'Snippet'}"?`);
+        const confirmed = confirm(`Remove snippet "${entry.name || 'Snippet'}"?`);
         if (!confirmed) return;
         const next = list.filter((item) => {
           if (!item) return false;
@@ -158,7 +158,7 @@ export function createSnippetsManager({
     if (!getCurrentHistoryKey()) return;
     const name = snippetNameInput ? snippetNameInput.value.trim() : '';
     if (!name) {
-      if (showError) await showError('Informe um nome para o snippet.');
+      if (showError) await showError('Enter a name for the snippet.');
       return;
     }
     const sqlSource = getSnippetValue
@@ -166,7 +166,7 @@ export function createSnippetsManager({
       : (snippetQueryInput ? snippetQueryInput.value : pendingSnippetSql);
     const sql = String(sqlSource || '').trim();
     if (!sql) {
-      if (showError) await showError('Snippet sem query.');
+      if (showError) await showError('Snippet has no query.');
       return;
     }
     const list = readSnippets();
@@ -185,7 +185,7 @@ export function createSnippetsManager({
         ts: Date.now()
       };
       if (existingIndex >= 0 && existingIndex !== editingIndex) {
-        const overwrite = confirm(`Já existe um snippet "${name}". Deseja substituir?`);
+        const overwrite = confirm(`A snippet named "${name}" already exists. Replace it?`);
         if (!overwrite) {
           list.splice(editingIndex, 0, existing);
           return;
@@ -199,7 +199,7 @@ export function createSnippetsManager({
       return;
     }
     if (existingIndex >= 0) {
-      const overwrite = confirm(`Já existe um snippet "${name}". Deseja substituir?`);
+      const overwrite = confirm(`A snippet named "${name}" already exists. Replace it?`);
       if (!overwrite) return;
       list.splice(existingIndex, 1);
     }
@@ -218,13 +218,13 @@ export function createSnippetsManager({
     if (addSnippetBtn) {
       addSnippetBtn.addEventListener('click', async () => {
         if (!getCurrentHistoryKey()) {
-          if (showError) await showError('Conecte para salvar snippets.');
+          if (showError) await showError('Connect to save snippets.');
           return;
         }
         const sqlText = getQueryValue ? getQueryValue() : '';
         const trimmed = String(sqlText || '').trim();
         if (!trimmed) {
-          if (showError) await showError('Digite uma query para salvar como snippet.');
+          if (showError) await showError('Type a query to save as a snippet.');
           return;
         }
         const suggestion = trimmed.split('\n')[0].slice(0, 40);

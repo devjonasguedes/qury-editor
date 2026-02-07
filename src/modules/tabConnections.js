@@ -29,7 +29,7 @@ export function createTabConnections({ container, getTitle, onSelect, onClose })
       closeBtn.type = 'button';
       closeBtn.className = 'conn-tab-close';
       closeBtn.innerHTML = '<i class="bi bi-x"></i>';
-      closeBtn.title = 'Fechar conexao';
+      closeBtn.title = 'Close connection';
       closeBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         if (onClose) onClose(key, entry);

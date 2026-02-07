@@ -67,11 +67,11 @@ export function normalizeKeyToBase(key) {
 }
 
 export function connectionTitle(entry) {
-  if (!entry) return 'Conexão';
+  if (!entry) return 'Connection';
   if (entry.name) return entry.name;
   if (entry.database) return entry.database;
   if (entry.host) return entry.host;
-  return 'Conexão';
+  return 'Connection';
 }
 
 export function makeRecentKey(entry) {

@@ -14,19 +14,19 @@ function tableTypeLabel(rawType) {
   const type = String(rawType || '').toUpperCase();
   if (type.includes('VIEW')) return 'Views';
   if (type.includes('BASE')) return 'Tables';
-  return 'Outros';
+  return 'Other';
 }
 
 function routineTypeLabel(rawType) {
   const type = String(rawType || '').toUpperCase();
   if (type.includes('PROCEDURE')) return 'Procedures';
   if (type.includes('FUNCTION')) return 'Functions';
-  return 'Outros';
+  return 'Other';
 }
 
 function ensureGroup(map, schema) {
   if (!map.has(schema)) {
-    map.set(schema, { Tables: [], Views: [], Procedures: [], Functions: [], Outros: [] });
+    map.set(schema, { Tables: [], Views: [], Procedures: [], Functions: [], Other: [] });
   }
   return map.get(schema);
 }
@@ -186,7 +186,7 @@ async function fetchColumns(schema, table, listColumns, onShowError) {
   if (!listColumns) return [];
   const res = await listColumns({ schema, table });
   if (!res || !res.ok) {
-    if (onShowError) await onShowError((res && res.error) || 'Erro ao listar colunas.');
+    if (onShowError) await onShowError((res && res.error) || 'Failed to list columns.');
     return null;
   }
   const cols = res.columns || [];
@@ -200,7 +200,7 @@ async function fetchTableInfo(schema, table, listTableInfo, onShowError) {
   if (!listTableInfo) return { indexes: [], constraints: [] };
   const res = await listTableInfo({ schema, table });
   if (!res || !res.ok) {
-    if (onShowError) await onShowError((res && res.error) || 'Erro ao listar informacoes da tabela.');
+    if (onShowError) await onShowError((res && res.error) || 'Failed to load table info.');
     return null;
   }
   const info = {
@@ -323,10 +323,10 @@ function renderTableDetails(container, columns, tableInfo, depth) {
   const otherConstraints = constraints.filter((constraint) => !isKeyConstraint(constraint));
 
   renderSection(container, {
-    label: 'Colunas',
+    label: 'Columns',
     icon: '<i class="bi bi-list-ul"></i>',
     items: cols,
-    emptyText: 'Sem colunas.',
+    emptyText: 'No columns.',
     depth,
     renderItem: (col, itemDepth) => {
       const name = getField(col, ['column_name', 'name']) || '';
@@ -336,10 +336,10 @@ function renderTableDetails(container, columns, tableInfo, depth) {
   });
 
   renderSection(container, {
-    label: 'Indices',
+    label: 'Indexes',
     icon: '<i class="bi bi-hash"></i>',
     items: indexes,
-    emptyText: 'Sem indices.',
+    emptyText: 'No indexes.',
     depth,
     renderItem: (index, itemDepth) => {
       const label = index.name || (index.primary ? 'PRIMARY' : 'INDEX');
@@ -349,10 +349,10 @@ function renderTableDetails(container, columns, tableInfo, depth) {
   });
 
   renderSection(container, {
-    label: 'Chaves',
+    label: 'Keys',
     icon: '<i class="bi bi-key"></i>',
     items: keyConstraints,
-    emptyText: 'Sem chaves.',
+    emptyText: 'No keys.',
     depth,
     renderItem: (constraint, itemDepth) => {
       const label = constraint.name || 'KEY';
@@ -365,7 +365,7 @@ function renderTableDetails(container, columns, tableInfo, depth) {
     label: 'Constraints',
     icon: '<i class="bi bi-shield-check"></i>',
     items: otherConstraints,
-    emptyText: 'Sem constraints.',
+    emptyText: 'No constraints.',
     depth,
     renderItem: (constraint, itemDepth) => {
       const label = constraint.name || 'CONSTRAINT';
@@ -421,7 +421,7 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, listTabl
 
   const copyNameBtn = document.createElement('button');
   copyNameBtn.className = 'icon-btn tree-action';
-  copyNameBtn.title = 'Copiar nome';
+  copyNameBtn.title = 'Copy name';
   copyNameBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
   copyNameBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
@@ -430,7 +430,7 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, listTabl
 
   const copyQualifiedBtn = document.createElement('button');
   copyQualifiedBtn.className = 'icon-btn tree-action';
-  copyQualifiedBtn.title = 'Copiar nome qualificado';
+  copyQualifiedBtn.title = 'Copy qualified name';
   copyQualifiedBtn.innerHTML = '<i class="bi bi-clipboard2-plus"></i>';
   copyQualifiedBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
@@ -454,7 +454,7 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, listTabl
     item.setAttribute('aria-expanded', item.classList.contains('expanded') ? 'true' : 'false');
     if (onToggle) onToggle(item.classList.contains('expanded'));
     if (!children.classList.contains('hidden') && !loaded) {
-      children.innerHTML = '<div class="tree-empty">Carregando...</div>';
+      children.innerHTML = '<div class="tree-empty">Loading...</div>';
       const [cols, info] = await Promise.all([
         fetchColumns(schema, name, listColumns, onShowError),
         fetchTableInfo(schema, name, listTableInfo, onShowError)
@@ -534,7 +534,7 @@ function createRoutineNode(schema, name, routineType, depth, onOpenRoutine, high
 
   const copyNameBtn = document.createElement('button');
   copyNameBtn.className = 'icon-btn tree-action';
-  copyNameBtn.title = 'Copiar nome';
+  copyNameBtn.title = 'Copy name';
   copyNameBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
   copyNameBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
@@ -543,7 +543,7 @@ function createRoutineNode(schema, name, routineType, depth, onOpenRoutine, high
 
   const copyQualifiedBtn = document.createElement('button');
   copyQualifiedBtn.className = 'icon-btn tree-action';
-  copyQualifiedBtn.title = 'Copiar nome qualificado';
+  copyQualifiedBtn.title = 'Copy qualified name';
   copyQualifiedBtn.innerHTML = '<i class="bi bi-clipboard2-plus"></i>';
   copyQualifiedBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
@@ -601,7 +601,7 @@ export function renderTableTree({
   if (!hasTables && !hasRoutines) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
-    empty.textContent = 'Sem objetos encontrados.';
+    empty.textContent = 'No objects found.';
     tableList.appendChild(empty);
     return;
   }
@@ -610,7 +610,7 @@ export function renderTableTree({
   if (treeData.size === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
-    empty.textContent = 'Sem objetos encontrados.';
+    empty.textContent = 'No objects found.';
     tableList.appendChild(empty);
     return;
   }
@@ -639,7 +639,7 @@ export function renderTableTree({
     tableList.appendChild(schemaNode.item);
     tableList.appendChild(schemaNode.children);
 
-    ['Tables', 'Views', 'Procedures', 'Functions', 'Outros'].forEach((groupLabel) => {
+    ['Tables', 'Views', 'Procedures', 'Functions', 'Other'].forEach((groupLabel) => {
       const items = groups[groupLabel] || [];
       if (items.length === 0) return;
 

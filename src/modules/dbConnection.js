@@ -2,7 +2,7 @@ export function createDbConnection(api) {
   const SAFE_EMPTY_LIST_METHODS = new Set(['listSavedConnections']);
 
   const showErrorFallback = async (message) => {
-    console.error('API indisponivel:', message);
+    console.error('API unavailable:', message);
     if (message) {
       alert(message);
     }
@@ -22,8 +22,8 @@ export function createDbConnection(api) {
           return async () => [];
         }
         return async () => {
-          await showErrorFallback('API do preload nao encontrada.');
-          return { ok: false, error: 'API indisponivel.' };
+          await showErrorFallback('Preload API not found.');
+          return { ok: false, error: 'API unavailable.' };
         };
       }
     }

@@ -11,6 +11,8 @@ let currentDriver = null;
 let db = null;
 let dbPromise = null;
 
+app.setName('Qury Editor');
+
 function dataDir() {
   if (app.isPackaged) return app.getPath('userData');
   return path.join(__dirname, '..', 'data');
@@ -207,7 +209,7 @@ function normalizeSshConfig(ssh) {
   const host = ssh.host || '';
   const username = ssh.user || '';
   if (!host || !username) {
-    throw new Error('SSH host e usuário são obrigatórios.');
+    throw new Error('SSH host and user are required.');
   }
   return {
     host,
@@ -379,6 +381,7 @@ function createWindow() {
     );
   }
   mainWindow = new BrowserWindow({
+    title: 'Qury Editor',
     width: 1200,
     height: 800,
     minWidth: 800,
@@ -398,8 +401,8 @@ function createWindow() {
     mainWindow.loadFile(rendererIndex);
   } else {
     dialog.showErrorBox(
-      'Build não encontrado',
-      'Execute "npm run build" antes de rodar em produção, ou use "npm run dev" no desenvolvimento.'
+      'Build not found',
+      'Run "npm run build" before production, or use "npm run dev" for development.'
     );
   }
 }
@@ -447,11 +450,11 @@ ipcMain.handle('db:connect', async (_evt, config) => {
     const sshConfig = normalizeSshConfig(config.ssh);
     const driver = createDriver(type, { createTunnel: createSshTunnel, closeTunnel });
     const res = await driver.connect(config, sshConfig);
-    if (!res || !res.ok) return res || { ok: false, error: 'Erro ao conectar.' };
+    if (!res || !res.ok) return res || { ok: false, error: 'Failed to connect.' };
     currentDriver = driver;
     return { ok: true };
   } catch (err) {
-    const message = err && err.message ? err.message : 'Erro ao conectar.';
+    const message = err && err.message ? err.message : 'Failed to connect.';
     return { ok: false, error: message };
   }
 });
@@ -462,32 +465,32 @@ ipcMain.handle('db:disconnect', async () => {
 });
 
 ipcMain.handle('db:listTables', async () => {
-  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.listTables();
 });
 
 ipcMain.handle('db:listRoutines', async () => {
-  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.listRoutines();
 });
 
 ipcMain.handle('db:listColumns', async (_evt, payload) => {
-  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.listColumns(payload);
 });
 
 ipcMain.handle('db:listTableInfo', async (_evt, payload) => {
-  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.listTableInfo(payload);
 });
 
 ipcMain.handle('db:listDatabases', async () => {
-  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.listDatabases();
 });
 
 ipcMain.handle('db:useDatabase', async (_evt, name) => {
-  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.useDatabase(name);
 });
 
@@ -498,24 +501,24 @@ ipcMain.handle('db:testConnection', async (_evt, config) => {
     const driver = createDriver(type, { createTunnel: createSshTunnel, closeTunnel });
     return await driver.testConnection(config, sshConfig);
   } catch (err) {
-    const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao testar conexão.';
+    const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Failed to test connection.';
     return { ok: false, error: message };
   }
 });
 
 ipcMain.handle('db:runQuery', async (_evt, payload) => {
-  if (!currentDriver) return { ok: false, error: 'Não conectado.' };
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.runQuery(payload);
 });
 
 ipcMain.handle('db:cancelQuery', async () => {
-  if (!currentDriver) return { ok: false, error: 'Nenhuma query em execução.' };
+  if (!currentDriver) return { ok: false, error: 'No query running.' };
   return currentDriver.cancelQuery();
 });
 
 ipcMain.handle('dialog:error', async (_evt, message) => {
   console.log('[main] dialog:error called with:', message);
   if (mainWindow) {
-    dialog.showErrorBox('Erro', message || 'Erro desconhecido');
+    dialog.showErrorBox('Error', message || 'Unknown error');
   }
 });

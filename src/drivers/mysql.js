@@ -64,7 +64,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         } catch (_) {}
       }
       if (createdTunnel && closeTunnel) closeTunnel(createdTunnel);
-      return { ok: false, error: err && err.message ? err.message : 'Erro ao conectar.' };
+      return { ok: false, error: err && err.message ? err.message : 'Failed to connect.' };
     }
   };
 
@@ -91,7 +91,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
       connection = null;
       return { ok: true };
     } catch (err) {
-      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao testar conexao.';
+      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Failed to test connection.';
       return { ok: false, error: message };
     } finally {
       if (connection) {
@@ -104,7 +104,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listTables = async () => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     if (database) {
       const [rows] = await client.query(
         "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema = ? ORDER BY table_type, table_name",
@@ -119,7 +119,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listRoutines = async () => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     if (database) {
       const [rows] = await client.query(
         "SELECT routine_schema, routine_name, routine_type FROM information_schema.routines WHERE routine_schema = ? ORDER BY routine_type, routine_name",
@@ -134,10 +134,10 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listColumns = async (payload) => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const schema = payload && payload.schema ? payload.schema : database || '';
     const table = payload && payload.table ? payload.table : '';
-    if (!table) return { ok: false, error: 'Tabela invalida.' };
+    if (!table) return { ok: false, error: 'Invalid table.' };
     const [rows] = await client.query(
       'SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position',
       [schema, table]
@@ -146,10 +146,10 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listTableInfo = async (payload) => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const schema = payload && payload.schema ? payload.schema : database || '';
     const table = payload && payload.table ? payload.table : '';
-    if (!table) return { ok: false, error: 'Tabela invalida.' };
+    if (!table) return { ok: false, error: 'Invalid table.' };
     try {
       const [indexRows] = await client.query(
         'SELECT index_name, non_unique, seq_in_index, column_name, index_type FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? ORDER BY index_name, seq_in_index',
@@ -171,13 +171,13 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
       }
       return { ok: true, indexes: buildIndexes(indexRows), constraints: buildConstraints(constraintRows, checkRows) };
     } catch (err) {
-      const message = err && err.message ? err.message : 'Erro ao listar informacoes.';
+      const message = err && err.message ? err.message : 'Failed to list table info.';
       return { ok: false, error: message };
     }
   };
 
   const listDatabases = async () => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
     const [rows] = await client.query('SHOW DATABASES');
     const dbs = rows
       .map((r) => r.Database)
@@ -186,8 +186,8 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const useDatabase = async (name) => {
-    if (!client) return { ok: false, error: 'Nao conectado.' };
-    if (!name) return { ok: false, error: 'Database invalido.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
+    if (!name) return { ok: false, error: 'Invalid database.' };
     await client.changeUser({ database: name });
     database = name;
     if (config) config.database = name;
@@ -199,8 +199,8 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     const sql = input.sql || '';
     const timeoutMs = Number(input.timeoutMs || 0);
     const applyTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
-    if (!client) return { ok: false, error: 'Nao conectado.' };
-    if (!sql || !sql.trim()) return { ok: false, error: 'Query vazia.' };
+    if (!client) return { ok: false, error: 'Not connected.' };
+    if (!sql || !sql.trim()) return { ok: false, error: 'Empty query.' };
     try {
       const threadId = client.threadId || (client.connection && client.connection.threadId);
       currentQuery = { threadId };
@@ -238,16 +238,16 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
       };
     } catch (err) {
       currentQuery = null;
-      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao executar query.';
+      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Failed to run query.';
       return { ok: false, error: message };
     }
   };
 
   const cancelQuery = async () => {
     try {
-      if (!client || !currentQuery) return { ok: false, error: 'Nenhuma query em execucao.' };
+      if (!client || !currentQuery) return { ok: false, error: 'No query running.' };
       const threadId = currentQuery.threadId;
-      if (!threadId) return { ok: false, error: 'Nao foi possivel identificar a query.' };
+      if (!threadId) return { ok: false, error: 'Unable to identify the query.' };
       const killer = await mysql.createConnection({
         host: config.host,
         port: config.port,
@@ -259,7 +259,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
       await killer.end();
       return { ok: true };
     } catch (err) {
-      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Erro ao cancelar query.';
+      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Failed to cancel query.';
       return { ok: false, error: message };
     }
   };

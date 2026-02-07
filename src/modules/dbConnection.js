@@ -37,6 +37,8 @@ export function createDbConnection(api) {
     listTables: () => safeApi.listTables(),
     listColumns: (payload) => safeApi.listColumns(payload),
     listTableInfo: (payload) => safeApi.listTableInfo(payload),
+    getViewDefinition: (payload) => safeApi.getViewDefinition(payload),
+    getTableDefinition: (payload) => safeApi.getTableDefinition(payload),
     listRoutines: () => safeApi.listRoutines(),
     listDatabases: () => safeApi.listDatabases(),
     useDatabase: (name) => safeApi.useDatabase(name),

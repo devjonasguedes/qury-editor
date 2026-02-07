@@ -484,6 +484,18 @@ ipcMain.handle('db:listTableInfo', async (_evt, payload) => {
   return currentDriver.listTableInfo(payload);
 });
 
+ipcMain.handle('db:getViewDefinition', async (_evt, payload) => {
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
+  if (!currentDriver.getViewDefinition) return { ok: false, error: 'View definitions not supported.' };
+  return currentDriver.getViewDefinition(payload);
+});
+
+ipcMain.handle('db:getTableDefinition', async (_evt, payload) => {
+  if (!currentDriver) return { ok: false, error: 'Not connected.' };
+  if (!currentDriver.getTableDefinition) return { ok: false, error: 'Table definitions not supported.' };
+  return currentDriver.getTableDefinition(payload);
+});
+
 ipcMain.handle('db:listDatabases', async () => {
   if (!currentDriver) return { ok: false, error: 'Not connected.' };
   return currentDriver.listDatabases();

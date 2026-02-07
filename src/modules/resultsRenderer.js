@@ -7,6 +7,7 @@ export function createResultsRenderer({
   getActiveTab,
   onSort,
   showError,
+  onToast,
   maxRows = 2000
 }) {
   let selectedCell = null;
@@ -160,6 +161,7 @@ export function createResultsRenderer({
           ? ''
           : String(selectedCell.value)
       );
+      if (onToast) onToast('Cell copied');
     } catch (_) {
       if (showError) await showError('Unable to copy cell.');
     }
@@ -172,6 +174,7 @@ export function createResultsRenderer({
         ? JSON.stringify(selectedRow)
         : String(selectedRow);
       await navigator.clipboard.writeText(text);
+      if (onToast) onToast('Row copied');
     } catch (_) {
       if (showError) await showError('Unable to copy row.');
     }

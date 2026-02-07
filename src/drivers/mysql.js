@@ -176,6 +176,68 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     }
   };
 
+  const quoteIdentifier = (name) => `\`${String(name || '').replace(/`/g, '``')}\``;
+  const buildQualified = (schema, name) => {
+    if (!schema) return quoteIdentifier(name);
+    return `${quoteIdentifier(schema)}.${quoteIdentifier(name)}`;
+  };
+
+  const getViewDefinition = async (payload) => {
+    if (!client) return { ok: false, error: 'Not connected.' };
+    const schema = payload && payload.schema ? payload.schema : database || '';
+    const view = payload && (payload.view || payload.name || payload.table) ? (payload.view || payload.name || payload.table) : '';
+    if (!schema) return { ok: false, error: 'Invalid schema.' };
+    if (!view) return { ok: false, error: 'Invalid view.' };
+    const qualified = buildQualified(schema, view);
+    try {
+      const [rows] = await client.query(`SHOW CREATE VIEW ${qualified}`);
+      const row = rows && rows[0] ? rows[0] : null;
+      if (row) {
+        const key = Object.keys(row).find((k) => k.toLowerCase() === 'create view');
+        const sql = key ? row[key] : null;
+        if (sql) return { ok: true, sql };
+      }
+    } catch (_) {
+      // fallback to information_schema
+    }
+    try {
+      const [rows] = await client.query(
+        'SELECT view_definition FROM information_schema.views WHERE table_schema = ? AND table_name = ?',
+        [schema, view]
+      );
+      const row = rows && rows[0] ? rows[0] : null;
+      const definition = row && (row.view_definition || row.VIEW_DEFINITION) ? (row.view_definition || row.VIEW_DEFINITION) : '';
+      if (!definition) return { ok: false, error: 'View definition not found.' };
+      const sql = `CREATE OR REPLACE VIEW ${qualified} AS\n${definition};`;
+      return { ok: true, sql };
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Failed to load view definition.';
+      return { ok: false, error: message };
+    }
+  };
+
+  const getTableDefinition = async (payload) => {
+    if (!client) return { ok: false, error: 'Not connected.' };
+    const schema = payload && payload.schema ? payload.schema : database || '';
+    const table = payload && (payload.table || payload.name) ? (payload.table || payload.name) : '';
+    if (!schema) return { ok: false, error: 'Invalid schema.' };
+    if (!table) return { ok: false, error: 'Invalid table.' };
+    const qualified = buildQualified(schema, table);
+    try {
+      const [rows] = await client.query(`SHOW CREATE TABLE ${qualified}`);
+      const row = rows && rows[0] ? rows[0] : null;
+      if (row) {
+        const key = Object.keys(row).find((k) => k.toLowerCase() === 'create table');
+        const sql = key ? row[key] : null;
+        if (sql) return { ok: true, sql };
+      }
+      return { ok: false, error: 'Table definition not found.' };
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Failed to load table definition.';
+      return { ok: false, error: message };
+    }
+  };
+
   const listDatabases = async () => {
     if (!client) return { ok: false, error: 'Not connected.' };
     const [rows] = await client.query('SHOW DATABASES');
@@ -273,6 +335,8 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     listRoutines,
     listColumns,
     listTableInfo,
+    getViewDefinition,
+    getTableDefinition,
     listDatabases,
     useDatabase,
     runQuery,

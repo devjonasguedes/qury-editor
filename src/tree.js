@@ -375,7 +375,7 @@ function renderTableDetails(container, columns, tableInfo, depth) {
   });
 }
 
-function createTableNode(schema, name, depth, onOpenTable, listColumns, listTableInfo, onShowError, isView, highlightText, options = {}) {
+function createTableNode(schema, name, depth, onOpenTable, onOpenView, onOpenTableDefinition, listColumns, listTableInfo, onShowError, isView, highlightText, options = {}) {
   const { expanded = false, onToggle, onCopyName, onCopyQualified, key } = options;
   const item = document.createElement('div');
   item.className = 'tree-item tree-leaf tree-routine';
@@ -419,6 +419,30 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, listTabl
     if (onOpenTable) await onOpenTable(schema, name);
   });
 
+  let viewDefBtn = null;
+  if (isView) {
+    viewDefBtn = document.createElement('button');
+    viewDefBtn.className = 'icon-btn tree-action';
+    viewDefBtn.title = 'Open view definition';
+    viewDefBtn.innerHTML = '<i class="bi bi-code-slash"></i>';
+    viewDefBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (onOpenView) await onOpenView(schema, name);
+    });
+  }
+
+  let tableDefBtn = null;
+  if (!isView) {
+    tableDefBtn = document.createElement('button');
+    tableDefBtn.className = 'icon-btn tree-action';
+    tableDefBtn.title = 'Open table definition';
+    tableDefBtn.innerHTML = '<i class="bi bi-code-slash"></i>';
+    tableDefBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (onOpenTableDefinition) await onOpenTableDefinition(schema, name);
+    });
+  }
+
   const copyNameBtn = document.createElement('button');
   copyNameBtn.className = 'icon-btn tree-action';
   copyNameBtn.title = 'Copy name';
@@ -438,6 +462,8 @@ function createTableNode(schema, name, depth, onOpenTable, listColumns, listTabl
   });
 
   actions.appendChild(openBtn);
+  if (viewDefBtn) actions.appendChild(viewDefBtn);
+  if (tableDefBtn) actions.appendChild(tableDefBtn);
   actions.appendChild(copyNameBtn);
   actions.appendChild(copyQualifiedBtn);
 
@@ -582,6 +608,8 @@ export function renderTableTree({
   filterText,
   activeSchema,
   onOpenTable,
+  onOpenView,
+  onOpenTableDefinition,
   onOpenRoutine,
   listColumns,
   listTableInfo,
@@ -686,6 +714,8 @@ export function renderTableTree({
             name,
             2,
             onOpenTable,
+            onOpenView,
+            onOpenTableDefinition,
             listColumns,
             listTableInfo,
             onShowError,

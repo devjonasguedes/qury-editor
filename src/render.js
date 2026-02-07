@@ -130,6 +130,15 @@ export function initHome({ api }) {
   const outputCloseBtn = byId('outputCloseBtn');
   const outputCloseBtnBottom = byId('outputCloseBtnBottom');
   const outputCopyBtn = byId('outputCopyBtn');
+  const toast = byId('toast');
+  const definitionModal = byId('definitionModal');
+  const definitionModalBackdrop = byId('definitionModalBackdrop');
+  const definitionCloseBtn = byId('definitionCloseBtn');
+  const definitionTitle = byId('definitionTitle');
+  const definitionSubtitle = byId('definitionSubtitle');
+  const definitionFormatBtn = byId('definitionFormatBtn');
+  const definitionCopyBtn = byId('definitionCopyBtn');
+  const definitionQueryInput = byId('definitionQueryInput');
 
   let isConnecting = false;
   let isEditingConnection = false;
@@ -138,6 +147,7 @@ export function initHome({ api }) {
   let tabTablesView = null;
   let codeEditor = null;
   let snippetEditor = null;
+  let definitionEditor = null;
   let tableView = null;
   let lastSort = null;
   let resultsByTabId = new Map();
@@ -167,6 +177,23 @@ export function initHome({ api }) {
     document.body.appendChild(overlay);
     globalLoading = overlay;
     return overlay;
+  };
+
+  let toastTimer = null;
+  const showToast = (message, duration = 1600) => {
+    if (!toast || !message) return;
+    toast.textContent = message;
+    toast.classList.remove('hidden');
+    toast.classList.remove('show');
+    void toast.offsetWidth;
+    toast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 200);
+    }, duration);
   };
 
   const setGlobalLoading = (loading, labelText) => {
@@ -480,6 +507,25 @@ export function initHome({ api }) {
     });
   };
 
+  const bindTabShortcuts = () => {
+    document.addEventListener('keydown', (event) => {
+      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const key = String(event.key || '').toLowerCase();
+      if (key === 'w') {
+        event.preventDefault();
+        if (tabTablesView) tabTablesView.closeActive();
+      } else if (key === 't') {
+        event.preventDefault();
+        if (tabTablesView) {
+          tabTablesView.syncActiveTabContent();
+          tabTablesView.create();
+        }
+      }
+    });
+  };
+
+  let resultsVisible = true;
+
   const getEditorHeaderHeight = () => {
     if (!editorPanel) return 0;
     const tab = editorPanel.querySelector('.tab-bar');
@@ -487,26 +533,25 @@ export function initHome({ api }) {
     return (tab ? tab.offsetHeight : 0) + (toolbar ? toolbar.offsetHeight : 0);
   };
 
-  const clampEditorBodyHeight = (rawHeight) => {
+  const resolveMaxEditorBodyHeight = (fallbackHeight) => {
     const minEditor = 120;
-    const minResults = 180;
-    const resizerHeight = editorResizer ? editorResizer.offsetHeight : 6;
+    const minResults = resultsVisible ? 180 : 0;
+    const resizerHeight = resultsVisible ? (editorResizer ? editorResizer.offsetHeight : 6) : 0;
     const workspaceRect = workspace ? workspace.getBoundingClientRect() : null;
     const headerHeight = getEditorHeaderHeight();
-    let maxBody = Number.isFinite(rawHeight) ? rawHeight : minEditor;
-
     if (workspaceRect && workspaceRect.height) {
-      maxBody = workspaceRect.height - headerHeight - resizerHeight - minResults;
+      const maxBody = workspaceRect.height - headerHeight - resizerHeight - minResults;
+      return Math.max(minEditor, Math.round(maxBody));
     }
-
-    if (!Number.isFinite(maxBody)) {
-      maxBody = minEditor;
+    if (Number.isFinite(fallbackHeight) && fallbackHeight > 0) {
+      return Math.max(minEditor, Math.round(fallbackHeight));
     }
+    return minEditor;
+  };
 
-    if (maxBody < minEditor) {
-      maxBody = minEditor;
-    }
-
+  const clampEditorBodyHeight = (rawHeight) => {
+    const minEditor = 120;
+    const maxBody = resolveMaxEditorBodyHeight(rawHeight);
     const clamped = Math.min(Math.max(rawHeight, minEditor), maxBody);
     return Math.round(clamped);
   };
@@ -712,6 +757,20 @@ export function initHome({ api }) {
     if (outputModal) outputModal.classList.add('hidden');
   };
 
+  const openDefinitionModal = ({ title, subtitle, sql } = {}) => {
+    if (!definitionModal) return;
+    if (definitionTitle) definitionTitle.textContent = title || 'Definition';
+    if (definitionSubtitle) definitionSubtitle.textContent = subtitle || '';
+    if (definitionEditor) definitionEditor.setValue(sql || '');
+    else if (definitionQueryInput) definitionQueryInput.value = sql || '';
+    definitionModal.classList.remove('hidden');
+    if (definitionEditor) definitionEditor.refresh();
+  };
+
+  const closeDefinitionModal = () => {
+    if (definitionModal) definitionModal.classList.add('hidden');
+  };
+
   const updateOutputForActiveTab = () => {
     if (!tabTablesView) {
       setOutputDisplay(null);
@@ -764,6 +823,7 @@ export function initHome({ api }) {
   const runSql = async (rawSql, sourceSqlOverride = '') => {
     const baseSql = normalizeSql(rawSql);
     if (!baseSql) return;
+    setResultsVisible(true);
     const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : baseSql;
     const statements = splitStatements(sourceSql);
     const total = statements.length || 1;
@@ -937,6 +997,31 @@ export function initHome({ api }) {
     if (visible) refreshEditor();
   };
 
+  const getCurrentEditorBodyHeight = () => {
+    if (!editorBody) return 0;
+    const current = parseFloat(editorBody.style.height || '');
+    if (Number.isFinite(current) && current > 0) return current;
+    return editorBody.offsetHeight || 0;
+  };
+
+  const setResultsVisible = (visible) => {
+    resultsVisible = !!visible;
+    if (resultsPanel) resultsPanel.classList.toggle('hidden', !resultsVisible);
+    if (editorResizer) editorResizer.classList.toggle('hidden', !resultsVisible);
+    if (!editorBody) return;
+    if (!resultsVisible) {
+      const maxHeight = resolveMaxEditorBodyHeight(getCurrentEditorBodyHeight());
+      applyEditorBodyHeight(maxHeight, { save: false });
+    } else {
+      const stored = Number(localStorage.getItem(EDITOR_HEIGHT_KEY));
+      if (Number.isFinite(stored) && stored > 0) {
+        applyEditorBodyHeight(stored, { save: false });
+      } else {
+        applyEditorBodyHeight(getCurrentEditorBodyHeight(), { save: false });
+      }
+    }
+  };
+
   const refreshDatabases = async () => {
     if (!dbSelect) return;
     const res = await safeApi.listDatabases();
@@ -974,6 +1059,72 @@ export function initHome({ api }) {
       if (treeView) treeView.setActiveSchema(targetDb);
       if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(targetDb);
     }
+  };
+
+  const openViewDefinition = async (schema, name) => {
+    if (!name) return;
+    if (!safeApi.getViewDefinition) {
+      await safeApi.showError('View definitions not supported.');
+      return;
+    }
+    setGlobalLoading(true, 'Loading view...');
+    let res = null;
+    try {
+      res = await safeApi.getViewDefinition({ schema, view: name });
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Failed to load view definition.';
+      await safeApi.showError(message);
+      setGlobalLoading(false);
+      return;
+    }
+    if (!res || !res.ok) {
+      await safeApi.showError((res && res.error) || 'Failed to load view definition.');
+      setGlobalLoading(false);
+      return;
+    }
+    const sql = res.sql || res.definition || '';
+    if (!sql || !sql.trim()) {
+      await safeApi.showError('View definition is empty.');
+      setGlobalLoading(false);
+      return;
+    }
+    const title = 'View definition';
+    const subtitle = schema ? `${schema}.${name}` : name;
+    openDefinitionModal({ title, subtitle, sql });
+    setGlobalLoading(false);
+  };
+
+  const openTableDefinition = async (schema, name) => {
+    if (!name) return;
+    if (!safeApi.getTableDefinition) {
+      await safeApi.showError('Table definitions not supported.');
+      return;
+    }
+    setGlobalLoading(true, 'Loading table...');
+    let res = null;
+    try {
+      res = await safeApi.getTableDefinition({ schema, table: name });
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Failed to load table definition.';
+      await safeApi.showError(message);
+      setGlobalLoading(false);
+      return;
+    }
+    if (!res || !res.ok) {
+      await safeApi.showError((res && res.error) || 'Failed to load table definition.');
+      setGlobalLoading(false);
+      return;
+    }
+    const sql = res.sql || res.definition || '';
+    if (!sql || !sql.trim()) {
+      await safeApi.showError('Table definition is empty.');
+      setGlobalLoading(false);
+      return;
+    }
+    const title = 'Table definition';
+    const subtitle = schema ? `${schema}.${name}` : name;
+    openDefinitionModal({ title, subtitle, sql });
+    setGlobalLoading(false);
   };
 
   const activateConnection = async (entry, previousKey = null) => {
@@ -1433,8 +1584,42 @@ export function initHome({ api }) {
           entry.durationMs ? `${entry.durationMs}ms` : ''
         ].join('\t'));
         await navigator.clipboard.writeText([header, ...lines].join('\n'));
+        showToast('Output copied');
       } catch (_) {
         if (safeApi.showError) await safeApi.showError('Unable to copy output.');
+      }
+    });
+  }
+
+  if (definitionCloseBtn) {
+    definitionCloseBtn.addEventListener('click', () => closeDefinitionModal());
+  }
+
+  if (definitionModalBackdrop) {
+    definitionModalBackdrop.addEventListener('click', () => closeDefinitionModal());
+  }
+
+  if (definitionFormatBtn) {
+    definitionFormatBtn.addEventListener('click', () => {
+      const source = definitionEditor ? definitionEditor.getValue() : (definitionQueryInput ? definitionQueryInput.value : '');
+      if (!source || !source.trim()) return;
+      const active = getActiveConnection();
+      const language = active && active.type === 'postgres' ? 'postgresql' : 'mysql';
+      const formatted = formatSql(source, { language });
+      if (definitionEditor) definitionEditor.setValue(formatted);
+      else if (definitionQueryInput) definitionQueryInput.value = formatted;
+    });
+  }
+
+  if (definitionCopyBtn) {
+    definitionCopyBtn.addEventListener('click', async () => {
+      const source = definitionEditor ? definitionEditor.getValue() : (definitionQueryInput ? definitionQueryInput.value : '');
+      if (!source || !source.trim()) return;
+      try {
+        await navigator.clipboard.writeText(source);
+        showToast('SQL copied');
+      } catch (_) {
+        if (safeApi.showError) await safeApi.showError('Unable to copy.');
       }
     });
   }
@@ -1613,6 +1798,7 @@ export function initHome({ api }) {
   loadEditorHeight();
   initSidebarResizer();
   initEditorResizer();
+  bindTabShortcuts();
   treeView = createTreeView({
     api: safeApi,
     tableList,
@@ -1624,7 +1810,14 @@ export function initHome({ api }) {
       setEditorVisible(false);
       lastSort = null;
       runSql(sql);
-    }
+    },
+    onOpenView: async (schema, name) => {
+      await openViewDefinition(schema, name);
+    },
+    onOpenTableDefinition: async (schema, name) => {
+      await openTableDefinition(schema, name);
+    },
+    onToast: (message) => showToast(message)
   });
   codeEditor = createCodeEditor({ textarea: query });
   codeEditor.init();
@@ -1639,6 +1832,16 @@ export function initHome({ api }) {
     snippetEditor.init();
     if (sqlAutocomplete) {
       snippetEditor.setHintProvider({
+        getHintOptions: () => sqlAutocomplete.getHintOptions(),
+        prefetch: (editor) => sqlAutocomplete.prefetch(editor)
+      });
+    }
+  }
+  if (definitionQueryInput) {
+    definitionEditor = createCodeEditor({ textarea: definitionQueryInput });
+    definitionEditor.init();
+    if (sqlAutocomplete) {
+      definitionEditor.setHintProvider({
         getHintOptions: () => sqlAutocomplete.getHintOptions(),
         prefetch: (editor) => sqlAutocomplete.prefetch(editor)
       });
@@ -1812,6 +2015,7 @@ export function initHome({ api }) {
     exportCsvBtn,
     exportJsonBtn,
     onShowError: safeApi.showError,
+    onToast: (message) => showToast(message),
     onSort: rerunSortedQuery
   });
 tabConnectionsView = createTabConnections({

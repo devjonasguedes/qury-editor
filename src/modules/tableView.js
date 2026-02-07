@@ -8,6 +8,7 @@ export function createTableView({
   exportCsvBtn,
   exportJsonBtn,
   onShowError,
+  onToast,
   onSort
 }) {
   let activeResults = { rows: [], baseSql: '', sourceSql: '', totalRows: 0, truncated: false };
@@ -23,6 +24,7 @@ export function createTableView({
       if (onSort) onSort(column, activeResults);
     },
     showError: onShowError,
+    onToast,
     maxRows: 2000
   });
 

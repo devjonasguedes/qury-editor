@@ -1,4 +1,4 @@
-import { Compartment, EditorState } from '@codemirror/state';
+import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { autocompletion } from '@codemirror/autocomplete';
@@ -115,16 +115,9 @@ export function createCodeEditor({ textarea }) {
     )(context);
   };
 
-  const runKeymap = keymap.of([
+  const runKeymap = Prec.high(keymap.of([
     {
-      key: 'Ctrl-Enter',
-      run: () => {
-        if (typeof onRun === 'function') onRun();
-        return true;
-      }
-    },
-    {
-      key: 'Cmd-Enter',
+      key: 'Mod-Enter',
       run: () => {
         if (typeof onRun === 'function') onRun();
         return true;
@@ -137,7 +130,7 @@ export function createCodeEditor({ textarea }) {
         return true;
       }
     }
-  ]);
+  ]));
 
   const init = () => {
     if (!textarea || view) return view;

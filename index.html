@@ -643,6 +643,38 @@
           </div>
         </div>
       </div>
+
+      <div id="definitionModal" class="modal hidden">
+        <div id="definitionModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card">
+          <div class="connect-panel definition-panel">
+            <div class="connect-header">
+              <div>
+                <div id="definitionTitle" class="connect-title">Definition</div>
+                <div id="definitionSubtitle" class="connect-subtitle"></div>
+              </div>
+              <button id="definitionCloseBtn" class="icon-btn" title="Close">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="definition-toolbar">
+              <button id="definitionFormatBtn" class="secondary" title="Format SQL">
+                <i class="bi bi-braces"></i>
+                Format
+              </button>
+              <button id="definitionCopyBtn" class="secondary" title="Copy SQL">
+                <i class="bi bi-clipboard"></i>
+                Copy
+              </button>
+            </div>
+            <div class="definition-editor">
+              <textarea id="definitionQueryInput" placeholder="SQL definition"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
     </div>
 
     <script type="module" src="/src/app.js"></script>

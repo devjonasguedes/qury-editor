@@ -164,6 +164,79 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     }
   };
 
+  const quoteIdentifier = (name) => `"${String(name || '').replace(/\"/g, '""')}"`;
+  const buildQualified = (schema, name) => {
+    if (!schema) return quoteIdentifier(name);
+    return `${quoteIdentifier(schema)}.${quoteIdentifier(name)}`;
+  };
+
+  const getViewDefinition = async (payload) => {
+    if (!client) return { ok: false, error: 'Not connected.' };
+    const schema = payload && payload.schema ? payload.schema : '';
+    const view = payload && (payload.view || payload.name || payload.table) ? (payload.view || payload.name || payload.table) : '';
+    const targetSchema = schema || 'public';
+    if (!view) return { ok: false, error: 'Invalid view.' };
+    try {
+      const res = await client.query(
+        'SELECT definition FROM pg_views WHERE schemaname = $1 AND viewname = $2',
+        [targetSchema, view]
+      );
+      const row = res && res.rows && res.rows[0] ? res.rows[0] : null;
+      const definition = row && row.definition ? row.definition : '';
+      if (!definition) return { ok: false, error: 'View definition not found.' };
+      const qualified = buildQualified(targetSchema, view);
+      const sql = `CREATE OR REPLACE VIEW ${qualified} AS\n${definition};`;
+      return { ok: true, sql };
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Failed to load view definition.';
+      return { ok: false, error: message };
+    }
+  };
+
+  const getTableDefinition = async (payload) => {
+    if (!client) return { ok: false, error: 'Not connected.' };
+    const schema = payload && payload.schema ? payload.schema : 'public';
+    const table = payload && (payload.table || payload.name) ? (payload.table || payload.name) : '';
+    if (!table) return { ok: false, error: 'Invalid table.' };
+    const targetSchema = schema || 'public';
+    try {
+      const colRes = await client.query(
+        'SELECT a.attname AS column_name, pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type, a.attnotnull AS not_null, pg_get_expr(ad.adbin, ad.adrelid) AS default_value FROM pg_attribute a JOIN pg_class c ON a.attrelid = c.oid JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum WHERE a.attnum > 0 AND NOT a.attisdropped AND c.relname = $2 AND n.nspname = $1 ORDER BY a.attnum',
+        [targetSchema, table]
+      );
+      const cols = colRes && colRes.rows ? colRes.rows : [];
+      if (cols.length === 0) return { ok: false, error: 'Table definition not found.' };
+
+      const constraintRes = await client.query(
+        'SELECT con.conname AS constraint_name, pg_get_constraintdef(con.oid) AS definition FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace WHERE nsp.nspname = $1 AND rel.relname = $2 ORDER BY con.contype, con.conname',
+        [targetSchema, table]
+      );
+      const constraints = constraintRes && constraintRes.rows ? constraintRes.rows : [];
+
+      const columnLines = cols.map((col) => {
+        const name = quoteIdentifier(col.column_name);
+        const type = col.data_type || '';
+        const notNull = col.not_null ? ' NOT NULL' : '';
+        const def = col.default_value ? ` DEFAULT ${col.default_value}` : '';
+        return `  ${name} ${type}${def}${notNull}`.trimEnd();
+      });
+
+      const constraintLines = constraints.map((row) => {
+        const cname = quoteIdentifier(row.constraint_name);
+        const def = row.definition ? ` ${row.definition}` : '';
+        return `  CONSTRAINT ${cname}${def}`.trimEnd();
+      });
+
+      const lines = columnLines.concat(constraintLines);
+      const qualified = buildQualified(targetSchema, table);
+      const sql = `CREATE TABLE ${qualified} (\\n${lines.join(',\\n')}\\n);`;
+      return { ok: true, sql };
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Failed to load table definition.';
+      return { ok: false, error: message };
+    }
+  };
+
   const listDatabases = async () => {
     if (!client) return { ok: false, error: 'Not connected.' };
     const res = await client.query(
@@ -260,6 +333,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     listRoutines,
     listColumns,
     listTableInfo,
+    getViewDefinition,
+    getTableDefinition,
     listDatabases,
     useDatabase,
     runQuery,

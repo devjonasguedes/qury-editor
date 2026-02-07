@@ -6,7 +6,10 @@ export function createTreeView({
   tableSearch,
   tableSearchClear,
   getActiveConnection,
-  onOpenTable
+  onOpenTable,
+  onOpenView,
+  onOpenTableDefinition,
+  onToast
 }) {
   let tableCache = [];
   let routineCache = [];
@@ -37,6 +40,20 @@ export function createTreeView({
     }
   };
 
+  const runOpenView = async (schema, name) => {
+    if (onOpenView) {
+      await onOpenView(schema, name);
+      return;
+    }
+    await runOpenTable(schema, name);
+  };
+
+  const runOpenTableDefinition = async (schema, name) => {
+    if (onOpenTableDefinition) {
+      await onOpenTableDefinition(schema, name);
+    }
+  };
+
   const runOpenRoutine = async (schema, name, routineType) => {
     if (onOpenTable) {
       const conn = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
@@ -56,6 +73,8 @@ export function createTreeView({
       filterText,
       activeSchema,
       onOpenTable: runOpenTable,
+      onOpenView: runOpenView,
+      onOpenTableDefinition: runOpenTableDefinition,
       onOpenRoutine: runOpenRoutine,
       listColumns: api.listColumns,
       listTableInfo: api.listTableInfo,
@@ -68,6 +87,7 @@ export function createTreeView({
         if (!name) return;
         try {
           await navigator.clipboard.writeText(name);
+          if (onToast) onToast('Copied name');
         } catch (_) {
           if (api.showError) await api.showError('Unable to copy.');
         }
@@ -79,6 +99,7 @@ export function createTreeView({
         const qualified = buildQualified(schema, name, type);
         try {
           await navigator.clipboard.writeText(qualified);
+          if (onToast) onToast('Copied qualified name');
         } catch (_) {
           if (api.showError) await api.showError('Unable to copy.');
         }

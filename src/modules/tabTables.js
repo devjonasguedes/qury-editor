@@ -63,25 +63,7 @@ export function createTabTables({
       close.innerHTML = '<i class="bi bi-x"></i>';
       close.addEventListener('click', (event) => {
         event.stopPropagation();
-        const idx = tabs.findIndex((t) => t.id === tab.id);
-        if (idx >= 0) tabs.splice(idx, 1);
-        if (activeTabId === tab.id) {
-          activeTabId = tabs.length ? tabs[Math.max(0, idx - 1)].id : null;
-          if (activeTabId) {
-            const next = getActiveTab();
-            writeValue(next ? next.query : '');
-            if (onActiveChange) onActiveChange(activeTabId, next);
-          } else {
-            writeValue('');
-            if (onActiveChange) onActiveChange(null, null);
-          }
-        }
-        render();
-        if (onChange) onChange(getState());
-        if (tabs.length === 0) {
-          tabCounter = 1;
-          create();
-        }
+        closeTab(tab.id);
       });
 
       el.appendChild(label);
@@ -114,6 +96,34 @@ export function createTabTables({
 
   const ensureOne = () => {
     if (tabs.length === 0) create();
+  };
+
+  const closeTab = (id) => {
+    const idx = tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    tabs.splice(idx, 1);
+    if (activeTabId === id) {
+      activeTabId = tabs.length ? tabs[Math.max(0, idx - 1)].id : null;
+      if (activeTabId) {
+        const next = getActiveTab();
+        writeValue(next ? next.query : '');
+        if (onActiveChange) onActiveChange(activeTabId, next);
+      } else {
+        writeValue('');
+        if (onActiveChange) onActiveChange(null, null);
+      }
+    }
+    render();
+    if (onChange) onChange(getState());
+    if (tabs.length === 0) {
+      tabCounter = 1;
+      create();
+    }
+  };
+
+  const closeActive = () => {
+    if (!activeTabId) return;
+    closeTab(activeTabId);
   };
 
   const setState = (state) => {
@@ -169,6 +179,8 @@ export function createTabTables({
     render,
     create,
     createWithQuery,
+    closeTab,
+    closeActive,
     ensureOne,
     getActiveTab,
     getState,

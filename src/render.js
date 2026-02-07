@@ -188,6 +188,14 @@ export function initHome({ api }) {
       themeToggle.title =
         next === 'light' ? 'Alternar para tema escuro' : 'Alternar para tema claro';
     }
+    if (codeEditor && typeof codeEditor.setTheme === 'function') {
+      codeEditor.setTheme();
+      codeEditor.refresh();
+    }
+    if (snippetEditor && typeof snippetEditor.setTheme === 'function') {
+      snippetEditor.setTheme();
+      snippetEditor.refresh();
+    }
   };
 
   const toggleTheme = () => {

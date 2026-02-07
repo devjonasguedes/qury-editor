@@ -1,16 +1,77 @@
-import 'codemirror/lib/codemirror.css';
-import CodeMirror from 'codemirror';
-import 'codemirror/mode/sql/sql.js';
-import 'codemirror/addon/hint/show-hint.css';
-import 'codemirror/addon/hint/show-hint.js';
-import 'codemirror/addon/hint/sql-hint.js';
+import { Compartment, EditorState } from '@codemirror/state';
+import { EditorView, keymap } from '@codemirror/view';
+import { basicSetup } from 'codemirror';
+import { autocompletion } from '@codemirror/autocomplete';
+import { sql, schemaCompletionSource, keywordCompletionSource, MySQL, PostgreSQL, StandardSQL } from '@codemirror/lang-sql';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags as t } from '@lezer/highlight';
 
 export function createCodeEditor({ textarea }) {
-  let editor = null;
+  let view = null;
   let onRun = null;
   let onRunSelection = null;
   let hintOptionsProvider = null;
   let hintPrefetch = null;
+  const changeHandlers = new Set();
+  const themeCompartment = new Compartment();
+
+  const highlightStyle = HighlightStyle.define([
+    { tag: t.keyword, color: 'var(--token-keyword)' },
+    { tag: t.string, color: 'var(--token-string)' },
+    { tag: t.number, color: 'var(--token-number)' },
+    { tag: t.comment, color: 'var(--token-comment)', fontStyle: 'italic' },
+    { tag: t.typeName, color: 'var(--token-type)' },
+    { tag: t.bool, color: 'var(--token-number)' },
+    { tag: t.null, color: 'var(--token-number)' },
+    { tag: t.operator, color: 'var(--text)' },
+    { tag: t.variableName, color: 'var(--text)' },
+    { tag: t.propertyName, color: 'var(--text)' },
+    { tag: t.invalid, color: 'var(--token-error)' }
+  ]);
+
+  const editorThemeRules = {
+    '&': {
+      color: 'var(--text)',
+      backgroundColor: 'var(--code-bg)'
+    },
+    '.cm-content': {
+      caretColor: 'var(--code-cursor)'
+    },
+    '.cm-scroller': {
+      fontFamily: 'inherit'
+    },
+    '.cm-gutters': {
+      backgroundColor: 'var(--code-gutter-bg)',
+      color: 'var(--text-muted-2)',
+      borderRight: '1px solid var(--surface-5)'
+    },
+    '.cm-gutterElement': {
+      padding: '0 6px'
+    },
+    '.cm-cursor': {
+      borderLeftColor: 'var(--code-cursor)'
+    },
+    '&.cm-focused .cm-cursor': {
+      borderLeftColor: 'var(--code-cursor)'
+    },
+    '.cm-selectionBackground': {
+      backgroundColor: 'var(--selection)'
+    },
+    '&.cm-focused .cm-selectionBackground': {
+      backgroundColor: 'var(--selection)'
+    },
+    '.cm-activeLine': {
+      backgroundColor: 'var(surface-4)'
+    },
+    '.cm-activeLineGutter': {
+      backgroundColor: 'var(--code-active-line-gutter)'
+    }
+  };
+
+  const darkTheme = EditorView.theme(editorThemeRules, { dark: true });
+  const lightTheme = EditorView.theme(editorThemeRules, { dark: false });
+  const resolveTheme = () =>
+    document.body.classList.contains('theme-light') ? lightTheme : darkTheme;
 
   const resolveHintOptions = async () => {
     if (typeof hintOptionsProvider !== 'function') return {};
@@ -19,91 +80,129 @@ export function createCodeEditor({ textarea }) {
     return value || {};
   };
 
-  const shouldSkipHint = () => {
-    if (!editor) return false;
-    const cursor = editor.getCursor();
-    const token = editor.getTokenAt(cursor);
-    const type = token && token.type ? String(token.type) : '';
-    if (!type) return false;
-    return type.includes('string') || type.includes('comment');
+  const resolveDialect = (options) => {
+    if (!options) return StandardSQL;
+    if (options.dialect && typeof options.dialect === 'object' && options.dialect.language) {
+      return options.dialect;
+    }
+    const name = String(options.dialect || '').toLowerCase();
+    if (name === 'postgres' || name === 'postgresql') return PostgreSQL;
+    if (name === 'mysql' || name === 'mariadb') return MySQL;
+    return StandardSQL;
   };
 
-  const triggerHint = async () => {
-    if (!editor || typeof editor.showHint !== 'function') return;
-    if (shouldSkipHint()) return;
-    if (typeof hintPrefetch === 'function') {
+  const completionSource = async (context) => {
+    if (typeof hintPrefetch === 'function' && view) {
       try {
-        await hintPrefetch(editor);
+        await hintPrefetch(view);
       } catch (_) {
         // ignore prefetch errors
       }
     }
     const options = await resolveHintOptions();
-    editor.showHint({ hint: CodeMirror.hint.sql, completeSingle: false, ...options });
+    const schema = options && options.tables ? options.tables : {};
+    const dialect = resolveDialect(options);
+    return schemaCompletionSource({ schema, dialect })(context);
   };
+
+  const keywordSource = async (context) => {
+    const options = await resolveHintOptions();
+    const dialect = resolveDialect(options);
+    return keywordCompletionSource(
+      dialect,
+      options && options.upperCaseKeywords,
+      options && options.keywordCompletion
+    )(context);
+  };
+
+  const runKeymap = keymap.of([
+    {
+      key: 'Ctrl-Enter',
+      run: () => {
+        if (typeof onRun === 'function') onRun();
+        return true;
+      }
+    },
+    {
+      key: 'Cmd-Enter',
+      run: () => {
+        if (typeof onRun === 'function') onRun();
+        return true;
+      }
+    },
+    {
+      key: 'Shift-Enter',
+      run: () => {
+        if (typeof onRunSelection === 'function') onRunSelection();
+        return true;
+      }
+    }
+  ]);
 
   const init = () => {
-    if (!textarea || editor) return editor;
-    editor = CodeMirror.fromTextArea(textarea, {
-      mode: 'text/x-sql',
-      lineNumbers: true,
-      indentWithTabs: true,
-      tabSize: 2,
-      indentUnit: 2,
-      lineWrapping: false,
-      autofocus: true,
-      styleSelectedText: true,
-      extraKeys: {
-        'Ctrl-Enter': () => {
-          if (typeof onRun === 'function') onRun();
-        },
-        'Cmd-Enter': () => {
-          if (typeof onRun === 'function') onRun();
-        },
-        'Shift-Enter': () => {
-          if (typeof onRunSelection === 'function') onRunSelection();
-        },
-        'Ctrl-Space': () => {
-          triggerHint();
-        },
-        'Cmd-Space': () => {
-          triggerHint();
-        }
-      }
+    if (!textarea || view) return view;
+    const host = document.createElement('div');
+    host.className = 'cm-editor-host';
+    textarea.style.display = 'none';
+    textarea.insertAdjacentElement('afterend', host);
+
+    const state = EditorState.create({
+      doc: textarea.value || '',
+      extensions: [
+        basicSetup,
+        EditorState.tabSize.of(2),
+        sql(),
+        themeCompartment.of(resolveTheme()),
+        syntaxHighlighting(highlightStyle),
+        autocompletion({ override: [completionSource, keywordSource] }),
+        runKeymap,
+        EditorView.updateListener.of((update) => {
+          if (!update.docChanged) return;
+          if (textarea) textarea.value = update.state.doc.toString();
+          changeHandlers.forEach((handler) => handler(update));
+        })
+      ]
     });
-    editor.on('inputRead', (_cm, change) => {
-      if (!change || !change.text || !change.text[0]) return;
-      if (change.origin === 'paste') return;
-      if (Array.isArray(change.text) && change.text.length > 1) return;
-      if (Array.isArray(change.text) && change.text[0] && change.text[0].length > 80) return;
-      const ch = change.text[0];
-      if (!/[A-Za-z0-9_.]/.test(ch)) return;
-      triggerHint();
-    });
-    return editor;
+
+    view = new EditorView({ state, parent: host });
+    view.focus();
+    return view;
   };
 
-  const getValue = () => (editor ? editor.getValue() : (textarea ? textarea.value : ''));
+  const getValue = () => (view ? view.state.doc.toString() : (textarea ? textarea.value : ''));
   const setValue = (value) => {
-    if (editor) editor.setValue(value || '');
-    else if (textarea) textarea.value = value || '';
+    if (view) {
+      const next = value || '';
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+    } else if (textarea) {
+      textarea.value = value || '';
+    }
   };
-  const getSelection = () => (editor ? editor.getSelection() : '');
+  const getSelection = () => {
+    if (!view) return '';
+    const selection = view.state.selection.main;
+    if (selection.empty) return '';
+    return view.state.sliceDoc(selection.from, selection.to);
+  };
   const onChange = (handler) => {
-    if (editor) editor.on('change', handler);
+    if (typeof handler === 'function') changeHandlers.add(handler);
   };
   const refresh = () => {
-    if (!editor) return;
-    setTimeout(() => {
-      editor.refresh();
-      editor.focus();
-    }, 0);
+    if (!view) return;
+    view.requestMeasure();
+    view.focus();
   };
   const focus = () => {
-    if (editor) editor.focus();
+    if (view) view.focus();
+  };
+  const setTheme = () => {
+    if (!view) return;
+    view.dispatch({ effects: themeCompartment.reconfigure(resolveTheme()) });
   };
   const setSize = (width, height) => {
-    if (editor) editor.setSize(width, height);
+    if (!view) return;
+    if (width) view.dom.style.width = typeof width === 'number' ? `${width}px` : width;
+    if (height) view.dom.style.height = typeof height === 'number' ? `${height}px` : height;
   };
 
   const setHandlers = ({ run, runSelection } = {}) => {
@@ -124,6 +223,7 @@ export function createCodeEditor({ textarea }) {
     onChange,
     refresh,
     focus,
+    setTheme,
     setSize,
     setHandlers,
     setHintProvider

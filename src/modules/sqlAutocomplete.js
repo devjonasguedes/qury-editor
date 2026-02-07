@@ -55,10 +55,23 @@ export function createSqlAutocomplete({ api, getActiveConnection }) {
 
   const normalizeIdentifier = (value) => String(value || '').replace(/[`"]/g, '');
 
-  const extractTableToken = (editor) => {
+  const getLineBeforeCursor = (editor) => {
     if (!editor) return null;
-    const cursor = editor.getCursor();
-    const line = editor.getLine(cursor.line).slice(0, cursor.ch);
+    if (editor.state && editor.state.doc && editor.state.selection) {
+      const pos = editor.state.selection.main.head;
+      const line = editor.state.doc.lineAt(pos);
+      return line.text.slice(0, pos - line.from);
+    }
+    if (typeof editor.getCursor === 'function' && typeof editor.getLine === 'function') {
+      const cursor = editor.getCursor();
+      return editor.getLine(cursor.line).slice(0, cursor.ch);
+    }
+    return null;
+  };
+
+  const extractTableToken = (editor) => {
+    const line = getLineBeforeCursor(editor);
+    if (line === null) return null;
     const match = line.match(/([A-Za-z0-9_$."`]+)\.$/);
     if (!match) return null;
     return normalizeIdentifier(match[1]);
@@ -108,7 +121,16 @@ export function createSqlAutocomplete({ api, getActiveConnection }) {
     await ensureColumns(info);
   };
 
-  const getHintOptions = () => ({ tables: hintTables });
+  const getHintOptions = () => {
+    const active = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
+    const type = active && active.type ? active.type : '';
+    const dialect = type === 'postgres' ? 'postgresql' : (type || 'mysql');
+    return {
+      tables: hintTables,
+      dialect,
+      upperCaseKeywords: true
+    };
+  };
 
   const onConnected = () => {
     const active = typeof getActiveConnection === 'function' ? getActiveConnection() : null;

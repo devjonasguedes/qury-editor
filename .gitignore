@@ -6,3 +6,5 @@ dist
 out
 public/landing-page/qury-*.zip
 public/landing-page/qury-*.deb
+public/landing-page/*.zip
+public/landing-page/*.deb

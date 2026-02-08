@@ -488,17 +488,17 @@ body.theme-light .onboard {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: center;
   align-items: center;
   gap: 18px;
-  padding: 24px 0 32px;
+  padding: 24px 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .welcome-hero {
   width: min(1040px, 100%);
-  margin: 0 24px 30px;
+  margin: 0 24px;
   padding: 24px;
   display: grid;
   grid-template-columns: minmax(320px, 1.1fr) minmax(280px, 1fr);
@@ -854,7 +854,7 @@ body.theme-light .welcome-screen .onboard {
 
 .onboard-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -1099,14 +1099,58 @@ body.theme-light .welcome-screen .onboard {
   grid-column: span 2;
 }
 
-.save-settings {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-2);
+#connectModal .modal-card {
+  width: min(920px, 92vw);
 }
 
-.save-settings-option {
+#connectModal .connect-panel {
+  gap: 16px;
+}
+
+#connectModal .connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#connectModal .connect-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#connectModal .connect-section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+#connectModal .connect-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+}
+
+#connectModal .field label {
+  font-size: 10px;
+}
+
+#connectModal .field input,
+#connectModal .field select,
+#connectModal .field textarea {
+  background: var(--surface-6);
+}
+
+#connectModal .save-settings {
+  padding: 12px;
+}
+
+#connectModal .save-settings-option {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1117,16 +1161,27 @@ body.theme-light .welcome-screen .onboard {
   color: var(--text) !important;
 }
 
-.save-settings-option input[type="checkbox"] {
+#connectModal .save-settings-option input[type="checkbox"] {
   width: 14px;
   height: 14px;
   accent-color: var(--accent);
 }
 
-.save-settings .field-hint {
+#connectModal .save-settings .field-hint {
   font-size: 10px;
   color: var(--text-muted);
   line-height: 1.35;
+}
+
+#connectModal .connect-actions {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
+#connectModal #connectBtn {
+  margin-right: auto;
 }
 
 #credentialModal .row {
@@ -3108,6 +3163,18 @@ responsive
 
   .row {
     grid-template-columns: 1fr;
+  }
+
+  #connectModal .ssh-fields {
+    grid-template-columns: 1fr;
+  }
+
+  #connectModal .connect-actions {
+    justify-content: stretch;
+  }
+
+  #connectModal #connectBtn {
+    margin-right: 0;
   }
 
   .onboard-grid {

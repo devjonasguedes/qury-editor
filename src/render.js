@@ -5,8 +5,7 @@ import {
   connectionTitle,
   getEntrySshConfig,
   isEntryReadOnly,
-  isEntrySsh,
-  makeRecentKey
+  isEntrySsh
 } from './modules/connectionUtils.js';
 import { readJson, writeJson } from './modules/storage.js';
 import { createTreeView } from './modules/treeView.js';
@@ -20,7 +19,6 @@ import { createSnippetsManager } from './modules/snippets.js';
 import { createSqlAutocomplete } from './modules/sqlAutocomplete.js';
 import { firstDmlKeyword, insertWhere, isDangerousStatement, splitStatements, stripLeadingComments } from './sql.js';
 
-const RECENT_KEY = 'sqlEditor.recentConnections';
 const THEME_KEY = 'sqlEditor.theme';
 const THEME_MODE_SYSTEM = 'system';
 const THEME_MODE_LIGHT = 'light';
@@ -59,7 +57,6 @@ export function initHome({ api }) {
   const clearFormBtn = byId('clearFormBtn');
   const cancelEditBtn = byId('cancelEditBtn');
   const savedList = byId('savedList');
-  const recentList = byId('recentList');
   const mainScreen = byId('mainScreen');
   const welcomeScreen = byId('welcomeScreen');
   const connectSpinner = byId('connectSpinner');
@@ -1678,6 +1675,13 @@ export function initHome({ api }) {
     if (entry && resolvedEntry && entry !== resolvedEntry) {
       Object.assign(entry, resolvedEntry);
     }
+    if (resolvedEntry && resolvedEntry.name && safeApi.touchConnection) {
+      try {
+        await safeApi.touchConnection(resolvedEntry.name);
+      } catch (_) {
+        // best-effort recency update
+      }
+    }
     await refreshDatabases();
     await syncActiveDatabaseAndTree(entry, key);
     resetConnectionScopedUi();
@@ -1726,7 +1730,6 @@ export function initHome({ api }) {
     if (openConnectModalBtn) openConnectModalBtn.disabled = loading;
     if (quickConnectBtn) quickConnectBtn.disabled = loading;
     if (savedList) savedList.classList.toggle('is-connecting', loading);
-    if (recentList) recentList.classList.toggle('is-connecting', loading);
     if (connectModal) connectModal.classList.toggle('is-connecting', loading);
   };
 
@@ -1767,7 +1770,13 @@ export function initHome({ api }) {
       await safeApi.showError(res.error || 'Failed to connect.');
       return false;
     }
-    recordRecentConnection(resolvedEntry);
+    if (resolvedEntry.name && safeApi.touchConnection) {
+      try {
+        await safeApi.touchConnection(resolvedEntry.name);
+      } catch (_) {
+        // best-effort recency update
+      }
+    }
     saveTabsForActive();
     upsertConnectionTab(resolvedEntry);
     await refreshDatabases();
@@ -1777,109 +1786,6 @@ export function initHome({ api }) {
     setScreen(true);
     closeConnectModal();
     return true;
-  };
-
-  const readRecentConnections = () => {
-    const parsed = readJson(RECENT_KEY, []);
-    return Array.isArray(parsed) ? parsed : [];
-  };
-
-  const writeRecentConnections = (list) => {
-    writeJson(RECENT_KEY, list);
-  };
-
-  const recordRecentConnection = (entry) => {
-    if (!entry) return;
-    const list = readRecentConnections();
-    const key = makeRecentKey(entry);
-    const ssh = getEntrySshConfig(entry);
-    const next = list.filter((item) => makeRecentKey(item) !== key);
-    next.unshift({
-      name: entry.name || '',
-      type: entry.type,
-      host: entry.host || 'localhost',
-      port: entry.port || '',
-      user: entry.user || '',
-      password: '',
-      database: entry.database || '',
-      rememberSecrets: entryRemembersSecrets(entry),
-      readOnly: isEntryReadOnly(entry),
-      ssh: ssh && ssh.enabled ? {
-        enabled: true,
-        host: ssh.host || '',
-        port: ssh.port || '',
-        user: ssh.user || '',
-        localPort: ssh.localPort || ''
-      } : { enabled: false },
-      lastUsed: Date.now()
-    });
-    writeRecentConnections(next.slice(0, 8));
-    renderRecentList();
-  };
-
-  const removeRecentConnection = (entry) => {
-    if (!entry) return;
-    const list = readRecentConnections();
-    const key = makeRecentKey(entry);
-    const next = list.filter((item) => makeRecentKey(item) !== key);
-    writeRecentConnections(next);
-    renderRecentList();
-  };
-
-  const renderRecentList = () => {
-    if (!recentList) return;
-    const list = readRecentConnections();
-    recentList.innerHTML = '';
-    if (list.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'tree-empty';
-      empty.textContent = 'No recent connections.';
-      recentList.appendChild(empty);
-      return;
-    }
-    list.forEach((entry) => {
-      const item = document.createElement('div');
-      item.className = 'saved-item';
-
-      const info = document.createElement('div');
-      info.className = 'saved-info';
-
-      const title = document.createElement('div');
-      title.className = 'saved-title';
-      title.textContent = entry.name || entry.database || entry.host || 'Connection';
-
-      const meta = document.createElement('div');
-      meta.className = 'saved-meta';
-      const roTag = isEntryReadOnly(entry) ? ' • RO' : '';
-      const sshTag = isEntrySsh(entry) ? ' • SSH' : '';
-      meta.textContent = `${entry.type} • ${entry.host}:${entry.port || ''}${entry.database ? ` • ${entry.database}` : ''}${roTag}${sshTag}`;
-
-      info.appendChild(title);
-      info.appendChild(meta);
-      item.appendChild(info);
-
-      const actions = document.createElement('div');
-      actions.className = 'saved-actions';
-
-      const removeBtn = document.createElement('button');
-      removeBtn.className = 'icon-btn';
-      removeBtn.innerHTML = '<i class="bi bi-x"></i>';
-      removeBtn.title = 'Remove from list';
-      removeBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        removeRecentConnection(entry);
-      });
-
-      actions.appendChild(removeBtn);
-      item.appendChild(actions);
-
-      info.addEventListener('click', async () => {
-        if (isConnecting) return;
-        await connectEntryFromList(entry);
-      });
-
-      recentList.appendChild(item);
-    });
   };
 
   const renderSavedList = async () => {
@@ -1973,7 +1879,6 @@ export function initHome({ api }) {
       await safeApi.showError(res.error || 'Failed to connect.');
       return;
     }
-    recordRecentConnection(config);
     saveTabsForActive();
     upsertConnectionTab(config);
     await refreshDatabases();
@@ -2059,7 +1964,6 @@ export function initHome({ api }) {
       setScreen(false);
       if (tabConnectionsView) tabConnectionsView.clearActive();
       renderConnectionTabs();
-      renderRecentList();
       renderSavedList();
     });
   }
@@ -2676,5 +2580,4 @@ export function initHome({ api }) {
     }
   });
   renderSavedList();
-  renderRecentList();
 }

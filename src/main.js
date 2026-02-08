@@ -258,6 +258,7 @@ async function initDb() {
           password TEXT,
           remember_secrets INTEGER DEFAULT 0,
           database TEXT,
+          last_connected_at INTEGER DEFAULT 0,
           read_only INTEGER DEFAULT 0,
           ssh_enabled INTEGER DEFAULT 0,
           ssh_host TEXT,
@@ -344,6 +345,12 @@ function ensureConnectionsSchema(dbInstance) {
       `);
       changed = true;
     }
+    if (!cols.includes("last_connected_at")) {
+      dbInstance.run(
+        "ALTER TABLE connections ADD COLUMN last_connected_at INTEGER DEFAULT 0",
+      );
+      changed = true;
+    }
   } catch (err) {
     console.error("Failed to ensure connections schema:", err);
   }
@@ -368,9 +375,9 @@ function migrateConnectionsIfNeeded(dbInstance) {
   });
   const stmt = dbInstance.prepare(`
     INSERT OR REPLACE INTO connections
-      (name, type, host, port, user, password, remember_secrets, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const item of byName.values()) {
     const stored = toStoredConnectionEntry(item);
@@ -388,6 +395,7 @@ function migrateConnectionsIfNeeded(dbInstance) {
       stored.password || "",
       stored.remember_secrets || 0,
       item.database || "",
+      item.last_connected_at || item.lastConnectedAt || item.lastUsed || 0,
       readOnly,
       sshEnabled,
       item.ssh_host || (item.ssh && item.ssh.host) || "",
@@ -570,7 +578,7 @@ function closeTunnel(tunnel) {
 async function listConnections() {
   const dbInstance = await initDb();
   const res = dbInstance.exec(
-    "SELECT name, type, host, port, user, password, remember_secrets, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY name",
+    "SELECT name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
   );
   return rowsFromExec(res).map((entry) => toPublicConnectionEntry(entry));
 }
@@ -586,9 +594,9 @@ async function saveConnection(entry) {
   const now = Date.now();
   const stmt = dbInstance.prepare(`
     INSERT INTO connections
-      (name, type, host, port, user, password, remember_secrets, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       type = excluded.type,
       host = excluded.host,
@@ -617,6 +625,7 @@ async function saveConnection(entry) {
     stored.password || "",
     stored.remember_secrets || 0,
     entry.database || "",
+    entry.last_connected_at || entry.lastConnectedAt || 0,
     readOnly ? 1 : 0,
     sshEnabled ? 1 : 0,
     entry.ssh_host || (entry.ssh && entry.ssh.host) || "",
@@ -629,6 +638,21 @@ async function saveConnection(entry) {
     now,
     now,
   ]);
+  stmt.free();
+  persistDb(dbInstance);
+  return listConnections();
+}
+
+async function touchConnection(name) {
+  if (!name) return listConnections();
+  const dbInstance = await initDb();
+  const now = Date.now();
+  const stmt = dbInstance.prepare(`
+    UPDATE connections
+    SET last_connected_at = ?, updated_at = ?
+    WHERE name = ?
+  `);
+  stmt.run([now, now, name]);
   stmt.free();
   persistDb(dbInstance);
   return listConnections();
@@ -794,6 +818,10 @@ ipcMain.handle("connections:save", async (_evt, entry) => {
 
 ipcMain.handle("connections:delete", async (_evt, name) => {
   return deleteConnection(name);
+});
+
+ipcMain.handle("connections:touch", async (_evt, name) => {
+  return touchConnection(name);
 });
 
 ipcMain.handle("db:connect", async (_evt, config) => {

@@ -216,20 +216,12 @@
             <div class="onboard welcome-card">
               <div class="onboard-header">
                 <div>
-                  <div class="connect-title">Connections</div>
-                  <div class="connect-subtitle">
-                    Resume saved connections or choose a recent session.
-                  </div>
+                  <div class="connect-title">Saved connections</div>
                 </div>
               </div>
               <div class="onboard-grid">
                 <div class="saved-card">
-                  <div class="saved-header">Saved connections</div>
                   <div id="savedList" class="saved-list"></div>
-                </div>
-                <div class="saved-card">
-                  <div class="saved-header">Recent connections</div>
-                  <div id="recentList" class="saved-list"></div>
                 </div>
               </div>
             </div>
@@ -465,117 +457,130 @@
                 <i class="bi bi-x"></i>
               </button>
             </div>
-            <div class="row">
-              <div class="field">
-                <label>Type</label>
-                <select id="dbType">
-                  <option value="mysql">MySQL</option>
-                  <option value="postgres">PostgreSQL</option>
-                </select>
-              </div>
+            <div class="connect-form">
+              <section class="connect-section">
+                <div class="connect-section-title">Connection</div>
+                <div class="row connect-grid">
+                  <div class="field">
+                    <label>Type</label>
+                    <select id="dbType">
+                      <option value="mysql">MySQL</option>
+                      <option value="postgres">PostgreSQL</option>
+                    </select>
+                  </div>
 
-              <div class="field">
-                <label>Host</label>
-                <input id="host" placeholder="localhost" />
-              </div>
+                  <div class="field">
+                    <label>Host</label>
+                    <input id="host" placeholder="localhost" />
+                  </div>
 
-              <div class="field">
-                <label>Port</label>
-                <input id="port" placeholder="3306 / 5432" />
-              </div>
+                  <div class="field">
+                    <label>Port</label>
+                    <input id="port" placeholder="3306 / 5432" />
+                  </div>
 
-              <div class="field">
-                <label>User</label>
-                <input id="user" />
-              </div>
+                  <div class="field">
+                    <label>User</label>
+                    <input id="user" />
+                  </div>
 
-              <div class="field">
-                <label>Password</label>
-                <input id="password" type="password" />
-              </div>
+                  <div class="field">
+                    <label>Password</label>
+                    <input id="password" type="password" />
+                  </div>
 
-              <div class="field">
-                <label>Database</label>
-                <input id="database" placeholder="optional" />
-              </div>
-
-              <div class="field span-2">
-                <div class="connect-tabs">
-                  <button
-                    id="tabDirectBtn"
-                    class="connect-tab active"
-                    type="button"
-                  >
-                    Direct
-                  </button>
-                  <button id="tabSshBtn" class="connect-tab" type="button">
-                    SSH
-                  </button>
+                  <div class="field">
+                    <label>Database</label>
+                    <input id="database" placeholder="optional" />
+                  </div>
                 </div>
-              </div>
+              </section>
 
-              <div class="field span-2 checkbox-field">
-                <label>
-                  <input id="readOnly" type="checkbox" />
-                  Read-only (production)
-                </label>
-                <div class="field-hint">Blocks INSERT/UPDATE/DELETE/DDL.</div>
-              </div>
+              <section class="connect-section">
+                <div class="connect-section-title">Access</div>
+                <div class="row connect-grid">
+                  <div class="field span-2">
+                    <div class="connect-tabs">
+                      <button
+                        id="tabDirectBtn"
+                        class="connect-tab active"
+                        type="button"
+                      >
+                        Direct
+                      </button>
+                      <button id="tabSshBtn" class="connect-tab" type="button">
+                        SSH
+                      </button>
+                    </div>
+                  </div>
 
-              <div id="sshFields" class="ssh-fields hidden">
+                  <div class="field span-2 checkbox-field">
+                    <label>
+                      <input id="readOnly" type="checkbox" />
+                      Read-only (production)
+                    </label>
+                    <div class="field-hint">Blocks INSERT/UPDATE/DELETE/DDL.</div>
+                  </div>
+
+                  <div id="sshFields" class="ssh-fields hidden">
+                    <div class="field">
+                      <label>SSH Host</label>
+                      <input id="sshHost" placeholder="ex: bastion.company.com" />
+                    </div>
+
+                    <div class="field">
+                      <label>SSH Port</label>
+                      <input id="sshPort" placeholder="22" />
+                    </div>
+
+                    <div class="field">
+                      <label>SSH User</label>
+                      <input id="sshUser" />
+                    </div>
+
+                    <div class="field">
+                      <label>SSH Password</label>
+                      <input id="sshPassword" type="password" />
+                    </div>
+
+                    <div class="field span-2">
+                      <label>SSH Private Key</label>
+                      <textarea
+                        id="sshPrivateKey"
+                        rows="4"
+                        placeholder="-----BEGIN PRIVATE KEY-----"
+                      ></textarea>
+                    </div>
+
+                    <div class="field">
+                      <label>SSH Passphrase</label>
+                      <input id="sshPassphrase" type="password" />
+                    </div>
+
+                    <div class="field">
+                      <label>Local Port (optional)</label>
+                      <input id="sshLocalPort" placeholder="auto" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="connect-section save-only save-settings">
+                <div class="connect-section-title">Save</div>
                 <div class="field">
-                  <label>SSH Host</label>
-                  <input id="sshHost" placeholder="ex: bastion.company.com" />
+                  <label>Connection name</label>
+                  <input id="saveName" placeholder="e.g. Production" />
                 </div>
-
-                <div class="field">
-                  <label>SSH Port</label>
-                  <input id="sshPort" placeholder="22" />
-                </div>
-
-                <div class="field">
-                  <label>SSH User</label>
-                  <input id="sshUser" />
-                </div>
-
-                <div class="field">
-                  <label>SSH Password</label>
-                  <input id="sshPassword" type="password" />
-                </div>
-
-                <div class="field span-2">
-                  <label>SSH Private Key</label>
-                  <textarea
-                    id="sshPrivateKey"
-                    rows="4"
-                    placeholder="-----BEGIN PRIVATE KEY-----"
-                  ></textarea>
-                </div>
-
-                <div class="field">
-                  <label>SSH Passphrase</label>
-                  <input id="sshPassphrase" type="password" />
-                </div>
-
-                <div class="field">
-                  <label>Local Port (optional)</label>
-                  <input id="sshLocalPort" placeholder="auto" />
-                </div>
-              </div>
-
-              <div class="field span-2 save-only save-settings">
-                <label>Save connection</label>
-                <input id="saveName" placeholder="e.g. Production" />
                 <label class="save-settings-option">
                   <input id="rememberPassword" type="checkbox" />
                   Save password and SSH secrets
                 </label>
                 <div class="field-hint">
-                  Uses your system secure storage and may ask for login password.
+                  Saves in system secure storage (may ask login password).
                 </div>
-              </div>
+              </section>
 
-              <div class="actions">
+              <div class="actions connect-actions">
                 <button id="connectBtn">Connect</button>
                 <button id="saveBtn" class="save-only">Save</button>
                 <button id="testBtn" class="secondary">Test</button>

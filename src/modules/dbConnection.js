@@ -50,6 +50,7 @@ export function createDbConnection(api) {
     useDatabase: (name) => safeApi.useDatabase(name),
     listSavedConnections: () => safeApi.listSavedConnections(),
     saveConnection: (entry) => safeApi.saveConnection(entry),
+    touchConnection: (name) => safeApi.touchConnection(name),
     deleteConnection: (name) => safeApi.deleteConnection(name),
     getNativeTheme: () => {
       if (api && typeof api.getNativeTheme === 'function') {

@@ -73,22 +73,3 @@ export function connectionTitle(entry) {
   if (entry.host) return entry.host;
   return 'Connection';
 }
-
-export function makeRecentKey(entry) {
-  if (!entry) return '';
-  const ro = isEntryReadOnly(entry);
-  const ssh = getEntrySshConfig(entry);
-  return [
-    entry.type,
-    entry.host || '',
-    entry.port || '',
-    entry.user || '',
-    entry.database || '',
-    ro ? 'ro' : 'rw',
-    ssh.enabled ? 'ssh' : 'direct',
-    ssh.host || '',
-    ssh.port || '',
-    ssh.user || '',
-    ssh.localPort || ''
-  ].join('|');
-}

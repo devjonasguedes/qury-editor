@@ -38,6 +38,8 @@ jobs:
 
       - name: Build
         run: npm run ${{ matrix.script }}
+        env:
+          ELECTRON_BUILDER_PUBLISH: never
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

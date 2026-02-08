@@ -124,7 +124,11 @@ export function createSqlAutocomplete({ api, getActiveConnection }) {
   const getHintOptions = () => {
     const active = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
     const type = active && active.type ? active.type : '';
-    const dialect = type === 'postgres' ? 'postgresql' : (type || 'mysql');
+    const normalizedType = String(type || '').toLowerCase();
+    const dialect =
+      normalizedType === 'postgres' || normalizedType === 'postgresql'
+        ? 'postgresql'
+        : (normalizedType || 'mysql');
     return {
       tables: hintTables,
       dialect,

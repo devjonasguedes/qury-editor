@@ -605,7 +605,9 @@ function persistDb(dbInstance) {
 function normalizeConnectionType(value) {
   const text = String(value || "").trim().toLowerCase();
   if (text === "postgres") return "postgresql";
-  if (text === "postgresql" || text === "mysql") return text;
+  if (text === "maria" || text === "maria-db") return "mariadb";
+  if (text === "postgresql" || text === "mysql" || text === "mariadb")
+    return text;
   return text || "mysql";
 }
 
@@ -1078,7 +1080,7 @@ function normalizedPortForFingerprint(type, port) {
   const value = normalizedPart(port);
   if (value) return value;
   if (type === "postgresql") return "5432";
-  if (type === "mysql") return "3306";
+  if (type === "mysql" || type === "mariadb") return "3306";
   return "";
 }
 
@@ -1796,13 +1798,12 @@ ipcMain.handle("db:connect", async (_evt, config) => {
     await disconnect();
     const normalizedConfig = {
       ...(config || {}),
+      type: normalizeConnectionType(config && config.type),
       readOnly: isReadOnlyConfig(config),
       policyMode: getEntryPolicyMode(config),
     };
-    const type =
-      normalizedConfig.type === "postgres" ? "postgresql" : normalizedConfig.type;
     const sshConfig = normalizeSshConfig(normalizedConfig.ssh);
-    const driver = createDriver(type, {
+    const driver = createDriver(normalizedConfig.type, {
       createTunnel: createSshTunnel,
       closeTunnel,
     });
@@ -1872,13 +1873,16 @@ ipcMain.handle("db:useDatabase", async (_evt, name) => {
 
 ipcMain.handle("db:testConnection", async (_evt, config) => {
   try {
-    const type = config.type === "postgres" ? "postgresql" : config.type;
-    const sshConfig = normalizeSshConfig(config.ssh);
-    const driver = createDriver(type, {
+    const normalizedConfig = {
+      ...(config || {}),
+      type: normalizeConnectionType(config && config.type),
+    };
+    const sshConfig = normalizeSshConfig(normalizedConfig.ssh);
+    const driver = createDriver(normalizedConfig.type, {
       createTunnel: createSshTunnel,
       closeTunnel,
     });
-    return await driver.testConnection(config, sshConfig);
+    return await driver.testConnection(normalizedConfig, sshConfig);
   } catch (err) {
     const message =
       err && (err.sqlMessage || err.message)

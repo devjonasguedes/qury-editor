@@ -1299,6 +1299,35 @@ body.theme-light .saved-policy-option input:checked + span {
   gap: 12px;
 }
 
+#connectModal .connect-settings-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+#connectModal .connect-settings-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#connectModal .connect-settings-tab:hover {
+  background: var(--surface-4);
+}
+
+#connectModal .connect-settings-tab.active {
+  background: var(--surface-1);
+  border-color: var(--border);
+}
+
 #connectModal .connect-section {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1322,6 +1351,10 @@ body.theme-light .saved-policy-option input:checked + span {
   align-items: start;
 }
 
+#connectModal .connection-url-field {
+  grid-column: 1 / -1;
+}
+
 #connectModal .field label {
   font-size: 10px;
 }
@@ -1330,6 +1363,12 @@ body.theme-light .saved-policy-option input:checked + span {
 #connectModal .field select,
 #connectModal .field textarea {
   background: var(--surface-6);
+}
+
+#connectModal .field .field-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.35;
 }
 
 #connectModal .access-controls {
@@ -1881,13 +1920,19 @@ sidebar tree
 }
 
 .tree-badge {
-  margin-left: 6px;
-  padding: 2px 6px;
-  font-size: 11px;
-  border-radius: 4px;
-  background: var(--surface-5);
-  color: var(--text-muted-2);
-  font-weight: 500;
+  margin-left: 4px;
+  padding: 0 6px;
+  min-width: 18px;
+  height: 16px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .tree-highlight {

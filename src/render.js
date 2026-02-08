@@ -94,6 +94,7 @@ export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
 
   const dbType = byId('dbType');
+  const connectionUrl = byId('connectionUrl');
   const host = byId('host');
   const port = byId('port');
   const user = byId('user');
@@ -134,6 +135,10 @@ export function initHome({ api }) {
   const connectModalBackdrop = byId('connectModalBackdrop');
   const connectModalTitle = byId('connectModalTitle');
   const connectModalSubtitle = byId('connectModalSubtitle');
+  const connectSettingsTabs = byId('connectSettingsTabs');
+  const connectSectionConnection = byId('connectSectionConnection');
+  const connectSectionAccess = byId('connectSectionAccess');
+  const connectSectionSave = byId('connectSectionSave');
   const credentialModal = byId('credentialModal');
   const credentialModalBackdrop = byId('credentialModalBackdrop');
   const credentialModalTitle = byId('credentialModalTitle');
@@ -284,6 +289,8 @@ export function initHome({ api }) {
   let editingConnectionSeed = null;
   let environmentPolicyRules = null;
   let activeSettingsTab = 'general';
+  let activeConnectSettingsTab = 'connection';
+  let activeConnectMode = 'full';
   let removeNativeThemeListener = null;
   let currentThemeMode = THEME_MODE_SYSTEM;
   let systemPrefersDark = true;
@@ -355,9 +362,9 @@ export function initHome({ api }) {
   };
 
   const themeModeLabel = (mode) => {
-    if (mode === THEME_MODE_LIGHT) return 'Claro';
-    if (mode === THEME_MODE_DARK) return 'Escuro';
-    return 'Sistema';
+    if (mode === THEME_MODE_LIGHT) return 'Light';
+    if (mode === THEME_MODE_DARK) return 'Dark';
+    return 'System';
   };
 
   const themeModeIcon = (mode) => {
@@ -382,8 +389,8 @@ export function initHome({ api }) {
   const updateThemeUi = () => {
     if (themeToggle) {
       themeToggle.innerHTML = `<i class="bi ${themeModeIcon(currentThemeMode)}"></i>`;
-      themeToggle.title = `Tema: ${themeModeLabel(currentThemeMode)}`;
-      themeToggle.setAttribute('aria-label', `Tema: ${themeModeLabel(currentThemeMode)}`);
+      themeToggle.title = `Theme: ${themeModeLabel(currentThemeMode)}`;
+      themeToggle.setAttribute('aria-label', `Theme: ${themeModeLabel(currentThemeMode)}`);
     }
     if (themeMenu) {
       const items = themeMenu.querySelectorAll('[data-theme-mode]');
@@ -765,6 +772,14 @@ export function initHome({ api }) {
       editingConnectionSeed = null;
       if (saveName) delete saveName.dataset.originalName;
     }
+    if (dbType) {
+      dbType.disabled = !!enabled;
+      if (enabled) {
+        dbType.title = 'Type cannot be changed while editing. Create a new connection to change type.';
+      } else {
+        dbType.removeAttribute('title');
+      }
+    }
     if (cancelEditBtn) cancelEditBtn.classList.toggle('hidden', !enabled);
   };
 
@@ -944,6 +959,8 @@ export function initHome({ api }) {
 
   const resetConnectionForm = () => {
     if (dbType) dbType.value = 'mysql';
+    updateConnectionUrlPlaceholder('mysql');
+    if (connectionUrl) connectionUrl.value = '';
     if (host) host.value = 'localhost';
     if (port) port.value = '';
     if (user) user.value = '';
@@ -964,21 +981,156 @@ export function initHome({ api }) {
     if (sshLocalPort) sshLocalPort.value = '';
   };
 
+  const normalizeTypeForForm = (value) => {
+    const type = String(value || '').trim().toLowerCase();
+    if (!type) return 'mysql';
+    if (type === 'postgresql') return 'postgres';
+    if (type === 'maria' || type === 'maria-db') return 'mariadb';
+    if (type === 'postgres' || type === 'mysql' || type === 'mariadb') return type;
+    return 'mysql';
+  };
+
+  const resolveConnectionUrlPlaceholder = (typeValue) => {
+    const type = normalizeTypeForForm(typeValue);
+    if (type === 'postgres') return 'postgresql://user:password@localhost:5432/database';
+    if (type === 'mariadb') return 'mariadb://user:password@localhost:3306/database';
+    return 'mysql://user:password@localhost:3306/database';
+  };
+
+  const updateConnectionUrlPlaceholder = (typeValue) => {
+    if (!connectionUrl) return;
+    connectionUrl.placeholder = resolveConnectionUrlPlaceholder(typeValue || (dbType ? dbType.value : 'mysql'));
+  };
+
+  const normalizeTypeFromUrlScheme = (value) => {
+    const scheme = String(value || '').trim().toLowerCase().replace(/:$/, '');
+    if (scheme === 'postgres' || scheme === 'postgresql') return 'postgres';
+    if (scheme === 'mysql') return 'mysql';
+    if (scheme === 'mariadb' || scheme === 'maria' || scheme === 'maria-db') return 'mariadb';
+    return '';
+  };
+
+  const decodeUrlPart = (value) => {
+    const text = String(value || '');
+    if (!text) return '';
+    try {
+      return decodeURIComponent(text);
+    } catch (_) {
+      return text;
+    }
+  };
+
+  const parseConnectionUrl = (rawValue) => {
+    const text = String(rawValue || '').trim();
+    if (!text) return null;
+    let parsed = null;
+    try {
+      parsed = new URL(text);
+    } catch (_) {
+      throw new Error('Invalid connection URL.');
+    }
+    const type = normalizeTypeFromUrlScheme(parsed.protocol);
+    if (!type) throw new Error('Unsupported URL scheme. Use postgresql://, mysql:// or mariadb://');
+    if (!parsed.hostname) throw new Error('Connection URL must include host.');
+    const pathname = String(parsed.pathname || '').replace(/^\/+/, '');
+    return {
+      type,
+      host: parsed.hostname,
+      port: parsed.port || '',
+      user: decodeUrlPart(parsed.username || ''),
+      password: decodeUrlPart(parsed.password || ''),
+      database: decodeUrlPart(pathname || '')
+    };
+  };
+
+  const getLockedEditType = () => {
+    if (!isEditingConnection || !editingConnectionSeed || !editingConnectionSeed.type) return '';
+    return normalizeTypeForForm(editingConnectionSeed.type);
+  };
+
+  const buildConnectionFromForm = ({ includeSaveFields = false } = {}) => {
+    const lockedType = getLockedEditType();
+    const base = {
+      type: lockedType || normalizeTypeForForm(dbType ? dbType.value : 'mysql'),
+      host: host ? host.value || 'localhost' : 'localhost',
+      port: port ? String(port.value || '').trim() : '',
+      user: user ? user.value || '' : '',
+      password: password ? password.value || '' : '',
+      database: database ? database.value || '' : '',
+      readOnly: readOnly ? readOnly.checked : false,
+      policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
+      ssh: buildSshConfig()
+    };
+    if (includeSaveFields) {
+      base.name = saveName ? saveName.value.trim() : '';
+      base.rememberSecrets = rememberPassword ? rememberPassword.checked : false;
+    }
+
+    const urlValue = connectionUrl ? String(connectionUrl.value || '').trim() : '';
+    if (!urlValue) {
+      base.connectionUrl = '';
+      return base;
+    }
+
+    const parsed = parseConnectionUrl(urlValue);
+    if (lockedType && parsed.type !== lockedType) {
+      throw new Error('Connection type cannot be changed while editing.');
+    }
+    return {
+      ...base,
+      ...parsed,
+      connectionUrl: urlValue
+    };
+  };
+
+  const normalizeConnectSettingsTab = (tab) => {
+    if (tab === 'access') return tab;
+    return 'connection';
+  };
+
+  const setConnectSettingsTab = (tab) => {
+    const requested = normalizeConnectSettingsTab(tab);
+    const next = requested;
+    activeConnectSettingsTab = next;
+
+    if (connectSettingsTabs) {
+      const items = connectSettingsTabs.querySelectorAll('[data-connect-settings-tab]');
+      items.forEach((item) => {
+        const selected = item.getAttribute('data-connect-settings-tab') === next;
+        item.classList.toggle('active', selected);
+        item.setAttribute('aria-selected', selected ? 'true' : 'false');
+      });
+    }
+
+    if (connectSectionConnection) {
+      connectSectionConnection.classList.toggle('hidden', next !== 'connection');
+    }
+    if (connectSectionAccess) {
+      connectSectionAccess.classList.toggle('hidden', next !== 'access');
+    }
+    if (connectSectionSave) {
+      const showSave = next === 'connection' && activeConnectMode !== 'quick';
+      connectSectionSave.classList.toggle('hidden', !showSave);
+    }
+  };
+
   const setConnectMode = (mode) => {
+    activeConnectMode = mode === 'quick' ? 'quick' : 'full';
     const panel = connectModal ? connectModal.querySelector('.connect-panel') : null;
-    if (panel) panel.classList.toggle('quick', mode === 'quick');
+    if (panel) panel.classList.toggle('quick', activeConnectMode === 'quick');
     if (connectModalTitle) {
-      connectModalTitle.textContent = mode === 'quick' ? 'Quick connect' : 'New connection';
+      connectModalTitle.textContent = activeConnectMode === 'quick' ? 'Quick connect' : 'New connection';
     }
     if (connectModalSubtitle) {
       connectModalSubtitle.textContent =
-        mode === 'quick'
+        activeConnectMode === 'quick'
           ? 'Connect without saving.'
           : 'Fill in the details to connect.';
     }
     if (connectBtn) {
-      connectBtn.textContent = mode === 'quick' ? 'Quick connect' : 'Connect';
+      connectBtn.textContent = activeConnectMode === 'quick' ? 'Quick connect' : 'Connect';
     }
+    setConnectSettingsTab(activeConnectSettingsTab || 'connection');
   };
 
   const openConnectModal = ({ keepForm = false, mode = 'full' } = {}) => {
@@ -993,6 +1145,7 @@ export function initHome({ api }) {
     }
     if (mode === 'quick' && rememberPassword) rememberPassword.checked = false;
     setConnectMode(mode);
+    setConnectSettingsTab('connection');
     connectModal.classList.remove('hidden');
   };
 
@@ -1001,6 +1154,7 @@ export function initHome({ api }) {
     connectModal.classList.add('hidden');
     setEditMode(false);
     setConnectMode('full');
+    setConnectSettingsTab('connection');
   };
 
   const setScreen = (connected) => {
@@ -1132,7 +1286,9 @@ export function initHome({ api }) {
 
   const applyEntryToForm = (entry) => {
     if (!entry) return;
-    if (dbType) dbType.value = entry.type || 'mysql';
+    if (dbType) dbType.value = normalizeTypeForForm(entry.type);
+    updateConnectionUrlPlaceholder(dbType ? dbType.value : '');
+    if (connectionUrl) connectionUrl.value = entry.connectionUrl || entry.connection_url || entry.url || '';
     if (host) host.value = entry.host || '';
     if (port) port.value = entry.port || '';
     if (user) user.value = entry.user || '';
@@ -2712,16 +2868,16 @@ export function initHome({ api }) {
   };
 
   const connectFromForm = async () => {
-    const config = {
-      type: dbType ? dbType.value : 'mysql',
-      host: host ? host.value || 'localhost' : 'localhost',
-      port: port ? port.value || undefined : undefined,
-      user: user ? user.value || '' : '',
-      password: password ? password.value || '' : '',
-      database: database ? database.value || '' : '',
-      readOnly: readOnly ? readOnly.checked : false,
-      policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
-      ssh: buildSshConfig()
+    let config = null;
+    try {
+      config = buildConnectionFromForm();
+    } catch (err) {
+      await safeApi.showError(err && err.message ? err.message : 'Invalid connection URL.');
+      return;
+    }
+    config = {
+      ...config,
+      port: config.port || undefined
     };
 
     if (await tryActivateExistingConnection(config)) return;
@@ -2747,19 +2903,13 @@ export function initHome({ api }) {
       return;
     }
 
-    const entry = {
-      name: saveName.value.trim(),
-      type: dbType ? dbType.value : 'mysql',
-      host: host ? host.value || 'localhost' : 'localhost',
-      port: port ? port.value || '' : '',
-      user: user ? user.value || '' : '',
-      password: password ? password.value || '' : '',
-      database: database ? database.value || '' : '',
-      rememberSecrets: rememberPassword ? rememberPassword.checked : false,
-      readOnly: readOnly ? readOnly.checked : false,
-      policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
-      ssh: buildSshConfig()
-    };
+    let entry = null;
+    try {
+      entry = buildConnectionFromForm({ includeSaveFields: true });
+    } catch (err) {
+      await safeApi.showError(err && err.message ? err.message : 'Invalid connection URL.');
+      return;
+    }
 
     const entryForValidation = await ensureValidationSecretsIfNeeded(entry);
     if (!entryForValidation) return;
@@ -2797,17 +2947,16 @@ export function initHome({ api }) {
   };
 
   const testConnection = async () => {
-    const config = {
-      name: saveName ? saveName.value.trim() : '',
-      type: dbType ? dbType.value : 'mysql',
-      host: host ? host.value || 'localhost' : 'localhost',
-      port: port ? port.value || undefined : undefined,
-      user: user ? user.value || '' : '',
-      password: password ? password.value || '' : '',
-      database: database ? database.value || '' : '',
-      readOnly: readOnly ? readOnly.checked : false,
-      policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
-      ssh: buildSshConfig()
+    let config = null;
+    try {
+      config = buildConnectionFromForm({ includeSaveFields: true });
+    } catch (err) {
+      await safeApi.showError(err && err.message ? err.message : 'Invalid connection URL.');
+      return;
+    }
+    config = {
+      ...config,
+      port: config.port || undefined
     };
 
     const configForValidation = await ensureValidationSecretsIfNeeded(config);
@@ -2826,6 +2975,14 @@ export function initHome({ api }) {
   }
   if (tabSshBtn) {
     tabSshBtn.addEventListener('click', () => setConnectTab('ssh'));
+  }
+  if (connectSettingsTabs) {
+    connectSettingsTabs.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-connect-settings-tab]');
+      if (!item) return;
+      const tab = item.getAttribute('data-connect-settings-tab');
+      setConnectSettingsTab(tab);
+    });
   }
 
   if (savedPolicyFilters) {
@@ -3034,7 +3191,8 @@ export function initHome({ api }) {
       const source = definitionEditor ? definitionEditor.getValue() : (definitionQueryInput ? definitionQueryInput.value : '');
       if (!source || !source.trim()) return;
       const active = getActiveConnection();
-      const language = active && active.type === 'postgres' ? 'postgresql' : 'mysql';
+      const type = active && active.type ? String(active.type).toLowerCase() : '';
+      const language = type === 'postgres' || type === 'postgresql' ? 'postgresql' : 'mysql';
       const formatted = formatSql(source, { language });
       if (definitionEditor) definitionEditor.setValue(formatted);
       else if (definitionQueryInput) definitionQueryInput.value = formatted;
@@ -3192,7 +3350,8 @@ export function initHome({ api }) {
       const source = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
       if (!source || !source.trim()) return;
       const active = getActiveConnection();
-      const language = active && active.type === 'postgres' ? 'postgresql' : 'mysql';
+      const type = active && active.type ? String(active.type).toLowerCase() : '';
+      const language = type === 'postgres' || type === 'postgresql' ? 'postgresql' : 'mysql';
       const formatted = formatSql(source, { language });
       if (codeEditor) codeEditor.setValue(formatted);
       else if (query) query.value = formatted;
@@ -3314,6 +3473,12 @@ export function initHome({ api }) {
     });
   }
 
+  if (dbType) {
+    dbType.addEventListener('change', () => {
+      updateConnectionUrlPlaceholder(dbType.value);
+    });
+  }
+
   if (refreshSchemaBtn) {
     refreshSchemaBtn.addEventListener('click', async () => {
       if (treeView) {
@@ -3326,6 +3491,8 @@ export function initHome({ api }) {
   }
 
   setScreen(false);
+  setConnectSettingsTab('connection');
+  updateConnectionUrlPlaceholder(dbType ? dbType.value : 'mysql');
   setSettingsTab('general');
   applyQueryDefaultsToEditorControls(readStoredQueryDefaults());
   void loadEnvironmentPolicySettings({ silent: true });

@@ -26,13 +26,13 @@
             <button
               id="themeToggle"
               class="icon-btn"
-              title="Tema"
+              title="Theme"
               aria-haspopup="menu"
               aria-expanded="false"
             >
               <i class="bi bi-circle-half"></i>
             </button>
-            <div id="themeMenu" class="theme-menu hidden" role="menu" aria-label="Tema">
+            <div id="themeMenu" class="theme-menu hidden" role="menu" aria-label="Theme">
               <button
                 type="button"
                 class="theme-menu-item"
@@ -40,7 +40,7 @@
                 role="menuitemradio"
                 aria-checked="false"
               >
-                Claro
+                Light
               </button>
               <button
                 type="button"
@@ -49,7 +49,7 @@
                 role="menuitemradio"
                 aria-checked="false"
               >
-                Escuro
+                Dark
               </button>
               <button
                 type="button"
@@ -58,7 +58,7 @@
                 role="menuitemradio"
                 aria-checked="false"
               >
-                Sistema
+                System
               </button>
             </div>
           </div>
@@ -513,13 +513,35 @@
               </button>
             </div>
             <div class="connect-form">
-              <section class="connect-section">
+              <div class="connect-settings-tabs" id="connectSettingsTabs" role="tablist" aria-label="Connection tabs">
+                <button
+                  type="button"
+                  class="connect-settings-tab active"
+                  data-connect-settings-tab="connection"
+                  role="tab"
+                  aria-selected="true"
+                >
+                  Connection
+                </button>
+                <button
+                  type="button"
+                  class="connect-settings-tab"
+                  data-connect-settings-tab="access"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  Access
+                </button>
+              </div>
+
+              <section id="connectSectionConnection" class="connect-section">
                 <div class="connect-section-title">Connection</div>
                 <div class="row connect-grid">
                   <div class="field">
                     <label>Type</label>
                     <select id="dbType">
                       <option value="mysql">MySQL</option>
+                      <option value="mariadb">MariaDB</option>
                       <option value="postgres">PostgreSQL</option>
                     </select>
                   </div>
@@ -548,10 +570,16 @@
                     <label>Database</label>
                     <input id="database" placeholder="optional" />
                   </div>
+
+                  <div class="field span-2 connection-url-field">
+                    <label>URL</label>
+                    <input id="connectionUrl" placeholder="postgresql://user:password@host:5432/database" />
+                    <div class="field-hint">URL overrides settings above.</div>
+                  </div>
                 </div>
               </section>
 
-              <section class="connect-section">
+              <section id="connectSectionAccess" class="connect-section hidden">
                 <div class="connect-section-title">Access</div>
                 <div class="row connect-grid">
                   <div class="field span-2">
@@ -632,7 +660,7 @@
                 </div>
               </section>
 
-              <section class="connect-section save-only save-settings">
+              <section id="connectSectionSave" class="connect-section save-only save-settings hidden">
                 <div class="connect-section-title">Save</div>
                 <div class="field">
                   <label>Connection name</label>

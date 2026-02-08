@@ -211,6 +211,7 @@ export function initHome({ api }) {
   const zoomOutBtn = byId('zoomOutBtn');
   const zoomInBtn = byId('zoomInBtn');
   const explainBtn = byId('explainBtn');
+  const explainAnalyzeBtn = byId('explainAnalyzeBtn');
   const stopBtn = byId('stopBtn');
   const limitSelect = byId('limitSelect');
   const timeoutSelect = byId('timeoutSelect');
@@ -1854,6 +1855,7 @@ export function initHome({ api }) {
     if (runSelectionBtn) runSelectionBtn.disabled = true;
     if (runCurrentBtn) runCurrentBtn.disabled = true;
     if (explainBtn) explainBtn.disabled = true;
+    if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
     startQueryProgress(timeoutMs);
     try {
@@ -1942,6 +1944,7 @@ export function initHome({ api }) {
       if (runSelectionBtn) runSelectionBtn.disabled = false;
       if (runCurrentBtn) runCurrentBtn.disabled = false;
       if (explainBtn) explainBtn.disabled = false;
+      if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = false;
       if (stopBtn) stopBtn.disabled = true;
     }
   };
@@ -1957,6 +1960,7 @@ export function initHome({ api }) {
     }
     if (runCurrentBtn) runCurrentBtn.disabled = !hasText;
     if (explainBtn) explainBtn.disabled = !hasText;
+    if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = !hasText;
     if (runBtn) runBtn.classList.toggle('ready', hasText);
     if (saveSnippetEditorBtn) {
       saveSnippetEditorBtn.classList.toggle('hidden', !hasText);
@@ -2034,7 +2038,9 @@ export function initHome({ api }) {
     await runSql(stmt);
   };
 
-  const handleExplain = async () => {
+  const handleExplain = async ({ analyze = false } = {}) => {
+    const explainPrefix = analyze ? 'EXPLAIN ANALYZE' : 'EXPLAIN';
+    const explainLabel = analyze ? 'EXPLAIN ANALYZE' : 'EXPLAIN';
     const selection = codeEditor ? codeEditor.getSelection() : '';
     const sourceSql = selection && selection.trim()
       ? selection
@@ -2050,10 +2056,10 @@ export function initHome({ api }) {
       const stmt = normalizeSql(statements[i]);
       if (!stmt) continue;
       if (firstDmlKeyword(stmt) !== 'select') {
-        await safeApi.showError('EXPLAIN is currently available only for SELECT statements.');
+        await safeApi.showError(`${explainLabel} is currently available only for SELECT statements.`);
         return;
       }
-      explainStatements.push(`EXPLAIN ${stmt}`);
+      explainStatements.push(`${explainPrefix} ${stmt}`);
     }
 
     if (!explainStatements.length) {
@@ -3175,6 +3181,12 @@ export function initHome({ api }) {
     });
   }
 
+  if (explainAnalyzeBtn) {
+    explainAnalyzeBtn.addEventListener('click', async () => {
+      await handleExplain({ analyze: true });
+    });
+  }
+
   if (formatBtn) {
     formatBtn.addEventListener('click', () => {
       const source = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
@@ -3212,6 +3224,7 @@ export function initHome({ api }) {
       if (runSelectionBtn) runSelectionBtn.disabled = false;
       if (runCurrentBtn) runCurrentBtn.disabled = false;
       if (explainBtn) explainBtn.disabled = false;
+      if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = false;
       if (stopBtn) stopBtn.disabled = true;
     });
   }

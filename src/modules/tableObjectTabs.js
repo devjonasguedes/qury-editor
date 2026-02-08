@@ -6,7 +6,8 @@ const TAB_DEFS = [
   { id: 'constraints', label: 'Constraints' },
   { id: 'indexes', label: 'Indexes' },
   { id: 'ddl', label: 'DDL' },
-  { id: 'relations', label: 'Relations' }
+  { id: 'relations', label: 'Relations' },
+  { id: 'quality', label: 'Quality' }
 ];
 
 function escapeHtml(value) {
@@ -52,6 +53,37 @@ function isForeignKey(constraint) {
   return resolveConstraintType(constraint).includes('FOREIGN');
 }
 
+function asNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function toPercent(part, total) {
+  if (!total) return 0;
+  return Math.round((part / total) * 10000) / 100;
+}
+
+function normalizeStatusCounts(summary) {
+  const source = summary || {};
+  return {
+    errors: Math.max(0, Math.floor(asNumber(source.errors))),
+    warnings: Math.max(0, Math.floor(asNumber(source.warnings))),
+    info: Math.max(0, Math.floor(asNumber(source.info)))
+  };
+}
+
+function qualityStatusClass(level) {
+  if (level === 'error') return 'is-error';
+  if (level === 'warning') return 'is-warning';
+  return 'is-info';
+}
+
+function qualityStatusText(level) {
+  if (level === 'error') return 'Error';
+  if (level === 'warning') return 'Warning';
+  return 'Info';
+}
+
 export function createTableObjectTabs({
   container,
   detailsContainer,
@@ -62,6 +94,9 @@ export function createTableObjectTabs({
   listTableInfo,
   getTableDefinition,
   listTables,
+  runQuery,
+  quoteIdentifier,
+  buildQualifiedTableRef,
   onShowError,
   onToast
 }) {
@@ -75,6 +110,7 @@ export function createTableObjectTabs({
   const infoCache = new Map();
   const ddlCache = new Map();
   const inboundCache = new Map();
+  const qualityCache = new Map();
 
   const scopeKey = () => (typeof getScopeKey === 'function' ? String(getScopeKey() || '__default__') : '__default__');
   const scopedTableKey = (schema, table) => `${scopeKey()}::${tableKey(schema, table)}`;
@@ -409,6 +445,265 @@ export function createTableObjectTabs({
     `;
   };
 
+  const quoteName = (value) => {
+    if (typeof quoteIdentifier === 'function') return quoteIdentifier(value);
+    return `"${String(value || '').replace(/"/g, '""')}"`;
+  };
+
+  const buildTableRef = (schema, table) => {
+    if (typeof buildQualifiedTableRef === 'function') {
+      return buildQualifiedTableRef(schema, table);
+    }
+    if (!schema) return quoteName(table);
+    return `${quoteName(schema)}.${quoteName(table)}`;
+  };
+
+  const readScalar = (rows, aliases) => {
+    const row = ensureArray(rows)[0] || {};
+    const keys = Array.isArray(aliases) ? aliases : [aliases];
+    for (const key of keys) {
+      if (key && row[key] !== undefined) return asNumber(row[key]);
+      const alt = String(key || '').toUpperCase();
+      if (alt && row[alt] !== undefined) return asNumber(row[alt]);
+      const lower = String(key || '').toLowerCase();
+      if (lower && row[lower] !== undefined) return asNumber(row[lower]);
+    }
+    const firstKey = Object.keys(row)[0];
+    return firstKey ? asNumber(row[firstKey]) : 0;
+  };
+
+  const runQualityQuery = async (sql) => {
+    if (typeof runQuery !== 'function') {
+      throw new Error('Quality checks are unavailable for this connection.');
+    }
+    const res = await runQuery({ sql });
+    if (!res || !res.ok) {
+      const message = res && res.error ? res.error : 'Failed to run quality checks.';
+      throw new Error(message);
+    }
+    return ensureArray(res.rows);
+  };
+
+  const loadQuality = async (schema, table, { force = false } = {}) => {
+    const key = scopedTableKey(schema, table);
+    if (!force && qualityCache.has(key)) return qualityCache.get(key);
+
+    const columns = await loadColumns(schema, table, { silent: true });
+    const info = await loadTableInfo(schema, table, { silent: true });
+    const constraints = ensureArray(info.constraints);
+    const primaryIndex = ensureArray(info.indexes).find((index) => index && index.primary);
+    const primaryColumns = primaryIndex ? ensureArray(primaryIndex.columns).filter(Boolean) : [];
+    const foreignKeys = constraints.filter((constraint) => isForeignKey(constraint));
+    const tableRef = buildTableRef(schema, table);
+
+    const nullability = [];
+    let totalRows = 0;
+
+    if (columns.length > 0) {
+      const nullSelect = columns
+        .map((col, idx) => `SUM(CASE WHEN ${quoteName(col.name)} IS NULL THEN 1 ELSE 0 END) AS ${quoteName(`null_${idx}`)}`)
+        .join(', ');
+      const nullSql = `SELECT COUNT(*) AS ${quoteName('total_rows')}${nullSelect ? `, ${nullSelect}` : ''} FROM ${tableRef}`;
+      const nullRows = await runQualityQuery(nullSql);
+      totalRows = readScalar(nullRows, ['total_rows']);
+      const row = nullRows[0] || {};
+      columns.forEach((col, idx) => {
+        const nullCount = asNumber(row[`null_${idx}`]);
+        nullability.push({
+          column: col.name,
+          type: col.type || '-',
+          nullRows: nullCount,
+          nullPct: toPercent(nullCount, totalRows)
+        });
+      });
+    }
+
+    let pkDuplicateGroups = 0;
+    let pkNullRows = 0;
+    if (primaryColumns.length > 0) {
+      const groupCols = primaryColumns.map((name) => quoteName(name)).join(', ');
+      const pkDupSql = [
+        `SELECT COUNT(*) AS ${quoteName('duplicate_groups')} FROM (`,
+        `SELECT ${groupCols} FROM ${tableRef}`,
+        `GROUP BY ${groupCols}`,
+        'HAVING COUNT(*) > 1',
+        `) AS ${quoteName('__q_pk_dup')}`
+      ].join(' ');
+      pkDuplicateGroups = readScalar(await runQualityQuery(pkDupSql), ['duplicate_groups']);
+
+      const pkNullWhere = primaryColumns.map((name) => `${quoteName(name)} IS NULL`).join(' OR ');
+      const pkNullSql = `SELECT COUNT(*) AS ${quoteName('null_rows')} FROM ${tableRef} WHERE ${pkNullWhere}`;
+      pkNullRows = readScalar(await runQualityQuery(pkNullSql), ['null_rows']);
+    }
+
+    const fkChecks = [];
+    for (let i = 0; i < foreignKeys.length; i += 1) {
+      const constraint = foreignKeys[i];
+      const fromColumns = ensureArray(constraint.columns).filter(Boolean);
+      if (fromColumns.length === 0) continue;
+      const ref = constraint.ref || constraint.reference || {};
+      const refTable = String(ref.table || '').trim();
+      if (!refTable) continue;
+      const refSchema = String(ref.schema || schema || '').trim();
+      const toColumnsRaw = ensureArray(ref.columns).filter(Boolean);
+      const toColumns = toColumnsRaw.length === fromColumns.length ? toColumnsRaw : fromColumns;
+
+      const fromGroupCols = fromColumns.map((name) => quoteName(name)).join(', ');
+      const notNullFilters = fromColumns.map((name) => `${quoteName(name)} IS NOT NULL`).join(' AND ');
+      const fkDupSql = [
+        `SELECT COUNT(*) AS ${quoteName('duplicate_groups')} FROM (`,
+        `SELECT ${fromGroupCols} FROM ${tableRef}`,
+        `WHERE ${notNullFilters}`,
+        `GROUP BY ${fromGroupCols}`,
+        'HAVING COUNT(*) > 1',
+        `) AS ${quoteName(`__q_fk_dup_${i}`)}`
+      ].join(' ');
+      const duplicateGroups = readScalar(await runQualityQuery(fkDupSql), ['duplicate_groups']);
+
+      const childAlias = quoteName('c');
+      const parentAlias = quoteName('p');
+      const refTableRef = buildTableRef(refSchema, refTable);
+      const joinExpr = fromColumns
+        .map((fromCol, idx) => `${quoteName(`c.${fromCol}`)} = ${quoteName(`p.${toColumns[idx] || fromCol}`)}`)
+        .join(' AND ');
+      const orphanFilter = fromColumns.map((fromCol) => `${quoteName(`c.${fromCol}`)} IS NOT NULL`).join(' AND ');
+      const probeCol = toColumns[0] || fromColumns[0];
+      const orphanSql = [
+        `SELECT COUNT(*) AS ${quoteName('orphan_rows')} FROM ${tableRef} AS ${childAlias}`,
+        `LEFT JOIN ${refTableRef} AS ${parentAlias} ON ${joinExpr}`,
+        `WHERE ${orphanFilter} AND ${quoteName(`p.${probeCol}`)} IS NULL`
+      ].join(' ');
+      const orphanRows = readScalar(await runQualityQuery(orphanSql), ['orphan_rows']);
+
+      fkChecks.push({
+        name: constraint.name || `FK_${i + 1}`,
+        fromColumns,
+        toColumns,
+        refSchema,
+        refTable,
+        duplicateGroups,
+        orphanRows
+      });
+    }
+
+    const summary = { errors: 0, warnings: 0, info: 0 };
+    nullability.forEach((item) => {
+      if (item.nullRows > 0) summary.warnings += 1;
+    });
+    if (pkDuplicateGroups > 0) summary.errors += 1;
+    if (pkNullRows > 0) summary.errors += 1;
+    fkChecks.forEach((item) => {
+      if (item.orphanRows > 0) summary.errors += 1;
+      if (item.duplicateGroups > 0) summary.warnings += 1;
+    });
+    if (summary.errors === 0 && summary.warnings === 0) summary.info = 1;
+
+    const report = {
+      table: { schema, table, totalRows },
+      summary: normalizeStatusCounts(summary),
+      nullability,
+      primary: {
+        columns: primaryColumns,
+        duplicateGroups: pkDuplicateGroups,
+        nullRows: pkNullRows
+      },
+      foreignKeys: fkChecks
+    };
+
+    qualityCache.set(key, report);
+    return report;
+  };
+
+  const renderQuality = async (schema, table) => {
+    if (!detailsContainer) return;
+    if (typeof runQuery !== 'function') {
+      renderMessage('Quality', 'Quality checks are not available for this connection.');
+      return;
+    }
+
+    const report = await loadQuality(schema, table);
+    const summary = normalizeStatusCounts(report.summary);
+    const nullRows = report.nullability.map((item) => {
+      const level = item.nullRows > 0 ? 'warning' : 'info';
+      return [
+        item.column || '-',
+        item.type || '-',
+        String(item.nullRows),
+        `${item.nullPct}%`,
+        qualityStatusText(level)
+      ];
+    });
+
+    const pk = report.primary || { columns: [], duplicateGroups: 0, nullRows: 0 };
+    const pkRows = pk.columns.length
+      ? [[
+        pk.columns.join(', '),
+        String(pk.duplicateGroups || 0),
+        String(pk.nullRows || 0),
+        qualityStatusText((pk.duplicateGroups || 0) > 0 || (pk.nullRows || 0) > 0 ? 'error' : 'info')
+      ]]
+      : [['-', '0', '0', 'Info']];
+
+    const fkRows = ensureArray(report.foreignKeys).map((item) => {
+      const level = item.orphanRows > 0 ? 'error' : (item.duplicateGroups > 0 ? 'warning' : 'info');
+      const reference = `${item.refSchema ? `${item.refSchema}.` : ''}${item.refTable || '-'}`;
+      return [
+        item.name || '-',
+        item.fromColumns.join(', ') || '-',
+        reference,
+        item.toColumns.join(', ') || '-',
+        String(item.orphanRows || 0),
+        String(item.duplicateGroups || 0),
+        qualityStatusText(level)
+      ];
+    });
+
+    detailsContainer.innerHTML = `
+      <div class="object-section-head">
+        <div class="object-section-title">Quality</div>
+        <button type="button" class="icon-btn mini" title="Re-run checks" aria-label="Re-run checks" data-refresh-quality>
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+      <div class="object-quality-summary">
+        <span class="object-quality-chip ${qualityStatusClass('error')}">${summary.errors} errors</span>
+        <span class="object-quality-chip ${qualityStatusClass('warning')}">${summary.warnings} warnings</span>
+        <span class="object-quality-chip ${qualityStatusClass('info')}">${summary.info} info</span>
+        <span class="object-quality-meta">Rows scanned: ${escapeHtml(report.table.totalRows)}</span>
+      </div>
+      <section class="object-quality-section">
+        <h4>Primary Key</h4>
+        ${renderRowsTable(['Columns', 'Duplicate Groups', 'Rows With NULL', 'Status'], pkRows)}
+      </section>
+      <section class="object-quality-section">
+        <h4>Foreign Keys</h4>
+        ${fkRows.length
+          ? renderRowsTable(['Constraint', 'Columns', 'References', 'Ref Columns', 'Orphan Rows', 'Duplicate Groups', 'Status'], fkRows)
+          : '<div class="object-muted">No foreign keys found.</div>'}
+      </section>
+      <section class="object-quality-section">
+        <h4>Nullability</h4>
+        ${nullRows.length
+          ? renderRowsTable(['Column', 'Type', 'NULL Rows', 'NULL %', 'Status'], nullRows)
+          : '<div class="object-muted">No columns found.</div>'}
+      </section>
+    `;
+
+    const refreshBtn = detailsContainer.querySelector('[data-refresh-quality]');
+    if (!refreshBtn) return;
+    refreshBtn.addEventListener('click', async () => {
+      try {
+        await loadQuality(schema, table, { force: true });
+        await renderQuality(schema, table);
+      } catch (err) {
+        if (onShowError) {
+          const message = err && err.message ? err.message : 'Failed to run quality checks.';
+          await onShowError(message);
+        }
+      }
+    });
+  };
+
   const renderTabs = () => {
     if (!container) return;
     container.classList.remove('hidden');
@@ -437,6 +732,14 @@ export function createTableObjectTabs({
       await renderDdl(schema, table);
     } else if (activeTab === 'relations') {
       await renderRelations(schema, table);
+    } else if (activeTab === 'quality') {
+      try {
+        await renderQuality(schema, table);
+      } catch (err) {
+        const message = err && err.message ? err.message : 'Failed to run quality checks.';
+        if (onShowError) await onShowError(message);
+        renderMessage('Quality', message);
+      }
     }
 
     if (seq !== requestSeq) return;
@@ -509,6 +812,9 @@ export function createTableObjectTabs({
     }
     for (const key of Array.from(inboundCache.keys())) {
       if (key.startsWith(prefix)) inboundCache.delete(key);
+    }
+    for (const key of Array.from(qualityCache.keys())) {
+      if (key.startsWith(prefix)) qualityCache.delete(key);
     }
   };
 

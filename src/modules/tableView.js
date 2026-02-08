@@ -19,7 +19,8 @@ export function createTableView({
     sourceSql: '',
     totalRows: 0,
     truncated: false,
-    columnKeyMeta: null
+    columnKeyMeta: null,
+    pagination: null
   };
 
   const setEmptyStateVisible = (visible) => {
@@ -49,7 +50,8 @@ export function createTableView({
     truncated = false,
     baseSql = '',
     sourceSql = '',
-    columnKeyMeta = null
+    columnKeyMeta = null,
+    pagination = null
   } = {}) => {
     activeResults = {
       rows: Array.isArray(rows) ? rows : [],
@@ -57,7 +59,8 @@ export function createTableView({
       truncated: !!truncated,
       baseSql: baseSql || '',
       sourceSql: sourceSql || '',
-      columnKeyMeta: columnKeyMeta && typeof columnKeyMeta === 'object' ? columnKeyMeta : null
+      columnKeyMeta: columnKeyMeta && typeof columnKeyMeta === 'object' ? columnKeyMeta : null,
+      pagination: pagination && typeof pagination === 'object' ? pagination : null
     };
     if (resultsRenderer) {
       resultsRenderer.buildTable(activeResults.rows, activeResults.totalRows, activeResults.columnKeyMeta);
@@ -74,7 +77,8 @@ export function createTableView({
       sourceSql: '',
       totalRows: 0,
       truncated: false,
-      columnKeyMeta: null
+      columnKeyMeta: null,
+      pagination: null
     };
     if (resultsRenderer) {
       resultsRenderer.clearSelection();

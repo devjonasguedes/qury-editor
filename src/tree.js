@@ -674,7 +674,7 @@ export function renderTableTree({
     const schemaKey = `db:${schema}`;
     const schemaExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, schemaKey)
       ? !!expandedState[schemaKey]
-      : true;
+      : (normalizedActive ? isActiveSchema : true);
     const schemaNode = createGroup({
       label: schema,
       depth: 0,

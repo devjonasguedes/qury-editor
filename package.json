@@ -2,7 +2,11 @@
   "name": "qury-editor",
   "version": "0.1.0",
   "description": "Desktop SQL editor built with Electron.",
-  "author": "Qury",
+  "author": {
+    "name": "Jonas Guedes",
+    "email": "jonaskof@gmail.com"
+  },
+  "homepage": "https://jonasguedes.com",
   "main": "src/main.js",
   "private": true,
   "scripts": {
@@ -11,8 +15,9 @@
     "build": "electron-vite build",
     "build:app": "npm run build && node scripts/copy-main-drivers.cjs",
     "dist": "npm run build:app && npx electron-builder",
-    "build:mac:arm64": "npm run build:app && npx electron-builder --mac zip --arm64",
-    "build:win:x64": "npm run build:app && npx electron-builder --win zip --x64"
+    "build:mac:arm64": "npm run build:app && npx electron-builder --mac zip --arm64 && node scripts/copy-release-to-landing.cjs mac-arm64",
+    "build:win:x64": "npm run build:app && npx electron-builder --win zip --x64 && node scripts/copy-release-to-landing.cjs win-x64",
+    "build:linux:deb": "npm run build:app && npx electron-builder --linux deb --x64 && node scripts/copy-release-to-landing.cjs linux-x64"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.7",
@@ -38,6 +43,7 @@
   "build": {
     "appId": "com.qury.editor",
     "productName": "Qury Editor",
+    "npmRebuild": false,
     "afterPack": "scripts/after-pack.cjs",
     "icon": "public/icon.png",
     "asar": true,
@@ -78,7 +84,17 @@
       "artifactName": "${productName}-win-${arch}.${ext}"
     },
     "linux": {
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "maintainer": "Jonas Guedes <jonaskof@gmail.com>",
+      "target": [
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-linux-${arch}.${ext}"
     }
   }
 }

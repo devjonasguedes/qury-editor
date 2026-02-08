@@ -37,6 +37,8 @@ export function createTreeView({
     return DEFAULT_SEARCH_KEY;
   };
 
+  const normalizeSchemaName = (value) => String(value || '').trim().toLowerCase();
+
   const getSearchFilter = () => {
     const key = activeSearchKey();
     return searchByConnection.has(key) ? String(searchByConnection.get(key) || '') : '';
@@ -409,6 +411,26 @@ export function createTreeView({
 
   const setActiveSchema = (schema) => {
     activeSchema = schema || '';
+    const normalizedActive = normalizeSchemaName(activeSchema);
+    const nextExpanded = {};
+    Object.keys(treeExpanded || {}).forEach((key) => {
+      if (!key.startsWith('db:')) {
+        nextExpanded[key] = treeExpanded[key];
+        return;
+      }
+      const schemaName = key.slice(3);
+      nextExpanded[key] = !!normalizedActive && normalizeSchemaName(schemaName) === normalizedActive;
+    });
+    if (normalizedActive) {
+      const hasActiveKey = Object.keys(nextExpanded).some((key) => key.startsWith('db:') && nextExpanded[key]);
+      if (!hasActiveKey) {
+        const fallbackKey = Object.keys(treeExpanded || {}).find(
+          (key) => key.startsWith('db:') && normalizeSchemaName(key.slice(3)) === normalizedActive
+        );
+        if (fallbackKey) nextExpanded[fallbackKey] = true;
+      }
+    }
+    treeExpanded = nextExpanded;
     const filter = syncSearchInput();
     runSearch(filter);
   };
@@ -417,6 +439,7 @@ export function createTreeView({
     cancelObjectSearch();
     tableCache = [];
     routineCache = [];
+    treeExpanded = {};
     objectSearchCache = new Map();
     objectSearchPending = new Map();
     render('', {

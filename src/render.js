@@ -141,6 +141,8 @@ const SESSION_TIMEZONE_ITEMS = Object.freeze([
 const SESSION_TIMEZONE_VALUES = new Set(SESSION_TIMEZONE_ITEMS.map((item) => item.id));
 const SESSION_TIMEZONE_ITEM_BY_ID = new Map(SESSION_TIMEZONE_ITEMS.map((item) => [item.id, item]));
 const QUERY_PROGRESS_SHOW_DELAY_MS = 5000;
+const SERVER_PAGE_SIZE_DEFAULT = 100;
+const SERVER_PAGE_SIZE_MAX = 1000;
 const POLICY_MODE_DEV = 'dev';
 const POLICY_MODE_STAGING = 'staging';
 const POLICY_MODE_PROD = 'prod';
@@ -301,6 +303,10 @@ export function initHome({ api }) {
   const queryOutputBtn = byId('queryOutputBtn');
   const queryOutputPreview = byId('queryOutputPreview');
   const tableActionsBar = byId('tableActionsBar');
+  const tablePagination = byId('tablePagination');
+  const pagePrevBtn = byId('pagePrevBtn');
+  const pageNextBtn = byId('pageNextBtn');
+  const pageInfo = byId('pageInfo');
   const copyCellBtn = byId('copyCellBtn');
   const copyRowBtn = byId('copyRowBtn');
   const exportCsvBtn = byId('exportCsvBtn');
@@ -2421,6 +2427,38 @@ export function initHome({ api }) {
     }
   };
 
+  const normalizeSnapshotPagination = (pagination) => {
+    if (!pagination || !pagination.enabled) return null;
+    const page = Number.isFinite(Number(pagination.page)) ? Math.max(0, Math.floor(Number(pagination.page))) : 0;
+    const pageSize = resolveServerPageSize(pagination.pageSize);
+    const hasNext = !!pagination.hasNext;
+    const baseSql = normalizeSql(pagination.baseSql || '');
+    if (!baseSql) return null;
+    return {
+      enabled: true,
+      page,
+      pageSize,
+      hasNext,
+      baseSql
+    };
+  };
+
+  const updatePaginationControls = (snapshot) => {
+    const pagination = normalizeSnapshotPagination(snapshot && snapshot.pagination);
+    if (tablePagination) {
+      tablePagination.classList.toggle('hidden', !pagination);
+    }
+    if (!pagination) {
+      if (pagePrevBtn) pagePrevBtn.disabled = true;
+      if (pageNextBtn) pageNextBtn.disabled = true;
+      if (pageInfo) pageInfo.textContent = 'Page 1';
+      return;
+    }
+    if (pagePrevBtn) pagePrevBtn.disabled = pagination.page <= 0;
+    if (pageNextBtn) pageNextBtn.disabled = !pagination.hasNext;
+    if (pageInfo) pageInfo.textContent = `Page ${pagination.page + 1}`;
+  };
+
   const applyResultsPanelState = ({ snapshot = null, objectContext = null, preferredObjectTab = 'data' } = {}) => {
     const hasSnapshot = !!(snapshot && Array.isArray(snapshot.rows));
     const normalizedContext = normalizeObjectContext(objectContext);
@@ -2431,6 +2469,7 @@ export function initHome({ api }) {
       if (hasSnapshot) tableView.setResults(snapshot);
       else tableView.clearUi();
     }
+    updatePaginationControls(hasSnapshot ? snapshot : null);
 
     if (hasSnapshot && normalizedContext && tableView) {
       void (async () => {
@@ -2462,8 +2501,8 @@ export function initHome({ api }) {
     }
   };
 
-  const renderResults = (rows, totalRows, truncated, baseSql = '', sourceSql = '') => {
-    const snapshot = { rows, totalRows, truncated, baseSql, sourceSql };
+  const renderResults = (rows, totalRows, truncated, baseSql = '', sourceSql = '', pagination = null) => {
+    const snapshot = { rows, totalRows, truncated, baseSql, sourceSql, pagination };
     let context = null;
     if (tabTablesView) {
       const tab = tabTablesView.getActiveTab();
@@ -2601,6 +2640,29 @@ export function initHome({ api }) {
   };
 
   const normalizeSql = (sql) => String(sql || '').trim().replace(/;$/, '').trim();
+
+  const resolveServerPageSize = (value) => {
+    const raw = String(value == null ? '' : value).trim();
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric) || numeric <= 0) return SERVER_PAGE_SIZE_DEFAULT;
+    return Math.min(SERVER_PAGE_SIZE_MAX, Math.max(1, Math.floor(numeric)));
+  };
+
+  const getServerPageSizeSelection = () => {
+    const raw = limitSelect ? String(limitSelect.value || '').trim() : '';
+    if (!raw || raw === 'none') return SERVER_PAGE_SIZE_DEFAULT;
+    return resolveServerPageSize(raw);
+  };
+
+  const buildServerPaginatedSql = (selectSql, page, pageSize) => {
+    const baseSql = normalizeSql(selectSql);
+    if (!baseSql) return '';
+    const safePage = Number.isFinite(Number(page)) ? Math.max(0, Math.floor(Number(page))) : 0;
+    const safePageSize = resolveServerPageSize(pageSize);
+    const fetchLimit = safePageSize + 1;
+    const fetchOffset = safePage * safePageSize;
+    return `SELECT * FROM (${baseSql}) AS __qury_page LIMIT ${fetchLimit} OFFSET ${fetchOffset}`;
+  };
 
   const applyLimit = (sql) => {
     const limitValue = limitSelect ? limitSelect.value : 'none';
@@ -2815,6 +2877,7 @@ export function initHome({ api }) {
     }
     const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : executionSql;
     const statements = splitStatements(executionSql);
+    const sourceStatements = splitStatements(sourceSql);
     const total = statements.length || 1;
     if (total === 0) return false;
     const timeoutMs = getTimeoutMs() || 0;
@@ -2831,6 +2894,7 @@ export function initHome({ api }) {
     let errorCount = 0;
     let lastErrorMessage = '';
     let hasOutputErrorEntry = false;
+    let lastPagination = null;
 
     for (let i = 0; i < statements.length; i += 1) {
       const stmt = normalizeSql(statements[i]);
@@ -2884,10 +2948,30 @@ export function initHome({ api }) {
       for (let i = 0; i < statements.length; i += 1) {
         const stmt = normalizeSql(statements[i]);
         if (!stmt) continue;
+        const classification = classifyStatementByPolicy(stmt);
+        const keyword = firstDmlKeyword(stmt);
+        const canPaginateSelect = keyword === 'select' && !(classification && classification.kind === 'write');
+        const serverPaginationConfig = options && options.serverPagination !== undefined
+          ? options.serverPagination
+          : null;
+        const useServerPagination = canPaginateSelect && serverPaginationConfig !== false;
+        const paginationPage = useServerPagination && serverPaginationConfig && Number.isFinite(Number(serverPaginationConfig.page))
+          ? Math.max(0, Math.floor(Number(serverPaginationConfig.page)))
+          : 0;
+        const paginationPageSize = useServerPagination && serverPaginationConfig && serverPaginationConfig.pageSize != null
+          ? resolveServerPageSize(serverPaginationConfig.pageSize)
+          : getServerPageSizeSelection();
+        const paginationBaseSql = useServerPagination
+          ? normalizeSql(
+            (serverPaginationConfig && serverPaginationConfig.baseSql)
+              || stmt
+          )
+          : '';
+        const displayStmt = useServerPagination && paginationBaseSql ? paginationBaseSql : stmt;
+
         executedStatements += 1;
-        lastExecutedStmt = stmt;
+        lastExecutedStmt = displayStmt;
         if (isDangerousStatement(stmt)) {
-          const keyword = firstDmlKeyword(stmt);
           const actionLabel = keyword ? `${keyword.toUpperCase()} without WHERE` : 'dangerous statement';
           const confirmation = await promptPolicyApproval({
             policyLabel: 'Safety check',
@@ -2898,7 +2982,10 @@ export function initHome({ api }) {
             return false;
           }
         }
-        const sql = applyDefaultLimit ? applyLimitIfSelect(stmt) : stmt;
+        let sql = applyDefaultLimit ? applyLimitIfSelect(stmt) : stmt;
+        if (useServerPagination && paginationBaseSql) {
+          sql = buildServerPaginatedSql(paginationBaseSql, paginationPage, paginationPageSize);
+        }
         const startedAt = Date.now();
         setQueryStatus({ state: 'running', message: `Running ${i + 1}/${total}...` });
         const payload = {
@@ -2915,7 +3002,7 @@ export function initHome({ api }) {
             const tab = tabTablesView.getActiveTab();
             if (tab && tab.id) {
               appendOutputEntry(tab.id, buildOutputEntry({
-                sql: stmt,
+                sql: displayStmt,
                 ok: false,
                 error: formattedError,
                 duration: Date.now() - startedAt
@@ -2932,16 +3019,43 @@ export function initHome({ api }) {
           }
           continue;
         }
-        lastResult = { rows: res.rows || [], totalRows: res.totalRows, truncated: res.truncated, stmt };
-        if (historyManager) historyManager.recordHistory(stmt);
+        let outputRows = res.rows || [];
+        let outputTotalRows = res.totalRows;
+        let outputTruncated = !!res.truncated;
+        let pagination = null;
+        if (useServerPagination && paginationBaseSql) {
+          const hasNext = outputRows.length > paginationPageSize;
+          if (hasNext) outputRows = outputRows.slice(0, paginationPageSize);
+          outputTotalRows = outputRows.length;
+          outputTruncated = false;
+          pagination = {
+            enabled: true,
+            page: paginationPage,
+            pageSize: paginationPageSize,
+            hasNext,
+            baseSql: paginationBaseSql
+          };
+          lastPagination = pagination;
+        } else {
+          lastPagination = null;
+        }
+
+        lastResult = {
+          rows: outputRows,
+          totalRows: outputTotalRows,
+          truncated: outputTruncated,
+          stmt: displayStmt,
+          pagination
+        };
+        if (historyManager) historyManager.recordHistory(displayStmt);
         if (tabTablesView) {
           const tab = tabTablesView.getActiveTab();
           if (tab && tab.id) {
             appendOutputEntry(tab.id, buildOutputEntry({
-              sql: stmt,
+              sql: displayStmt,
               ok: true,
-              totalRows: res.totalRows || 0,
-              truncated: !!res.truncated,
+              totalRows: outputTotalRows || 0,
+              truncated: outputTruncated,
               affectedRows: Number.isFinite(res.affectedRows) ? res.affectedRows : undefined,
               changedRows: Number.isFinite(res.changedRows) ? res.changedRows : undefined,
               duration: Date.now() - startedAt
@@ -2953,7 +3067,6 @@ export function initHome({ api }) {
 
       if (errorCount > 0) {
         if (lastResult) {
-          const sourceStatements = splitStatements(sourceSql);
           const lastSourceStmt = normalizeSql(
             sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
           );
@@ -2962,7 +3075,8 @@ export function initHome({ api }) {
             lastResult.totalRows,
             lastResult.truncated,
             lastExecutedStmt || lastResult.stmt,
-            lastSourceStmt || lastExecutedStmt || lastResult.stmt
+            lastSourceStmt || lastExecutedStmt || lastResult.stmt,
+            lastResult.pagination || null
           );
           setQueryStatus({
             state: 'error',
@@ -2981,7 +3095,6 @@ export function initHome({ api }) {
       }
 
       if (lastResult) {
-        const sourceStatements = splitStatements(sourceSql);
         const lastSourceStmt = normalizeSql(
           sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
         );
@@ -2990,11 +3103,15 @@ export function initHome({ api }) {
           lastResult.totalRows,
           lastResult.truncated,
           lastExecutedStmt || lastResult.stmt,
-          lastSourceStmt || lastExecutedStmt || lastResult.stmt
+          lastSourceStmt || lastExecutedStmt || lastResult.stmt,
+          lastPagination || lastResult.pagination || null
         );
+        const paginationInfo = lastPagination || lastResult.pagination;
         setQueryStatus({
           state: 'success',
-          message: `Rows: ${lastResult.totalRows || 0}`,
+          message: paginationInfo
+            ? `Rows: ${lastResult.totalRows || 0} (page ${Number(paginationInfo.page) + 1})`
+            : `Rows: ${lastResult.totalRows || 0}`,
           duration: Date.now() - overallStart
         });
       }
@@ -4433,6 +4550,25 @@ export function initHome({ api }) {
     sidebarSnippetsBtn.addEventListener('click', () => setSidebarView('snippets'));
   }
 
+  const runServerPage = async ({ page, pageSize } = {}) => {
+    const active = tableView ? tableView.getActive() : null;
+    const pagination = normalizeSnapshotPagination(active && active.pagination);
+    if (!pagination) return false;
+    const nextPage = Number.isFinite(Number(page)) ? Math.max(0, Math.floor(Number(page))) : pagination.page;
+    const nextPageSize = pageSize != null ? resolveServerPageSize(pageSize) : pagination.pageSize;
+    const baseSql = normalizeSql(pagination.baseSql || (active && (active.sourceSql || active.baseSql)) || '');
+    if (!baseSql) return false;
+    await runSql(baseSql, baseSql, {
+      applyDefaultLimit: false,
+      serverPagination: {
+        page: nextPage,
+        pageSize: nextPageSize,
+        baseSql
+      }
+    });
+    return true;
+  };
+
   if (runBtn) {
     runBtn.addEventListener('click', async () => {
       await handleRun();
@@ -4546,6 +4682,42 @@ export function initHome({ api }) {
       }
       lastSort = null;
       await runSql(countSql, source);
+    });
+  }
+
+  if (pagePrevBtn) {
+    pagePrevBtn.addEventListener('click', async () => {
+      const active = tableView ? tableView.getActive() : null;
+      const pagination = normalizeSnapshotPagination(active && active.pagination);
+      if (!pagination || pagination.page <= 0) return;
+      await runServerPage({
+        page: pagination.page - 1,
+        pageSize: pagination.pageSize
+      });
+    });
+  }
+
+  if (pageNextBtn) {
+    pageNextBtn.addEventListener('click', async () => {
+      const active = tableView ? tableView.getActive() : null;
+      const pagination = normalizeSnapshotPagination(active && active.pagination);
+      if (!pagination || !pagination.hasNext) return;
+      await runServerPage({
+        page: pagination.page + 1,
+        pageSize: pagination.pageSize
+      });
+    });
+  }
+
+  if (limitSelect) {
+    limitSelect.addEventListener('change', async () => {
+      const active = tableView ? tableView.getActive() : null;
+      const pagination = normalizeSnapshotPagination(active && active.pagination);
+      if (!pagination) return;
+      await runServerPage({
+        page: 0,
+        pageSize: getServerPageSizeSelection()
+      });
     });
   }
 
@@ -4892,6 +5064,13 @@ export function initHome({ api }) {
     listTableInfo: (payload) => safeApi.listTableInfo(payload),
     getTableDefinition: (payload) => safeApi.getTableDefinition(payload),
     listTables: () => safeApi.listTables(),
+    runQuery: (payload) => safeApi.runQuery(payload),
+    quoteIdentifier: (value) => {
+      const active = getActiveConnection();
+      const type = active && active.type ? active.type : 'mysql';
+      return quoteDbIdentifier(value, type);
+    },
+    buildQualifiedTableRef: (schema, table) => buildQualifiedTableRef(schema, table),
     onShowError: safeApi.showError,
     onToast: (message) => showToast(message)
   });

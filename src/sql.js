@@ -1,26 +1,40 @@
-export function splitStatements(sql) {
+function parseStatements(sql) {
+  const source = String(sql || '');
   const statements = [];
-  let current = '';
+  let segmentStart = 0;
   let inSingle = false;
   let inDouble = false;
   let inBacktick = false;
   let inLineComment = false;
   let inBlockComment = false;
 
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i];
-    const next = sql[i + 1];
+  const pushStatement = (start, end) => {
+    const raw = source.slice(start, end);
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const leadingWs = raw.length - raw.trimStart().length;
+    const trailingWs = raw.length - raw.trimEnd().length;
+    const stmtStart = start + leadingWs;
+    const stmtEnd = end - trailingWs;
+    if (stmtEnd <= stmtStart) return;
+    statements.push({
+      text: trimmed,
+      start: stmtStart,
+      end: stmtEnd
+    });
+  };
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    const next = source[i + 1];
 
     if (inLineComment) {
-      current += ch;
       if (ch === '\n') inLineComment = false;
       continue;
     }
 
     if (inBlockComment) {
-      current += ch;
       if (ch === '*' && next === '/') {
-        current += next;
         i++;
         inBlockComment = false;
       }
@@ -30,13 +44,11 @@ export function splitStatements(sql) {
     if (!inSingle && !inDouble && !inBacktick) {
       if (ch === '-' && next === '-') {
         inLineComment = true;
-        current += ch + next;
         i++;
         continue;
       }
       if (ch === '/' && next === '*') {
         inBlockComment = true;
-        current += ch + next;
         i++;
         continue;
       }
@@ -44,45 +56,48 @@ export function splitStatements(sql) {
 
     if (!inDouble && !inBacktick && ch === "'") {
       if (inSingle && next === "'") {
-        current += ch + next;
         i++;
         continue;
       }
       inSingle = !inSingle;
-      current += ch;
       continue;
     }
 
     if (!inSingle && !inBacktick && ch === '"') {
       if (inDouble && next === '"') {
-        current += ch + next;
         i++;
         continue;
       }
       inDouble = !inDouble;
-      current += ch;
       continue;
     }
 
     if (!inSingle && !inDouble && ch === '`') {
       inBacktick = !inBacktick;
-      current += ch;
       continue;
     }
 
     if (!inSingle && !inDouble && !inBacktick && ch === ';') {
-      const stmt = current.trim();
-      if (stmt) statements.push(stmt);
-      current = '';
+      pushStatement(segmentStart, i);
+      segmentStart = i + 1;
       continue;
     }
-
-    current += ch;
   }
 
-  const tail = current.trim();
-  if (tail) statements.push(tail);
+  pushStatement(segmentStart, source.length);
   return statements;
+}
+
+export function splitStatements(sql) {
+  return parseStatements(sql).map((item) => item.text);
+}
+
+export function splitStatementsWithRanges(sql) {
+  return parseStatements(sql).map((item) => ({
+    text: item.text,
+    start: item.start,
+    end: item.end
+  }));
 }
 
 export function stripLeadingComments(sql) {

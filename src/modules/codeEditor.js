@@ -1,6 +1,7 @@
 import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
+import { indentWithTab } from '@codemirror/commands';
 import { autocompletion } from '@codemirror/autocomplete';
 import { sql, schemaCompletionSource, keywordCompletionSource, MySQL, PostgreSQL, StandardSQL } from '@codemirror/lang-sql';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
@@ -149,6 +150,7 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
         themeCompartment.of(resolveTheme()),
         syntaxHighlighting(highlightStyle),
         autocompletion({ override: [completionSource, keywordSource] }),
+        keymap.of([indentWithTab]),
         runKeymap,
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
@@ -177,6 +179,16 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
     const selection = view.state.selection.main;
     if (selection.empty) return '';
     return view.state.sliceDoc(selection.from, selection.to);
+  };
+  const getCursorOffset = () => {
+    if (view) {
+      const selection = view.state.selection.main;
+      return Number(selection && selection.head) || 0;
+    }
+    if (textarea && Number.isFinite(textarea.selectionStart)) {
+      return Number(textarea.selectionStart) || 0;
+    }
+    return 0;
   };
   const onChange = (handler) => {
     if (typeof handler === 'function') changeHandlers.add(handler);
@@ -214,6 +226,7 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
     getValue,
     setValue,
     getSelection,
+    getCursorOffset,
     onChange,
     refresh,
     focus,

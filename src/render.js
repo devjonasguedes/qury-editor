@@ -18,7 +18,14 @@ import { createTableObjectTabs } from './modules/tableObjectTabs.js';
 import { createQueryHistory } from './modules/queryHistory.js';
 import { createSnippetsManager } from './modules/snippets.js';
 import { createSqlAutocomplete } from './modules/sqlAutocomplete.js';
-import { firstDmlKeyword, insertWhere, isDangerousStatement, splitStatements, stripLeadingComments } from './sql.js';
+import {
+  firstDmlKeyword,
+  insertWhere,
+  isDangerousStatement,
+  splitStatements,
+  splitStatementsWithRanges,
+  stripLeadingComments
+} from './sql.js';
 
 const THEME_KEY = 'sqlEditor.theme';
 const THEME_MODE_SYSTEM = 'system';
@@ -199,9 +206,11 @@ export function initHome({ api }) {
   const query = byId('query');
   const runBtn = byId('runBtn');
   const runSelectionBtn = byId('runSelectionBtn');
+  const runCurrentBtn = byId('runCurrentBtn');
   const formatBtn = byId('formatBtn');
   const zoomOutBtn = byId('zoomOutBtn');
   const zoomInBtn = byId('zoomInBtn');
+  const explainBtn = byId('explainBtn');
   const stopBtn = byId('stopBtn');
   const limitSelect = byId('limitSelect');
   const timeoutSelect = byId('timeoutSelect');
@@ -1774,7 +1783,8 @@ export function initHome({ api }) {
     }, QUERY_PROGRESS_SHOW_DELAY_MS);
   };
 
-  const runSql = async (rawSql, sourceSqlOverride = '') => {
+  const runSql = async (rawSql, sourceSqlOverride = '', options = {}) => {
+    const applyDefaultLimit = options.applyDefaultLimit !== false;
     const executionSql = normalizeSql(rawSql);
     if (!executionSql) return;
     setResultsVisible(true);
@@ -1842,6 +1852,8 @@ export function initHome({ api }) {
     const overallStart = Date.now();
     if (runBtn) runBtn.disabled = true;
     if (runSelectionBtn) runSelectionBtn.disabled = true;
+    if (runCurrentBtn) runCurrentBtn.disabled = true;
+    if (explainBtn) explainBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
     startQueryProgress(timeoutMs);
     try {
@@ -1861,7 +1873,7 @@ export function initHome({ api }) {
             return;
           }
         }
-        const sql = applyLimitIfSelect(stmt);
+        const sql = applyDefaultLimit ? applyLimitIfSelect(stmt) : stmt;
         const startedAt = Date.now();
         setQueryStatus({ state: 'running', message: `Running ${i + 1}/${total}...` });
         const payload = {
@@ -1928,6 +1940,8 @@ export function initHome({ api }) {
       stopQueryProgress();
       if (runBtn) runBtn.disabled = false;
       if (runSelectionBtn) runSelectionBtn.disabled = false;
+      if (runCurrentBtn) runCurrentBtn.disabled = false;
+      if (explainBtn) explainBtn.disabled = false;
       if (stopBtn) stopBtn.disabled = true;
     }
   };
@@ -1941,6 +1955,8 @@ export function initHome({ api }) {
       const hasSelection = !!(selection && selection.trim());
       runSelectionBtn.disabled = !hasText || !hasSelection;
     }
+    if (runCurrentBtn) runCurrentBtn.disabled = !hasText;
+    if (explainBtn) explainBtn.disabled = !hasText;
     if (runBtn) runBtn.classList.toggle('ready', hasText);
     if (saveSnippetEditorBtn) {
       saveSnippetEditorBtn.classList.toggle('hidden', !hasText);
@@ -1967,6 +1983,86 @@ export function initHome({ api }) {
     }
     lastSort = null;
     await runSql(sql);
+  };
+
+  const resolveEditorCursorOffset = () => {
+    if (codeEditor && typeof codeEditor.getCursorOffset === 'function') {
+      const offset = Number(codeEditor.getCursorOffset());
+      return Number.isFinite(offset) ? offset : 0;
+    }
+    if (query && Number.isFinite(query.selectionStart)) {
+      const offset = Number(query.selectionStart);
+      return Number.isFinite(offset) ? offset : 0;
+    }
+    return 0;
+  };
+
+  const findStatementAtCursor = (sourceSql, cursorOffset) => {
+    const source = String(sourceSql || '');
+    const statements = splitStatementsWithRanges(source);
+    if (!statements.length) return '';
+    const safeCursor = Math.max(0, Math.min(source.length, Number(cursorOffset) || 0));
+
+    for (let i = 0; i < statements.length; i += 1) {
+      const current = statements[i];
+      if (safeCursor >= current.start && safeCursor <= current.end) {
+        return current.text;
+      }
+    }
+
+    for (let i = statements.length - 1; i >= 0; i -= 1) {
+      const current = statements[i];
+      if (safeCursor > current.end) return current.text;
+    }
+
+    return statements[0].text;
+  };
+
+  const handleRunCurrentStatement = async () => {
+    const sql = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
+    if (!sql || !sql.trim()) {
+      await safeApi.showError('Empty query.');
+      return;
+    }
+    const cursorOffset = resolveEditorCursorOffset();
+    const stmt = findStatementAtCursor(sql, cursorOffset);
+    if (!stmt) {
+      await safeApi.showError('No statement found at cursor.');
+      return;
+    }
+    lastSort = null;
+    await runSql(stmt);
+  };
+
+  const handleExplain = async () => {
+    const selection = codeEditor ? codeEditor.getSelection() : '';
+    const sourceSql = selection && selection.trim()
+      ? selection
+      : (codeEditor ? codeEditor.getValue() : (query ? query.value : ''));
+    if (!sourceSql || !sourceSql.trim()) {
+      await safeApi.showError('Empty query.');
+      return;
+    }
+
+    const statements = splitStatements(sourceSql);
+    const explainStatements = [];
+    for (let i = 0; i < statements.length; i += 1) {
+      const stmt = normalizeSql(statements[i]);
+      if (!stmt) continue;
+      if (firstDmlKeyword(stmt) !== 'select') {
+        await safeApi.showError('EXPLAIN is currently available only for SELECT statements.');
+        return;
+      }
+      explainStatements.push(`EXPLAIN ${stmt}`);
+    }
+
+    if (!explainStatements.length) {
+      await safeApi.showError('Empty query.');
+      return;
+    }
+
+    lastSort = null;
+    await runSql(explainStatements.join(';\n'), sourceSql, { applyDefaultLimit: false });
   };
 
   const extractSelectAllTableRef = (rawSql) => {
@@ -3067,6 +3163,18 @@ export function initHome({ api }) {
     });
   }
 
+  if (runCurrentBtn) {
+    runCurrentBtn.addEventListener('click', async () => {
+      await handleRunCurrentStatement();
+    });
+  }
+
+  if (explainBtn) {
+    explainBtn.addEventListener('click', async () => {
+      await handleExplain();
+    });
+  }
+
   if (formatBtn) {
     formatBtn.addEventListener('click', () => {
       const source = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
@@ -3102,6 +3210,8 @@ export function initHome({ api }) {
       }
       if (runBtn) runBtn.disabled = false;
       if (runSelectionBtn) runSelectionBtn.disabled = false;
+      if (runCurrentBtn) runCurrentBtn.disabled = false;
+      if (explainBtn) explainBtn.disabled = false;
       if (stopBtn) stopBtn.disabled = true;
     });
   }

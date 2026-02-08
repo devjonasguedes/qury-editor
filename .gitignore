@@ -4,3 +4,5 @@ data/*.json
 dist
 .vite
 out
+public/landing-page/qury-*.zip
+public/landing-page/qury-*.deb

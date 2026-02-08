@@ -6,7 +6,9 @@
   "scripts": {
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
-    "build": "electron-vite build"
+    "build": "electron-vite build",
+    "build:mac:arm64": "bash scripts/build-mac-arm.sh",
+    "build:win:x64": "bash scripts/build-win-x64.sh"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.7",

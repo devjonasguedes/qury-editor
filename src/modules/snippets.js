@@ -15,7 +15,6 @@ export function createSnippetsManager({
   getSnippetValue,
   setSnippetValue,
   getCurrentHistoryKey,
-  getQueryValue,
   setQueryValue,
   createNewQueryTab,
   runSnippet,
@@ -132,6 +131,7 @@ export function createSnippetsManager({
     if (!snippetModal) return;
     pendingSnippetSql = sql;
     editingSnippetId = id;
+    snippetModal.classList.remove('hidden');
     if (snippetNameInput) {
       snippetNameInput.value = name;
       setTimeout(() => {
@@ -139,12 +139,13 @@ export function createSnippetsManager({
         snippetNameInput.select();
       }, 0);
     }
-    if (setSnippetValue) {
-      setSnippetValue(sql || '');
-    } else if (snippetQueryInput) {
-      snippetQueryInput.value = sql || '';
-    }
-    snippetModal.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      if (setSnippetValue) {
+        setSnippetValue(sql || '');
+      } else if (snippetQueryInput) {
+        snippetQueryInput.value = sql || '';
+      }
+    });
   };
 
   const closeSnippetModal = () => {
@@ -221,14 +222,7 @@ export function createSnippetsManager({
           if (showError) await showError('Connect to save snippets.');
           return;
         }
-        const sqlText = getQueryValue ? getQueryValue() : '';
-        const trimmed = String(sqlText || '').trim();
-        if (!trimmed) {
-          if (showError) await showError('Type a query to save as a snippet.');
-          return;
-        }
-        const suggestion = trimmed.split('\n')[0].slice(0, 40);
-        openSnippetModal({ sql: trimmed, name: suggestion });
+        openSnippetModal();
       });
     }
 

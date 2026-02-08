@@ -78,6 +78,13 @@
                 >
                   <i class="bi bi-x"></i>
                 </button>
+                <button
+                  id="tableSearchModeBtn"
+                  class="table-search-mode"
+                  title="Search mode: names"
+                >
+                  <i class="bi bi-funnel"></i>
+                </button>
               </div>
               <div id="tableList"></div>
             </div>
@@ -107,9 +114,9 @@
             <div class="welcome-hero">
               <div class="hero-copy">
                 <div class="hero-badge">Qury Editor</div>
-                <div class="hero-title">Straightforward SQL, fast and reliable.</div>
+                <div class="hero-title">Run SQL. Get answers.</div>
                 <div class="hero-subtitle">
-                  A simple, fast, professional tool to run queries.
+                  Connect, query, and explore your data in seconds.
                 </div>
                 <div class="hero-actions">
                   <button id="quickConnectBtn" class="secondary">
@@ -154,7 +161,7 @@
                 </div>
                 <div class="hero-panel hero-panel-secondary">
                   <div class="hero-panel-metric">
-                    <span>Transaction</span>
+                    <span>Connection</span>
                     <strong>ACTIVE</strong>
                   </div>
                   <div class="hero-panel-metric">
@@ -192,23 +199,27 @@
           </div>
           <div class="editor">
             <div class="tab-bar" id="tabBar">
-              <button
-                id="newTabBtn"
-                class="icon-btn tab-add"
-                title="New tab (⌘T)"
-              >
-                <i class="bi bi-plus"></i>
-              </button>
+              <div class="tab-bar-fixed">
+                <button
+                  id="newTabBtn"
+                  class="icon-btn tab-add"
+                  title="New tab (⌘T)"
+                >
+                  <i class="bi bi-plus"></i>
+                </button>
+              </div>
+              <div class="tab-scroll" id="tabScroll"></div>
             </div>
             <div class="editor-toolbar">
               <div class="editor-actions">
                 <div class="editor-actions-left">
                   <button
                     id="runBtn"
-                    class="icon-btn run-btn"
+                    class="run-btn run-btn-label"
                     title="Run (⌘⏎)"
                   >
                     <i class="bi bi-lightning-charge-fill"></i>
+                    Run
                   </button>
                   <button
                     id="runSelectionBtn"
@@ -225,53 +236,35 @@
                     <i class="bi bi-text-paragraph"></i>
                   </button>
                   <button
-                    id="toggleEditorBtn"
-                    class="icon-btn toggle-editor-btn"
-                    title="Show/hide editor"
+                    id="zoomOutBtn"
+                    class="icon-btn font-zoom-btn"
+                    title="Decrease editor font (⌘- / Ctrl-)"
                   >
-                    <i class="bi bi-code-slash"></i>
+                    <i class="bi bi-zoom-out"></i>
                   </button>
                   <button
-                    id="countBtn"
-                    class="icon-btn count-btn"
-                    title="Count rows"
+                    id="zoomInBtn"
+                    class="icon-btn font-zoom-btn"
+                    title="Increase editor font (⌘+ / Ctrl+)"
                   >
-                    <i class="bi bi-123"></i>
+                    <i class="bi bi-zoom-in"></i>
+                  </button>
+                  <button
+                    id="toggleEditorBtn"
+                    class="icon-btn toggle-editor-btn"
+                    title="Collapse editor"
+                  >
+                    <i class="bi bi-chevron-up"></i>
+                  </button>
+                  <button
+                    id="saveSnippetEditorBtn"
+                    class="icon-btn save-snippet-editor-btn hidden"
+                    title="Save as snippet"
+                  >
+                    <i class="bi bi-bookmark-plus"></i>
                   </button>
                 </div>
                 <div class="editor-actions-right">
-                  <div class="tx-controls">
-                    <span
-                      id="txStatus"
-                      class="tx-status inactive"
-                      title="No active transaction"
-                    >
-                      TX
-                    </span>
-                    <button
-                      id="txBeginBtn"
-                      class="icon-btn tx-btn"
-                      title="BEGIN (start transaction)"
-                    >
-                      <i class="bi bi-play-circle"></i>
-                    </button>
-                    <button
-                      id="txCommitBtn"
-                      class="icon-btn tx-btn"
-                      title="COMMIT (commit transaction)"
-                      disabled
-                    >
-                      <i class="bi bi-check2-circle"></i>
-                    </button>
-                    <button
-                      id="txRollbackBtn"
-                      class="icon-btn tx-btn"
-                      title="ROLLBACK (rollback transaction)"
-                      disabled
-                    >
-                      <i class="bi bi-arrow-counterclockwise"></i>
-                    </button>
-                  </div>
                   <button
                     id="stopBtn"
                     class="icon-btn stop-btn"
@@ -317,7 +310,16 @@
           <div class="results" id="resultsPanel">
             <div class="results-toolbar hidden" id="tableActionsBar">
               <div class="table-filter">
-                <input id="queryFilter" placeholder="id > 100" />
+                <div class="table-filter-input-wrap">
+                  <input id="queryFilter" placeholder="id > 100" />
+                  <button
+                    id="queryFilterClear"
+                    class="query-filter-clear hidden"
+                    title="Clear filter"
+                  >
+                    <i class="bi bi-x"></i>
+                  </button>
+                </div>
                 <button
                   id="applyFilterBtn"
                   class="icon-btn apply-filter-btn hidden"
@@ -334,6 +336,13 @@
                   title="Refresh table"
                 >
                   <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <button
+                  id="countBtn"
+                  class="icon-btn mini"
+                  title="Count rows"
+                >
+                  <i class="bi bi-123"></i>
                 </button>
                 <button
                   id="copyCellBtn"
@@ -396,7 +405,7 @@
       <div id="connectModal" class="modal hidden">
         <div id="connectModalBackdrop" class="modal-backdrop"></div>
         <div class="modal-card">
-          <div class="connect-panel">
+          <div class="connect-panel snippet-panel">
             <div class="connect-header">
               <div>
                 <div id="connectModalTitle" class="connect-title">
@@ -529,7 +538,7 @@
 
       <div id="snippetModal" class="modal hidden">
         <div id="snippetModalBackdrop" class="modal-backdrop"></div>
-        <div class="modal-card small">
+        <div class="modal-card">
           <div class="connect-panel">
             <div class="connect-header">
               <div>

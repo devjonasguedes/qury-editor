@@ -11,6 +11,7 @@ export function createTabTables({
   let activeTabId = null;
   let tabCounter = 1;
   const tabs = [];
+  const tabsContainer = tabBar ? (tabBar.querySelector('.tab-scroll') || tabBar) : null;
 
   const getActiveTab = () => tabs.find((tab) => tab.id === activeTabId) || null;
 
@@ -31,20 +32,32 @@ export function createTabTables({
   };
 
   const getState = () => ({
-    tabs: tabs.map((tab) => ({ id: tab.id, title: tab.title, query: tab.query })),
+    tabs: tabs.map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      query: tab.query,
+      editorVisible: tab.editorVisible !== false
+    })),
     activeTabId,
     tabCounter
   });
 
+  const ensureActiveTabVisible = () => {
+    if (!tabsContainer || !activeTabId) return;
+    requestAnimationFrame(() => {
+      const activeEl = tabsContainer.querySelector(`.tab[data-tab-id="${activeTabId}"]`);
+      if (!activeEl) return;
+      activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  };
+
   const render = () => {
-    if (!tabBar) return;
-    tabBar.querySelectorAll('.tab').forEach((el) => el.remove());
-    if (newTabBtn) {
-      tabBar.appendChild(newTabBtn);
-    }
+    if (!tabsContainer) return;
+    tabsContainer.querySelectorAll('.tab').forEach((el) => el.remove());
     tabs.forEach((tab) => {
       const el = document.createElement('div');
       el.className = 'tab';
+      el.dataset.tabId = tab.id;
       if (tab.id === activeTabId) el.classList.add('active');
 
       const label = document.createElement('span');
@@ -68,14 +81,15 @@ export function createTabTables({
 
       el.appendChild(label);
       el.appendChild(close);
-      tabBar.appendChild(el);
+      tabsContainer.appendChild(el);
     });
+    ensureActiveTabVisible();
   };
 
   const create = (title) => {
     const name = title || `Query ${tabCounter++}`;
     const id = `tab_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const tab = { id, title: name, query: '' };
+    const tab = { id, title: name, query: '', editorVisible: true };
     tabs.push(tab);
     activeTabId = id;
     render();
@@ -134,7 +148,8 @@ export function createTabTables({
         tabs.push({
           id: tab.id,
           title: tab.title || `Query ${tabCounter++}`,
-          query: tab.query || ''
+          query: tab.query || '',
+          editorVisible: tab.editorVisible !== false
         });
       });
     }

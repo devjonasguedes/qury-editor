@@ -23,6 +23,8 @@ const RECENT_KEY = 'sqlEditor.recentConnections';
 const THEME_KEY = 'sqlEditor.theme';
 const SIDEBAR_KEY = 'sqlEditor.sidebarWidth';
 const EDITOR_HEIGHT_KEY = 'sqlEditor.editorHeight';
+const EDITOR_FONT_SIZE_KEY = 'sqlEditor.editorFontSize';
+const EDITOR_COLLAPSED_KEY_PREFIX = 'sqlEditor.editorCollapsed';
 
 export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
@@ -83,6 +85,7 @@ export function initHome({ api }) {
   const snippetQueryInput = byId('snippetQueryInput');
   const tableList = byId('tableList');
   const tableSearch = byId('tableSearch');
+  const tableSearchModeBtn = byId('tableSearchModeBtn');
   const tableSearchClear = byId('tableSearchClear');
   const sidebarShell = byId('sidebarShell');
   const dbSelect = byId('dbSelect');
@@ -110,16 +113,16 @@ export function initHome({ api }) {
   const runBtn = byId('runBtn');
   const runSelectionBtn = byId('runSelectionBtn');
   const formatBtn = byId('formatBtn');
+  const zoomOutBtn = byId('zoomOutBtn');
+  const zoomInBtn = byId('zoomInBtn');
   const stopBtn = byId('stopBtn');
   const limitSelect = byId('limitSelect');
   const timeoutSelect = byId('timeoutSelect');
   const toggleEditorBtn = byId('toggleEditorBtn');
+  const saveSnippetEditorBtn = byId('saveSnippetEditorBtn');
   const countBtn = byId('countBtn');
-  const txBeginBtn = byId('txBeginBtn');
-  const txCommitBtn = byId('txCommitBtn');
-  const txRollbackBtn = byId('txRollbackBtn');
-  const txStatus = byId('txStatus');
   const queryFilter = byId('queryFilter');
+  const queryFilterClear = byId('queryFilterClear');
   const applyFilterBtn = byId('applyFilterBtn');
   let globalLoading = byId('globalLoading');
 
@@ -156,7 +159,9 @@ export function initHome({ api }) {
   let historyManager = null;
   let snippetsManager = null;
   let sqlAutocomplete = null;
-  let txStateByConnection = new Map();
+  const DEFAULT_EDITOR_FONT_SIZE = 14;
+  const MIN_EDITOR_FONT_SIZE = 12;
+  const MAX_EDITOR_FONT_SIZE = 16;
 
   const safeApi = api || {};
 
@@ -213,7 +218,7 @@ export function initHome({ api }) {
       themeToggle.innerHTML =
         next === 'light' ? '<i class=\"bi bi-moon\"></i>' : '<i class=\"bi bi-sun\"></i>';
       themeToggle.title =
-        next === 'light' ? 'Alternar para tema escuro' : 'Alternar para tema claro';
+        next === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
     }
     if (codeEditor && typeof codeEditor.setTheme === 'function') {
       codeEditor.setTheme();
@@ -370,8 +375,6 @@ export function initHome({ api }) {
     return key ? tabConnectionsView.getEntry(key) : null;
   };
 
-  const getActiveConnectionKey = () => (tabConnectionsView ? tabConnectionsView.getActiveKey() : null);
-
   sqlAutocomplete = createSqlAutocomplete({ api: safeApi, getActiveConnection });
 
   const getCurrentHistoryKey = () => {
@@ -379,38 +382,22 @@ export function initHome({ api }) {
     return tabConnectionsView.getActiveKey();
   };
 
-  const getTransactionCommand = (sql) => {
-    const cleaned = stripLeadingComments(sql || '').trim().replace(/;$/, '').trim();
-    if (!cleaned) return '';
-    const upper = cleaned.toUpperCase();
-    if (/^BEGIN\b/.test(upper) || /^START\s+TRANSACTION\b/.test(upper)) return 'begin';
-    if (/^COMMIT\b/.test(upper) || /^END\b/.test(upper)) return 'commit';
-    if (/^ROLLBACK\b/.test(upper)) return 'rollback';
-    if (/^SET\s+AUTOCOMMIT\s*=\s*0\b/.test(upper)) return 'begin';
-    if (/^SET\s+AUTOCOMMIT\s*=\s*1\b/.test(upper)) return 'commit';
-    return '';
-  };
-
-  const updateTxControls = () => {
-    const key = getActiveConnectionKey();
-    const active = key ? !!txStateByConnection.get(key) : false;
-    if (txBeginBtn) txBeginBtn.disabled = !key || active;
-    if (txCommitBtn) txCommitBtn.disabled = !key || !active;
-    if (txRollbackBtn) txRollbackBtn.disabled = !key || !active;
-    if (txStatus) {
-      txStatus.classList.toggle('active', active);
-      txStatus.classList.toggle('inactive', !active);
-      txStatus.title = active ? 'Transaction active' : 'No active transaction';
-    }
-  };
-
-  const setTxState = (active, key = getActiveConnectionKey()) => {
-    if (!key) return;
-    txStateByConnection.set(key, !!active);
-    updateTxControls();
-  };
-
   const tabsStorageKey = (key) => (key ? `sqlEditor.tabs:${key}` : null);
+  const editorCollapsedStorageKey = (key) => (key ? `${EDITOR_COLLAPSED_KEY_PREFIX}:${key}` : null);
+
+  const readEditorVisibilityForConnection = (key) => {
+    const storageKey = editorCollapsedStorageKey(key);
+    if (!storageKey) return null;
+    const raw = localStorage.getItem(storageKey);
+    if (raw === null) return null;
+    return raw !== '1';
+  };
+
+  const saveEditorVisibilityForConnection = (key, visible) => {
+    const storageKey = editorCollapsedStorageKey(key);
+    if (!storageKey) return;
+    localStorage.setItem(storageKey, visible ? '0' : '1');
+  };
 
   const saveTabsForKey = (key) => {
     if (!key || !tabTablesView) return;
@@ -509,17 +496,28 @@ export function initHome({ api }) {
 
   const bindTabShortcuts = () => {
     document.addEventListener('keydown', (event) => {
-      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const primaryKey = event.metaKey || event.ctrlKey;
+      if (!primaryKey || event.altKey) return;
       const key = String(event.key || '').toLowerCase();
-      if (key === 'w') {
+      if (!event.shiftKey && key === 'w') {
         event.preventDefault();
         if (tabTablesView) tabTablesView.closeActive();
-      } else if (key === 't') {
+      } else if (!event.shiftKey && key === 't') {
         event.preventDefault();
         if (tabTablesView) {
           tabTablesView.syncActiveTabContent();
           tabTablesView.create();
+          setEditorVisible(true);
         }
+      } else if (key === '+' || key === '=') {
+        event.preventDefault();
+        adjustEditorFontSize(1);
+      } else if (key === '-' || key === '_') {
+        event.preventDefault();
+        adjustEditorFontSize(-1);
+      } else if (!event.shiftKey && key === '0') {
+        event.preventDefault();
+        resetEditorFontSize();
       }
     });
   };
@@ -574,6 +572,46 @@ export function initHome({ api }) {
     applyEditorBodyHeight(raw, { save: false });
   };
 
+  const clampEditorFontSize = (value) => {
+    const size = Number(value);
+    if (!Number.isFinite(size)) return DEFAULT_EDITOR_FONT_SIZE;
+    return Math.max(MIN_EDITOR_FONT_SIZE, Math.min(MAX_EDITOR_FONT_SIZE, Math.round(size)));
+  };
+
+  const applyEditorFontSize = (size, { save = true, notify = true } = {}) => {
+    const next = clampEditorFontSize(size);
+    document.documentElement.style.setProperty('--editor-font-size', `${next}px`);
+    if (save) localStorage.setItem(EDITOR_FONT_SIZE_KEY, String(next));
+    if (notify) showToast(`Font: ${next}px`, 900);
+  };
+
+  const getCurrentEditorFontSize = () => {
+    const cssValue = Number.parseInt(
+      getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'),
+      10
+    );
+    if (Number.isFinite(cssValue)) return cssValue;
+    const saved = Number(localStorage.getItem(EDITOR_FONT_SIZE_KEY));
+    return Number.isFinite(saved) ? saved : DEFAULT_EDITOR_FONT_SIZE;
+  };
+
+  const adjustEditorFontSize = (delta) => {
+    applyEditorFontSize(getCurrentEditorFontSize() + delta);
+  };
+
+  const resetEditorFontSize = () => {
+    applyEditorFontSize(DEFAULT_EDITOR_FONT_SIZE);
+  };
+
+  const loadEditorFontSize = () => {
+    const raw = Number(localStorage.getItem(EDITOR_FONT_SIZE_KEY));
+    if (!Number.isFinite(raw)) {
+      applyEditorFontSize(DEFAULT_EDITOR_FONT_SIZE, { save: false, notify: false });
+      return;
+    }
+    applyEditorFontSize(raw, { save: false, notify: false });
+  };
+
   const initEditorResizer = () => {
     if (!editorResizer || !editorPanel || !workspace) return;
     let dragging = false;
@@ -626,9 +664,9 @@ export function initHome({ api }) {
   const setQueryStatus = ({ state, message, duration }) => {
     if (!queryStatus) return;
     const parts = [];
-    if (state === 'success') parts.push('Sucesso');
+    if (state === 'success') parts.push('Success');
     if (state === 'error') parts.push('Error');
-    if (state === 'running') parts.push('Executando');
+    if (state === 'running') parts.push('Running');
     if (message) parts.push(message);
     if (Number.isFinite(duration)) parts.push(`${Math.round(duration)}ms`);
     queryStatus.textContent = parts.join(' • ');
@@ -677,7 +715,7 @@ export function initHome({ api }) {
       } else if (isDml) {
         response = 'Rows affected: 0';
       } else {
-        response = `Rows: ${Number.isFinite(totalRows) ? totalRows : 0}${truncated ? ' (truncado)' : ''}`;
+        response = `Rows: ${Number.isFinite(totalRows) ? totalRows : 0}${truncated ? ' (truncated)' : ''}`;
       }
     }
     return {
@@ -821,15 +859,16 @@ export function initHome({ api }) {
   };
 
   const runSql = async (rawSql, sourceSqlOverride = '') => {
-    const baseSql = normalizeSql(rawSql);
-    if (!baseSql) return;
+    const executionSql = normalizeSql(rawSql);
+    if (!executionSql) return;
     setResultsVisible(true);
-    const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : baseSql;
-    const statements = splitStatements(sourceSql);
+    const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : executionSql;
+    const statements = splitStatements(executionSql);
     const total = statements.length || 1;
     if (total === 0) return;
 
     let lastResult = null;
+    let lastExecutedStmt = '';
     const overallStart = Date.now();
     if (runBtn) runBtn.disabled = true;
     if (runSelectionBtn) runSelectionBtn.disabled = true;
@@ -838,6 +877,7 @@ export function initHome({ api }) {
     for (let i = 0; i < statements.length; i += 1) {
       const stmt = normalizeSql(statements[i]);
       if (!stmt) continue;
+      lastExecutedStmt = stmt;
       if (isDangerousStatement(stmt)) {
         const keyword = firstDmlKeyword(stmt);
         const actionLabel = keyword ? keyword.toUpperCase() : 'QUERY';
@@ -852,7 +892,7 @@ export function initHome({ api }) {
       }
       const sql = applyLimitIfSelect(stmt);
       const startedAt = Date.now();
-      setQueryStatus({ state: 'running', message: `Executando ${i + 1}/${total}...` });
+      setQueryStatus({ state: 'running', message: `Running ${i + 1}/${total}...` });
       const res = await safeApi.runQuery({ sql, timeoutMs: getTimeoutMs() || undefined });
       if (!res || !res.ok) {
         await safeApi.showError((res && res.error) || 'Failed to run query.');
@@ -876,9 +916,6 @@ export function initHome({ api }) {
       }
       lastResult = { rows: res.rows || [], totalRows: res.totalRows, truncated: res.truncated, stmt };
       if (historyManager) historyManager.recordHistory(stmt);
-      const txCommand = getTransactionCommand(stmt);
-      if (txCommand === 'begin') setTxState(true);
-      else if (txCommand === 'commit' || txCommand === 'rollback') setTxState(false);
       if (tabTablesView) {
         const tab = tabTablesView.getActiveTab();
         if (tab && tab.id) {
@@ -897,16 +934,20 @@ export function initHome({ api }) {
     }
 
     if (lastResult) {
+      const sourceStatements = splitStatements(sourceSql);
+      const lastSourceStmt = normalizeSql(
+        sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
+      );
       renderResults(
         lastResult.rows || [],
         lastResult.totalRows,
         lastResult.truncated,
-        lastResult.stmt,
-        lastResult.stmt
+        lastExecutedStmt || lastResult.stmt,
+        lastSourceStmt || lastExecutedStmt || lastResult.stmt
       );
       setQueryStatus({
         state: 'success',
-        message: `Linhas: ${lastResult.totalRows || 0}`,
+        message: `Rows: ${lastResult.totalRows || 0}`,
         duration: Date.now() - overallStart
       });
     }
@@ -925,6 +966,10 @@ export function initHome({ api }) {
       runSelectionBtn.disabled = !hasText || !hasSelection;
     }
     if (runBtn) runBtn.classList.toggle('ready', hasText);
+    if (saveSnippetEditorBtn) {
+      saveSnippetEditorBtn.classList.toggle('hidden', !hasText);
+      saveSnippetEditorBtn.disabled = !hasText;
+    }
   };
 
   const handleRun = async () => {
@@ -948,10 +993,24 @@ export function initHome({ api }) {
     await runSql(sql);
   };
 
-  const buildCountSql = (rawSql) => {
-    const clean = normalizeSql(rawSql);
+  const extractSelectAllTableRef = (rawSql) => {
+    const clean = normalizeSql(stripLeadingComments(rawSql));
     if (!clean) return '';
-    return `SELECT COUNT(*) AS total FROM (${clean}) AS subquery`;
+    const match = clean.match(/^select\s+\*\s+from\s+(.+)$/i);
+    if (!match || !match[1]) return '';
+    let fromRef = match[1].trim();
+    const clauseMatch = fromRef.match(/\s+(where|order\s+by|limit|offset|group\s+by|having)\b/i);
+    if (clauseMatch && Number.isFinite(clauseMatch.index)) {
+      fromRef = fromRef.slice(0, clauseMatch.index).trim();
+    }
+    if (!fromRef || /[\s,()]/.test(fromRef)) return '';
+    return fromRef;
+  };
+
+  const buildTableCountSql = (rawSql) => {
+    const tableRef = extractSelectAllTableRef(rawSql);
+    if (!tableRef) return '';
+    return `SELECT COUNT(*) AS total FROM ${tableRef};`;
   };
 
   const applyTableFilter = async () => {
@@ -975,6 +1034,12 @@ export function initHome({ api }) {
     await runSql(sql, base);
   };
 
+  const updateQueryFilterClearVisibility = () => {
+    if (!queryFilterClear) return;
+    const hasValue = !!(queryFilter && queryFilter.value);
+    queryFilterClear.classList.toggle('hidden', !hasValue);
+  };
+
   const quoteIdentifier = (name) => {
     if (!name) return name;
     const text = String(name);
@@ -990,11 +1055,40 @@ export function initHome({ api }) {
     return parts.map((p) => (p.startsWith('`') ? p : `\`${p.replace(/`/g, '``')}\``)).join('.');
   };
 
-  const setEditorVisible = (visible) => {
-    if (!editorBody) return;
-    editorBody.classList.toggle('hidden', !visible);
-    if (toggleEditorBtn) toggleEditorBtn.classList.toggle('active', visible);
-    if (visible) refreshEditor();
+  const updateToggleEditorButtonState = (visible) => {
+    if (!toggleEditorBtn) return;
+    const nextVisible = !!visible;
+    toggleEditorBtn.classList.toggle('active', nextVisible);
+    toggleEditorBtn.title = nextVisible ? 'Collapse editor' : 'Expand editor';
+    toggleEditorBtn.setAttribute('aria-label', nextVisible ? 'Collapse editor' : 'Expand editor');
+    toggleEditorBtn.setAttribute('aria-pressed', nextVisible ? 'true' : 'false');
+    const icon = toggleEditorBtn.querySelector('i');
+    if (icon) {
+      icon.className = nextVisible ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+    }
+  };
+
+  const resolveEditorVisibility = () => {
+    const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+    const persisted = readEditorVisibilityForConnection(key);
+    if (typeof persisted === 'boolean') return persisted;
+    const tab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    return tab ? tab.editorVisible !== false : true;
+  };
+
+  const setEditorVisible = (visible, { persist = true } = {}) => {
+    const nextVisible = !!visible;
+    if (editorBody) editorBody.classList.toggle('hidden', !nextVisible);
+    updateToggleEditorButtonState(nextVisible);
+    if (persist && tabTablesView) {
+      const tab = tabTablesView.getActiveTab();
+      if (tab) tab.editorVisible = nextVisible;
+    }
+    if (persist) {
+      const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+      saveEditorVisibilityForConnection(key, nextVisible);
+    }
+    if (nextVisible) refreshEditor();
   };
 
   const getCurrentEditorBodyHeight = () => {
@@ -1138,8 +1232,6 @@ export function initHome({ api }) {
       await safeApi.showError(res.error || 'Failed to connect.');
       return false;
     }
-    txStateByConnection.set(key, false);
-    updateTxControls();
     if (treeView) treeView.setActiveSchema(entry.database || '');
     if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
     await refreshDatabases();
@@ -1322,7 +1414,6 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         saveTabsForActive();
         upsertConnectionTab(entry);
-        setTxState(false, getTabKey(entry));
         if (treeView) treeView.setActiveSchema(entry.database || '');
         if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
@@ -1398,7 +1489,6 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         saveTabsForActive();
         upsertConnectionTab(entry);
-        setTxState(false, getTabKey(entry));
         if (treeView) treeView.setActiveSchema(entry.database || '');
         if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
@@ -1449,7 +1539,6 @@ export function initHome({ api }) {
     recordRecentConnection(config);
     saveTabsForActive();
     upsertConnectionTab(config);
-    setTxState(false, getTabKey(config));
     if (treeView) treeView.setActiveSchema(config.database || '');
     if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(config.database || '');
     await refreshDatabases();
@@ -1673,24 +1762,6 @@ export function initHome({ api }) {
     });
   }
 
-  if (txBeginBtn) {
-    txBeginBtn.addEventListener('click', async () => {
-      await runSql('BEGIN');
-    });
-  }
-
-  if (txCommitBtn) {
-    txCommitBtn.addEventListener('click', async () => {
-      await runSql('COMMIT');
-    });
-  }
-
-  if (txRollbackBtn) {
-    txRollbackBtn.addEventListener('click', async () => {
-      await runSql('ROLLBACK');
-    });
-  }
-
   if (formatBtn) {
     formatBtn.addEventListener('click', () => {
       const source = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
@@ -1700,6 +1771,18 @@ export function initHome({ api }) {
       const formatted = formatSql(source, { language });
       if (codeEditor) codeEditor.setValue(formatted);
       else if (query) query.value = formatted;
+    });
+  }
+
+  if (zoomOutBtn) {
+    zoomOutBtn.addEventListener('click', () => {
+      adjustEditorFontSize(-1);
+    });
+  }
+
+  if (zoomInBtn) {
+    zoomInBtn.addEventListener('click', () => {
+      adjustEditorFontSize(1);
     });
   }
 
@@ -1719,22 +1802,44 @@ export function initHome({ api }) {
 
   if (toggleEditorBtn) {
     toggleEditorBtn.addEventListener('click', () => {
-      const isHidden = editorBody ? editorBody.classList.contains('hidden') : false;
-      setEditorVisible(isHidden);
+      const isVisible = editorBody ? !editorBody.classList.contains('hidden') : true;
+      setEditorVisible(!isVisible);
+    });
+  }
+
+  if (saveSnippetEditorBtn) {
+    saveSnippetEditorBtn.addEventListener('click', async () => {
+      const sqlText = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
+      const trimmed = String(sqlText || '').trim();
+      if (!trimmed) return;
+      if (!getCurrentHistoryKey()) {
+        if (safeApi.showError) await safeApi.showError('Connect to save snippets.');
+        return;
+      }
+      const suggestion = trimmed.split('\n')[0].slice(0, 40);
+      if (snippetsManager && typeof snippetsManager.openSnippetModal === 'function') {
+        snippetsManager.openSnippetModal({ sql: trimmed, name: suggestion });
+      }
     });
   }
 
   if (countBtn) {
     countBtn.addEventListener('click', async () => {
-      const sql = codeEditor ? codeEditor.getValue() : (query ? query.value : '');
-      if (!sql || !sql.trim()) {
-        await safeApi.showError('Empty query.');
+      const active = tableView ? tableView.getActive() : null;
+      const source = active && (active.sourceSql || active.baseSql)
+        ? (active.sourceSql || active.baseSql)
+        : '';
+      if (!source) {
+        await safeApi.showError('Open a table first.');
         return;
       }
-      const countSql = buildCountSql(sql);
-      if (!countSql) return;
+      const countSql = buildTableCountSql(source);
+      if (!countSql) {
+        await safeApi.showError('Count works only for table query (SELECT * FROM table).');
+        return;
+      }
       lastSort = null;
-      await runSql(countSql);
+      await runSql(countSql, source);
     });
   }
 
@@ -1745,6 +1850,9 @@ export function initHome({ api }) {
   }
 
   if (queryFilter) {
+    queryFilter.addEventListener('input', () => {
+      updateQueryFilterClearVisibility();
+    });
     queryFilter.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -1752,6 +1860,22 @@ export function initHome({ api }) {
       }
     });
   }
+
+  if (queryFilterClear) {
+    queryFilterClear.addEventListener('click', async () => {
+      const hadFilter = !!(queryFilter && queryFilter.value.trim());
+      if (queryFilter) {
+        queryFilter.value = '';
+        queryFilter.focus();
+      }
+      updateQueryFilterClearVisibility();
+      if (hadFilter) {
+        lastSort = null;
+        await applyTableFilter();
+      }
+    });
+  }
+  updateQueryFilterClearVisibility();
 
   if (dbSelect) {
     dbSelect.addEventListener('change', async () => {
@@ -1793,7 +1917,9 @@ export function initHome({ api }) {
   }
 
   setScreen(false);
+  updateToggleEditorButtonState(true);
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  loadEditorFontSize();
   loadSidebarWidth();
   loadEditorHeight();
   initSidebarResizer();
@@ -1803,13 +1929,18 @@ export function initHome({ api }) {
     api: safeApi,
     tableList,
     tableSearch,
+    tableSearchModeBtn,
     tableSearchClear,
+    getActiveConnectionKey: getCurrentHistoryKey,
     getActiveConnection,
-    onOpenTable: (_schema, name, sql) => {
+    onOpenTable: async (_schema, name, sql, options = {}) => {
       if (tabTablesView) tabTablesView.createWithQuery(name, sql);
-      setEditorVisible(false);
+      setEditorVisible(true);
+      if (codeEditor) codeEditor.focus();
       lastSort = null;
-      runSql(sql);
+      if (options && options.execute) {
+        await runSql(sql);
+      }
     },
     onOpenView: async (schema, name) => {
       await openViewDefinition(schema, name);
@@ -1828,7 +1959,7 @@ export function initHome({ api }) {
     });
   }
   if (snippetQueryInput) {
-    snippetEditor = createCodeEditor({ textarea: snippetQueryInput });
+    snippetEditor = createCodeEditor({ textarea: snippetQueryInput, lineWrapping: true });
     snippetEditor.init();
     if (sqlAutocomplete) {
       snippetEditor.setHintProvider({
@@ -1890,6 +2021,14 @@ export function initHome({ api }) {
         setOutputDisplay(null);
         return;
       }
+      const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+      if (activeTab) {
+        const visible = resolveEditorVisibility();
+        activeTab.editorVisible = visible;
+        setEditorVisible(visible, { persist: false });
+      } else {
+        setEditorVisible(true, { persist: false });
+      }
       const snapshot = resultsByTabId.get(id);
       if (snapshot && Array.isArray(snapshot.rows)) {
         tableView.setResults(snapshot);
@@ -1900,6 +2039,11 @@ export function initHome({ api }) {
       updateOutputForActiveTab();
     }
   });
+  if (newTabBtn) {
+    newTabBtn.addEventListener('click', () => {
+      setEditorVisible(true);
+    });
+  }
   historyManager = createQueryHistory({
     historyList,
     getCurrentHistoryKey,
@@ -1909,6 +2053,7 @@ export function initHome({ api }) {
     createNewQueryTab: (sql) => {
       if (!tabTablesView) return;
       tabTablesView.create();
+      setEditorVisible(true);
       if (codeEditor) codeEditor.setValue(sql || '');
       if (tabTablesView) tabTablesView.syncActiveTabContent();
     },
@@ -1937,7 +2082,6 @@ export function initHome({ api }) {
       }
     },
     getCurrentHistoryKey,
-    getQueryValue: () => (codeEditor ? codeEditor.getValue() : (query ? query.value : '')),
     setQueryValue: (sql) => {
       if (codeEditor) codeEditor.setValue(sql || '');
       if (tabTablesView) tabTablesView.syncActiveTabContent();
@@ -1945,6 +2089,7 @@ export function initHome({ api }) {
     createNewQueryTab: (sql) => {
       if (!tabTablesView) return;
       tabTablesView.create();
+      setEditorVisible(true);
       if (codeEditor) codeEditor.setValue(sql || '');
       if (tabTablesView) tabTablesView.syncActiveTabContent();
     },
@@ -2018,7 +2163,7 @@ export function initHome({ api }) {
     onToast: (message) => showToast(message),
     onSort: rerunSortedQuery
   });
-tabConnectionsView = createTabConnections({
+  tabConnectionsView = createTabConnections({
     container: tabConnections,
     getTitle: (entry) => connectionTitle(entry),
     onSelect: (_key, entry, previousKey) => {
@@ -2030,9 +2175,11 @@ tabConnectionsView = createTabConnections({
       tabConnectionsView.remove(key);
       renderConnectionTabs();
       if (tabConnectionsView.size() === 0) {
+        try {
+          await safeApi.disconnect();
+        } catch (_) {}
         setScreen(false);
-        txStateByConnection = new Map();
-        updateTxControls();
+        updateToggleEditorButtonState(true);
         return;
       }
       if (wasActive) {
@@ -2043,7 +2190,6 @@ tabConnectionsView = createTabConnections({
       }
     }
   });
-  updateTxControls();
   renderSavedList();
   renderRecentList();
 }

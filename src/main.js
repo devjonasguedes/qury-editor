@@ -383,14 +383,22 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     title: 'Qury Editor',
     width: 1200,
-    height: 800,
+    height: 900,
     minWidth: 800,
     minHeight: 600,
+    show: false,
+    backgroundColor: '#0f172a',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: resolvedPreload,
       contextIsolation: true,
-      nodeIntegration: false
-    }
+      nodeIntegration: false,
+      sandbox: true
+    },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
   });
 
   const rendererUrl = process.env.ELECTRON_RENDERER_URL || process.env.VITE_DEV_SERVER_URL;

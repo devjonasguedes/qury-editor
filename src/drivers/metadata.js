@@ -78,7 +78,38 @@ function buildConstraints(rows, checkRows) {
   return constraints;
 }
 
+function buildTriggers(rows) {
+  const map = new Map();
+  (rows || []).forEach((row) => {
+    const name = row.trigger_name || row.Trigger || row.name;
+    if (!name) return;
+    let entry = map.get(name);
+    if (!entry) {
+      entry = {
+        name,
+        timing: row.action_timing || row.Timing || row.timing || '',
+        events: new Set(),
+        statement: row.action_statement || row.Statement || row.statement || ''
+      };
+      map.set(name, entry);
+    }
+    const event = row.event_manipulation || row.Event || row.event || '';
+    if (event) entry.events.add(String(event).toUpperCase());
+    if (!entry.timing && row.action_timing) entry.timing = row.action_timing;
+    if (!entry.statement && row.action_statement) entry.statement = row.action_statement;
+  });
+  const triggers = Array.from(map.values()).map((item) => ({
+    name: item.name,
+    timing: item.timing || '',
+    event: Array.from(item.events).join(', '),
+    statement: item.statement || ''
+  }));
+  triggers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return triggers;
+}
+
 module.exports = {
   buildIndexes,
-  buildConstraints
+  buildConstraints,
+  buildTriggers
 };

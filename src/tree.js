@@ -10,6 +10,11 @@ export function resetTreeCache() {
   selectedKey = null;
 }
 
+export function resetTreeDataCache() {
+  columnCache = new Map();
+  tableInfoCache = new Map();
+}
+
 function tableTypeLabel(rawType) {
   const type = String(rawType || '').toUpperCase();
   if (type.includes('VIEW')) return 'Views';
@@ -31,7 +36,8 @@ function ensureGroup(map, schema) {
   return map.get(schema);
 }
 
-function buildTreeData(tableRows, routineRows, filterText, activeSchema) {
+function buildTreeData(tableRows, routineRows, filterText, activeSchema, options = {}) {
+  const { skipNameFilter = false } = options;
   const filter = (filterText || '').toLowerCase().trim();
   const map = new Map();
   (tableRows || []).forEach((row) => {
@@ -40,7 +46,7 @@ function buildTreeData(tableRows, routineRows, filterText, activeSchema) {
       || 'default';
     const name = getField(row, ['table_name', 'name', 'table']) || '';
     const rawType = getField(row, ['table_type', 'type']) || '';
-    if (filter && !name.toLowerCase().includes(filter)) return;
+    if (!skipNameFilter && filter && !name.toLowerCase().includes(filter)) return;
     const group = ensureGroup(map, schema);
     const label = tableTypeLabel(rawType);
     group[label] = group[label] || [];
@@ -53,7 +59,7 @@ function buildTreeData(tableRows, routineRows, filterText, activeSchema) {
       || 'default';
     const name = getField(row, ['routine_name', 'name', 'routine']) || '';
     const rawType = getField(row, ['routine_type', 'type']) || '';
-    if (filter && !name.toLowerCase().includes(filter)) return;
+    if (!skipNameFilter && filter && !name.toLowerCase().includes(filter)) return;
     const group = ensureGroup(map, schema);
     const label = routineTypeLabel(rawType);
     group[label] = group[label] || [];
@@ -197,7 +203,7 @@ async function fetchColumns(schema, table, listColumns, onShowError) {
 async function fetchTableInfo(schema, table, listTableInfo, onShowError) {
   const key = `${schema}.${table}`;
   if (tableInfoCache.has(key)) return tableInfoCache.get(key);
-  if (!listTableInfo) return { indexes: [], constraints: [] };
+  if (!listTableInfo) return { indexes: [], constraints: [], triggers: [] };
   const res = await listTableInfo({ schema, table });
   if (!res || !res.ok) {
     if (onShowError) await onShowError((res && res.error) || 'Failed to load table info.');
@@ -205,7 +211,8 @@ async function fetchTableInfo(schema, table, listTableInfo, onShowError) {
   }
   const info = {
     indexes: Array.isArray(res.indexes) ? res.indexes : [],
-    constraints: Array.isArray(res.constraints) ? res.constraints : []
+    constraints: Array.isArray(res.constraints) ? res.constraints : [],
+    triggers: Array.isArray(res.triggers) ? res.triggers : []
   };
   tableInfoCache.set(key, info);
   return info;
@@ -264,21 +271,22 @@ function isKeyConstraint(constraint) {
   return type.includes('PRIMARY') || type.includes('FOREIGN');
 }
 
-function formatKeyMeta(constraint) {
+function isForeignKeyConstraint(constraint) {
   const type = String(constraint.type || constraint.constraint_type || '').toUpperCase();
+  return type.includes('FOREIGN');
+}
+
+function formatForeignKeyMeta(constraint) {
   const cols = normalizeList(constraint.columns);
   const colPart = cols.length ? `(${cols.join(', ')})` : '';
-  if (type.includes('FOREIGN')) {
-    const ref = constraint.ref || constraint.reference || {};
-    const refSchema = ref.schema ? `${ref.schema}.` : '';
-    const refTable = ref.table || '';
-    const refCols = normalizeList(ref.columns);
-    const refPart = refTable
-      ? ` -> ${refSchema}${refTable}${refCols.length ? `(${refCols.join(', ')})` : ''}`
-      : '';
-    return `FOREIGN KEY ${colPart}${refPart}`;
-  }
-  return `PRIMARY KEY ${colPart}`.trim();
+  const ref = constraint.ref || constraint.reference || {};
+  const refSchema = ref.schema ? `${ref.schema}.` : '';
+  const refTable = ref.table || '';
+  const refCols = normalizeList(ref.columns);
+  const refPart = refTable
+    ? ` -> ${refSchema}${refTable}${refCols.length ? `(${refCols.join(', ')})` : ''}`
+    : '';
+  return `FOREIGN KEY ${colPart}${refPart}`.trim();
 }
 
 function formatConstraintMeta(constraint) {
@@ -297,6 +305,13 @@ function formatConstraintMeta(constraint) {
     return `UNIQUE ${colPart}`.trim();
   }
   return `${type}${colPart ? ` ${colPart}` : ''}`.trim();
+}
+
+function formatTriggerMeta(trigger) {
+  const timing = String(trigger.timing || '').toUpperCase();
+  const event = String(trigger.event || '').toUpperCase();
+  const meta = [timing, event].filter(Boolean).join(' ');
+  return meta || 'TRIGGER';
 }
 
 function renderSection(container, options) {
@@ -319,7 +334,8 @@ function renderTableDetails(container, columns, tableInfo, depth) {
   const info = tableInfo || {};
   const indexes = normalizeList(info.indexes);
   const constraints = normalizeList(info.constraints);
-  const keyConstraints = constraints.filter((constraint) => isKeyConstraint(constraint));
+  const triggers = normalizeList(info.triggers);
+  const foreignKeys = constraints.filter((constraint) => isForeignKeyConstraint(constraint));
   const otherConstraints = constraints.filter((constraint) => !isKeyConstraint(constraint));
 
   renderSection(container, {
@@ -349,14 +365,14 @@ function renderTableDetails(container, columns, tableInfo, depth) {
   });
 
   renderSection(container, {
-    label: 'Keys',
-    icon: '<i class="bi bi-key"></i>',
-    items: keyConstraints,
-    emptyText: 'No keys.',
+    label: 'Foreign Keys',
+    icon: '<i class="bi bi-diagram-2"></i>',
+    items: foreignKeys,
+    emptyText: 'No foreign keys.',
     depth,
     renderItem: (constraint, itemDepth) => {
-      const label = constraint.name || 'KEY';
-      const meta = formatKeyMeta(constraint);
+      const label = constraint.name || 'FOREIGN KEY';
+      const meta = formatForeignKeyMeta(constraint);
       return createColumnLeaf(label, meta, itemDepth, 'tree-meta');
     }
   });
@@ -370,6 +386,19 @@ function renderTableDetails(container, columns, tableInfo, depth) {
     renderItem: (constraint, itemDepth) => {
       const label = constraint.name || 'CONSTRAINT';
       const meta = formatConstraintMeta(constraint);
+      return createColumnLeaf(label, meta, itemDepth, 'tree-meta');
+    }
+  });
+
+  renderSection(container, {
+    label: 'Triggers',
+    icon: '<i class="bi bi-lightning-charge"></i>',
+    items: triggers,
+    emptyText: 'No triggers.',
+    depth,
+    renderItem: (trigger, itemDepth) => {
+      const label = trigger.name || 'TRIGGER';
+      const meta = formatTriggerMeta(trigger);
       return createColumnLeaf(label, meta, itemDepth, 'tree-meta');
     }
   });
@@ -412,11 +441,11 @@ function createTableNode(schema, name, depth, onOpenTable, onOpenView, onOpenTab
 
   const openBtn = document.createElement('button');
   openBtn.className = 'icon-btn tree-action';
-  openBtn.title = 'SELECT * FROM table LIMIT 100';
+  openBtn.title = 'Execute query';
   openBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
   openBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
-    if (onOpenTable) await onOpenTable(schema, name);
+    if (onOpenTable) await onOpenTable(schema, name, { execute: true });
   });
 
   let viewDefBtn = null;
@@ -504,7 +533,7 @@ function createTableNode(schema, name, depth, onOpenTable, onOpenView, onOpenTab
   item.addEventListener('dblclick', async (event) => {
     if (event.target.closest('.tree-actions')) return;
     if (event.target.closest('.tree-caret')) return;
-    if (onOpenTable) await onOpenTable(schema, name);
+    if (onOpenTable) await onOpenTable(schema, name, { execute: false });
   });
 
   if (expanded) {
@@ -551,11 +580,11 @@ function createRoutineNode(schema, name, routineType, depth, onOpenRoutine, high
 
   const openBtn = document.createElement('button');
   openBtn.className = 'icon-btn tree-action';
-  openBtn.title = isProcedure ? 'CALL routine()' : 'SELECT routine()';
+  openBtn.title = 'Execute query';
   openBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
   openBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
-    if (onOpenRoutine) await onOpenRoutine(schema, name, routineType);
+    if (onOpenRoutine) await onOpenRoutine(schema, name, routineType, { execute: true });
   });
 
   const copyNameBtn = document.createElement('button');
@@ -595,7 +624,7 @@ function createRoutineNode(schema, name, routineType, depth, onOpenRoutine, high
   item.addEventListener('dblclick', async (event) => {
     if (event.target.closest('.tree-actions')) return;
     if (event.target.closest('.tree-caret')) return;
-    if (onOpenRoutine) await onOpenRoutine(schema, name, routineType);
+    if (onOpenRoutine) await onOpenRoutine(schema, name, routineType, { execute: false });
   });
 
   return { item, children };
@@ -606,6 +635,8 @@ export function renderTableTree({
   tableCache,
   routineCache,
   filterText,
+  highlightText,
+  skipNameFilter,
   activeSchema,
   onOpenTable,
   onOpenView,
@@ -634,7 +665,7 @@ export function renderTableTree({
     return;
   }
 
-  const treeData = buildTreeData(tableCache, routineCache, filterText, activeSchema);
+  const treeData = buildTreeData(tableCache, routineCache, filterText, activeSchema, { skipNameFilter: !!skipNameFilter });
   if (treeData.size === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
@@ -644,6 +675,7 @@ export function renderTableTree({
   }
 
   const filterActive = !!(filterText || '').trim();
+  const searchText = typeof highlightText === 'string' ? highlightText : filterText;
 
   const normalizedActive = normalizeName(activeSchema);
   for (const [schema, groups] of treeData.entries()) {
@@ -720,7 +752,7 @@ export function renderTableTree({
             listTableInfo,
             onShowError,
             item.isView,
-            filterText,
+            searchText,
             {
               key: tableKey,
               expanded: tableExpanded,
@@ -743,7 +775,7 @@ export function renderTableTree({
           item.routineType,
           2,
           onOpenRoutine,
-          filterText,
+          searchText,
           {
             key: routineKey,
             onCopyName,

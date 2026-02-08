@@ -1,5 +1,5 @@
 const { Client } = require('pg');
-const { buildIndexes, buildConstraints } = require('./metadata');
+const { buildIndexes, buildConstraints, buildTriggers } = require('./metadata');
 
 const MAX_IPC_ROWS = 5000;
 
@@ -153,10 +153,21 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         'SELECT cc.constraint_name, cc.check_clause FROM information_schema.check_constraints cc JOIN information_schema.table_constraints tc ON tc.constraint_schema = cc.constraint_schema AND tc.constraint_name = cc.constraint_name WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = \'CHECK\'',
         [schema, table]
       );
+      let triggerRows = [];
+      try {
+        const triggerRes = await client.query(
+          'SELECT trigger_name, action_timing, event_manipulation, action_statement FROM information_schema.triggers WHERE event_object_schema = $1 AND event_object_table = $2 ORDER BY trigger_name, event_manipulation',
+          [schema, table]
+        );
+        triggerRows = triggerRes.rows || [];
+      } catch (_) {
+        triggerRows = [];
+      }
       return {
         ok: true,
         indexes: buildIndexes(indexRes.rows || []),
-        constraints: buildConstraints(constraintRes.rows || [], checkRes.rows || [])
+        constraints: buildConstraints(constraintRes.rows || [], checkRes.rows || []),
+        triggers: buildTriggers(triggerRows)
       };
     } catch (err) {
       const message = err && err.message ? err.message : 'Failed to list table info.';

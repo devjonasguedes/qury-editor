@@ -6,7 +6,7 @@ import { sql, schemaCompletionSource, keywordCompletionSource, MySQL, PostgreSQL
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 
-export function createCodeEditor({ textarea }) {
+export function createCodeEditor({ textarea, lineWrapping = false }) {
   let view = null;
   let onRun = null;
   let onRunSelection = null;
@@ -145,6 +145,7 @@ export function createCodeEditor({ textarea }) {
         basicSetup,
         EditorState.tabSize.of(2),
         sql(),
+        lineWrapping ? EditorView.lineWrapping : [],
         themeCompartment.of(resolveTheme()),
         syntaxHighlighting(highlightStyle),
         autocompletion({ override: [completionSource, keywordSource] }),

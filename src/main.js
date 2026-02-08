@@ -6,6 +6,7 @@ const {
   safeStorage,
   nativeTheme,
   screen,
+  shell,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -1665,6 +1666,21 @@ function createWindow() {
   }
   mainWindow = new BrowserWindow(windowOptions);
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url && /^https?:/i.test(url)) {
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "allow" };
+  });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url && /^https?:/i.test(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
   });
@@ -1789,6 +1805,17 @@ ipcMain.handle("settings:savePolicy", async (_evt, payload) => {
       err && err.message
         ? err.message
         : "Failed to save policy settings.";
+    return { ok: false, error: message };
+  }
+});
+
+ipcMain.handle("app:openExternal", async (_evt, url) => {
+  if (!url || typeof url !== "string") return { ok: false };
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    const message = err && err.message ? err.message : "Failed to open link.";
     return { ok: false, error: message };
   }
 });

@@ -230,6 +230,7 @@ export function initHome({ api }) {
   const tabConnections = byId('tabConnections');
   const openConnectModalBtn = byId('openConnectModalBtn');
   const quickConnectBtn = byId('quickConnectBtn');
+  const heroCreditLink = document.querySelector('.hero-credit a');
   const closeConnectModalBtn = byId('closeConnectModalBtn');
   const homeBtn = byId('homeBtn');
   const connectModal = byId('connectModal');
@@ -4206,6 +4207,19 @@ export function initHome({ api }) {
 
   if (openConnectModalBtn) {
     openConnectModalBtn.addEventListener('click', () => openConnectModal({ mode: 'full' }));
+  }
+
+  if (heroCreditLink) {
+    heroCreditLink.addEventListener('click', async (event) => {
+      event.preventDefault();
+      const href = heroCreditLink.getAttribute('href');
+      if (!href) return;
+      if (safeApi.openExternal) {
+        await safeApi.openExternal(href);
+        return;
+      }
+      window.open(href, '_blank', 'noopener,noreferrer');
+    });
   }
 
   if (quickConnectBtn) {

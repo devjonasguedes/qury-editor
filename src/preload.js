@@ -33,5 +33,6 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.removeListener('system:theme-updated', listener);
     };
   },
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   showError: (message) => ipcRenderer.invoke('dialog:error', message)
 });

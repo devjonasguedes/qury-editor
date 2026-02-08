@@ -103,7 +103,19 @@
               <div class="panel-title with-actions">
                 <span>Database</span>
                 <div class="panel-actions">
-                  <select id="dbSelect" class="db-select small hidden"></select>
+                  <div
+                    id="dbSelectWrap"
+                    class="db-select-wrap hidden"
+                    title="Runs USE database to set the default context"
+                  >
+                    <span class="db-select-prefix" aria-hidden="true">Use</span>
+                    <select
+                      id="dbSelect"
+                      class="db-select small"
+                      title="Runs USE database to set the default context"
+                      aria-label="Use database"
+                    ></select>
+                  </div>
                   <button
                     id="refreshSchemaBtn"
                     class="icon-btn mini"
@@ -844,6 +856,15 @@
               <button
                 type="button"
                 class="settings-tab"
+                data-settings-tab="errors-timeouts"
+                role="tab"
+                aria-selected="false"
+              >
+                Errors &amp; Timeouts
+              </button>
+              <button
+                type="button"
+                class="settings-tab"
                 data-settings-tab="environments"
                 role="tab"
                 aria-selected="false"
@@ -858,6 +879,100 @@
               role="tabpanel"
               aria-label="General settings"
             >
+              <div class="settings-section">
+                <div class="settings-section-title">Session timezone</div>
+                <div class="settings-note">
+                  Applied to every database session opened by the app.
+                </div>
+                <div class="field">
+                  <label for="settingsSessionTimezone">Timezone</label>
+                  <div id="settingsSessionTimezoneCombobox" class="timezone-combobox">
+                    <input
+                      id="settingsSessionTimezone"
+                      placeholder="UTC or America/Barbados"
+                      autocomplete="off"
+                      spellcheck="false"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded="false"
+                      aria-controls="settingsSessionTimezoneMenu"
+                    />
+                    <button
+                      id="settingsSessionTimezoneToggle"
+                      type="button"
+                      class="timezone-toggle"
+                      title="Open timezone list"
+                      aria-label="Open timezone list"
+                    >
+                      <i class="bi bi-chevron-down"></i>
+                    </button>
+                    <div id="settingsSessionTimezoneMenu" class="timezone-menu hidden">
+                      <div id="settingsSessionTimezoneOptions" class="timezone-options" role="listbox"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="settings-note">
+                  Type an IANA timezone (example: America/Barbados) or choose from the list.
+                </div>
+              </div>
+            </div>
+
+            <div
+              id="settingsPanelErrorsTimeouts"
+              class="settings-panel hidden"
+              role="tabpanel"
+              aria-label="Errors and timeouts settings"
+            >
+              <div class="settings-section">
+                <div class="settings-section-title">Error handling</div>
+                <div class="settings-note">
+                  Controls how SQL execution errors are displayed and handled when running multiple statements.
+                </div>
+                <label class="settings-option">
+                  <input id="settingsErrorStopOnFirst" type="checkbox" checked />
+                  <span>Stop on first error</span>
+                </label>
+                <label class="settings-option">
+                  <input id="settingsErrorContinueOnError" type="checkbox" />
+                  <span>Continue on error</span>
+                </label>
+                <label class="settings-option">
+                  <input id="settingsErrorAutoOpenOutput" type="checkbox" checked />
+                  <span>Auto-open output log on error</span>
+                </label>
+                <label class="settings-option">
+                  <input id="settingsErrorShowDetailedCode" type="checkbox" checked />
+                  <span>Show detailed DB error code (SQLSTATE/vendor code)</span>
+                </label>
+                <label class="settings-option">
+                  <input id="settingsErrorHideSensitive" type="checkbox" checked />
+                  <span>Hide sensitive values in errors</span>
+                </label>
+                <label class="settings-option">
+                  <input id="settingsErrorRetryTransient" type="checkbox" />
+                  <span>Retry transient errors (SELECT only)</span>
+                </label>
+              </div>
+              <div class="settings-section">
+                <div class="settings-section-title">Connection timeouts</div>
+                <div class="settings-note">
+                  Timeouts in milliseconds. Use <code>0</code> to disable connection open timeout.
+                </div>
+                <div class="settings-timeout-grid">
+                  <div class="field">
+                    <label for="settingsConnectionOpenTimeout">Connection open (ms)</label>
+                    <input id="settingsConnectionOpenTimeout" type="number" min="0" step="100" inputmode="numeric" />
+                  </div>
+                  <div class="field">
+                    <label for="settingsConnectionCloseTimeout">Connection close (ms)</label>
+                    <input id="settingsConnectionCloseTimeout" type="number" min="0" step="100" inputmode="numeric" />
+                  </div>
+                  <div class="field">
+                    <label for="settingsConnectionValidationTimeout">Connection validation (ms)</label>
+                    <input id="settingsConnectionValidationTimeout" type="number" min="0" step="100" inputmode="numeric" />
+                  </div>
+                </div>
+              </div>
               <div class="settings-section">
                 <div class="settings-section-title">Query defaults</div>
                 <div class="settings-note">
@@ -885,15 +1000,6 @@
                       <option value="none">No timeout</option>
                     </select>
                   </div>
-                </div>
-              </div>
-              <div class="settings-section">
-                <div class="settings-section-title">Safety model</div>
-                <div class="settings-note">
-                  Environment rules are enforced in backend. Read-only also remains active on each connection.
-                </div>
-                <div class="settings-note">
-                  Use the Environments tab to tune write, DDL/Admin, and confirmation requirements.
                 </div>
               </div>
             </div>
@@ -1024,6 +1130,10 @@
               <button id="definitionCopyBtn" class="secondary" title="Copy SQL">
                 <i class="bi bi-clipboard"></i>
                 Copy
+              </button>
+              <button id="definitionSaveBtn" title="Save definition">
+                <i class="bi bi-save"></i>
+                Save
               </button>
             </div>
             <div class="definition-editor">

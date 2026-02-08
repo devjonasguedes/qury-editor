@@ -4,6 +4,7 @@ export function createTabTables({
   queryInput,
   getValue,
   setValue,
+  getCurrentDatabase,
   onInput,
   onChange,
   onActiveChange
@@ -11,6 +12,7 @@ export function createTabTables({
   let activeTabId = null;
   let tabCounter = 1;
   const tabs = [];
+  const MAX_TAB_DATABASE_LABEL_LENGTH = 18;
   const tabsContainer = tabBar ? (tabBar.querySelector('.tab-scroll') || tabBar) : null;
 
   const getActiveTab = () => tabs.find((tab) => tab.id === activeTabId) || null;
@@ -18,6 +20,51 @@ export function createTabTables({
   const readValue = typeof getValue === 'function'
     ? getValue
     : () => (queryInput ? queryInput.value || '' : '');
+
+  const resolveCurrentDatabase = typeof getCurrentDatabase === 'function'
+    ? () => String(getCurrentDatabase() || '').trim()
+    : () => '';
+
+  const normalizeDatabase = (value) => String(value || '').trim();
+
+  const truncateLabel = (value, maxLength = MAX_TAB_DATABASE_LABEL_LENGTH) => {
+    const text = String(value || '');
+    if (!text || !Number.isFinite(maxLength) || maxLength <= 3) return text;
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength - 3)}...`;
+  };
+
+  const isSameDatabase = (left, right) => {
+    const a = normalizeDatabase(left);
+    const b = normalizeDatabase(right);
+    if (!a || !b) return false;
+    return a.toLowerCase() === b.toLowerCase();
+  };
+
+  const formatTabLabel = (tab, options = {}) => {
+    const truncateDatabase = options.truncateDatabase !== false;
+    const baseTitle = tab && tab.title ? String(tab.title) : '';
+    const database = normalizeDatabase(tab && tab.database ? tab.database : '');
+    const currentDatabase = normalizeDatabase(resolveCurrentDatabase());
+    if (!database || isSameDatabase(database, currentDatabase)) return baseTitle;
+    const databaseLabel = truncateDatabase ? truncateLabel(database) : database;
+    return `${baseTitle} [${databaseLabel}]`;
+  };
+
+  const inferDatabaseFromSql = (sql) => {
+    const source = String(sql || '');
+    if (!source.trim()) return '';
+    const patterns = [
+      /(?:from|join|update|into|table|call)\s+`([^`]+)`\s*\./i,
+      /(?:from|join|update|into|table|call)\s+"([^"]+)"\s*\./i,
+      /(?:from|join|update|into|table|call)\s+([A-Za-z0-9_]+)\s*\./i
+    ];
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (match && match[1]) return normalizeDatabase(match[1]);
+    }
+    return '';
+  };
 
   const writeValue = typeof setValue === 'function'
     ? setValue
@@ -35,6 +82,7 @@ export function createTabTables({
     tabs: tabs.map((tab) => ({
       id: tab.id,
       title: tab.title,
+      database: normalizeDatabase(tab.database),
       query: tab.query,
       editorVisible: tab.editorVisible !== false
     })),
@@ -54,14 +102,23 @@ export function createTabTables({
   const render = () => {
     if (!tabsContainer) return;
     tabsContainer.querySelectorAll('.tab').forEach((el) => el.remove());
+    let didBackfillDatabase = false;
     tabs.forEach((tab) => {
+      if (!normalizeDatabase(tab.database)) {
+        const inferred = inferDatabaseFromSql(tab.query);
+        if (inferred) {
+          tab.database = inferred;
+          didBackfillDatabase = true;
+        }
+      }
       const el = document.createElement('div');
       el.className = 'tab';
       el.dataset.tabId = tab.id;
       if (tab.id === activeTabId) el.classList.add('active');
 
       const label = document.createElement('span');
-      label.textContent = tab.title;
+      label.textContent = formatTabLabel(tab);
+      label.title = formatTabLabel(tab, { truncateDatabase: false });
       label.addEventListener('click', () => {
         syncActiveTabContent();
         activeTabId = tab.id;
@@ -84,12 +141,19 @@ export function createTabTables({
       tabsContainer.appendChild(el);
     });
     ensureActiveTabVisible();
+    if (didBackfillDatabase && onChange) onChange(getState());
   };
 
   const create = (title) => {
     const name = title || `Query ${tabCounter++}`;
     const id = `tab_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const tab = { id, title: name, query: '', editorVisible: true };
+    const tab = {
+      id,
+      title: name,
+      database: resolveCurrentDatabase(),
+      query: '',
+      editorVisible: true
+    };
     tabs.push(tab);
     activeTabId = id;
     render();
@@ -99,8 +163,10 @@ export function createTabTables({
     return tab;
   };
 
-  const createWithQuery = (title, sql) => {
+  const createWithQuery = (title, sql, options = {}) => {
     const tab = create(title);
+    const nextDb = normalizeDatabase(options.database) || inferDatabaseFromSql(sql);
+    if (nextDb) tab.database = nextDb;
     tab.query = sql || '';
     writeValue(tab.query);
     render();
@@ -148,6 +214,10 @@ export function createTabTables({
         tabs.push({
           id: tab.id,
           title: tab.title || `Query ${tabCounter++}`,
+          database:
+            normalizeDatabase(tab.database)
+            || inferDatabaseFromSql(tab.query)
+            || resolveCurrentDatabase(),
           query: tab.query || '',
           editorVisible: tab.editorVisible !== false
         });
@@ -164,6 +234,16 @@ export function createTabTables({
       writeValue('');
       if (onActiveChange) onActiveChange(null, null);
     }
+    if (onChange) onChange(getState());
+  };
+
+  const setActiveTabDatabase = (database, options = {}) => {
+    const active = getActiveTab();
+    if (!active) return;
+    const next = normalizeDatabase(database);
+    if (normalizeDatabase(active.database) === next) return;
+    active.database = next;
+    if (options.render !== false) render();
     if (onChange) onChange(getState());
   };
 
@@ -200,6 +280,7 @@ export function createTabTables({
     getActiveTab,
     getState,
     setState,
-    syncActiveTabContent
+    syncActiveTabContent,
+    setActiveTabDatabase
   };
 }

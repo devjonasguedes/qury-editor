@@ -2,7 +2,67 @@ const mysql = require('mysql2/promise');
 const { buildIndexes, buildConstraints, buildTriggers } = require('./metadata');
 
 const MAX_IPC_ROWS = 5000;
+const DEFAULT_SESSION_TIMEZONE = 'UTC';
+const DEFAULT_CONNECTION_OPEN_TIMEOUT_MS = 10000;
+const DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS = 5000;
+const DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS = 10000;
 const isReadOnlyConfig = (cfg) => !!(cfg && (cfg.readOnly || cfg.read_only));
+const OFFSET_TIMEZONE_RE = /^[+-](0\d|1[0-4]):([0-5]\d)$/;
+const normalizeSessionTimezone = (value) => {
+  const timezone = String(value || '').trim() || DEFAULT_SESSION_TIMEZONE;
+  return timezone.toUpperCase() === 'UTC' ? '+00:00' : timezone;
+};
+const normalizeTimeoutMs = (value, fallback) => {
+  const normalizedFallback = Math.max(0, Number(fallback) || 0);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return normalizedFallback;
+  return Math.floor(parsed);
+};
+
+function toIanaOffsetTimezone(value) {
+  const timezone = String(value || '').trim();
+  if (!timezone) return '';
+  const offsetStyles = ['shortOffset', 'longOffset'];
+  for (const style of offsetStyles) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZoneName: style
+      }).formatToParts(new Date());
+      const token = String((parts.find((part) => part.type === 'timeZoneName') || {}).value || '')
+        .replace('−', '-')
+        .trim();
+      if (!token) continue;
+      if (token === 'GMT' || token === 'UTC') return '+00:00';
+      const match = token.match(/(?:GMT|UTC)\s*([+-]\d{1,2})(?::?(\d{2}))?/i);
+      if (!match) continue;
+      const rawHours = Number(match[1]);
+      if (!Number.isFinite(rawHours)) continue;
+      const sign = rawHours < 0 ? '-' : '+';
+      const hours = String(Math.abs(rawHours)).padStart(2, '0');
+      const minutes = String(match[2] || '00').padStart(2, '0');
+      return `${sign}${hours}:${minutes}`;
+    } catch (_) {
+      // ignore and try next style
+    }
+  }
+  return '';
+}
+
+function resolveMysqlTimezoneCandidates(value) {
+  const normalized = normalizeSessionTimezone(value);
+  if (normalized.toUpperCase() === 'SYSTEM') return [normalized];
+  if (OFFSET_TIMEZONE_RE.test(normalized)) return [normalized];
+  const candidates = [normalized];
+  const convertedOffset = toIanaOffsetTimezone(normalized);
+  if (convertedOffset && !candidates.includes(convertedOffset)) {
+    candidates.push(convertedOffset);
+  }
+  return candidates;
+}
 
 function normalizeIdentifier(value) {
   return String(value || '').trim().replace(/^`|`$/g, '').replace(/^"|"$/g, '');
@@ -303,9 +363,82 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   let tunnel = null;
   let currentQuery = null;
 
-  const disconnect = async () => {
+  const resolveConnectionTimeouts = (cfg) => ({
+    openMs: normalizeTimeoutMs(cfg && cfg.connectionOpenTimeoutMs, DEFAULT_CONNECTION_OPEN_TIMEOUT_MS),
+    closeMs: normalizeTimeoutMs(cfg && cfg.connectionCloseTimeoutMs, DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS),
+    validationMs: normalizeTimeoutMs(cfg && cfg.connectionValidationTimeoutMs, DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS)
+  });
+
+  const closeConnection = async (connection, timeoutMs) => {
+    if (!connection) return;
+    const timeout = normalizeTimeoutMs(timeoutMs, DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS);
+    const closePromise = connection.end();
+    if (timeout <= 0) {
+      await closePromise;
+      return;
+    }
+    let timer = null;
     try {
-      if (client) await client.end();
+      await Promise.race([
+        closePromise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Connection close timeout after ${timeout}ms.`));
+          }, timeout);
+        })
+      ]);
+    } catch (err) {
+      if (connection && typeof connection.destroy === 'function') {
+        try {
+          connection.destroy();
+        } catch (_) {
+          // best effort
+        }
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const validateConnection = async (connection, timeoutMs) => {
+    const timeout = normalizeTimeoutMs(timeoutMs, DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS);
+    await connection.query({
+      sql: 'SELECT 1',
+      timeout: timeout > 0 ? timeout : undefined
+    });
+  };
+
+  const applySessionTimezone = async (connection, value, { strict = false } = {}) => {
+    const timezone = normalizeSessionTimezone(value);
+    const candidates = resolveMysqlTimezoneCandidates(timezone);
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        await connection.query('SET time_zone = ?', [candidate]);
+        return candidate;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    const fallback = normalizeSessionTimezone(DEFAULT_SESSION_TIMEZONE);
+    if (!strict && !candidates.includes(fallback)) {
+      await connection.query('SET time_zone = ?', [fallback]);
+      return fallback;
+    }
+    throw lastError || new Error('Failed to set session timezone.');
+  };
+
+  const disconnect = async () => {
+    const closeTimeoutMs = resolveConnectionTimeouts(config).closeMs;
+    try {
+      if (client) {
+        try {
+          await closeConnection(client, closeTimeoutMs);
+        } catch (_) {
+          // already force-closed when needed
+        }
+      }
     } finally {
       client = null;
       config = null;
@@ -319,6 +452,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   const connect = async (cfg, sshConfig) => {
     let connectHost = cfg.host;
     let connectPort = Number(cfg.port || 3306);
+    const timeouts = resolveConnectionTimeouts(cfg);
     let createdTunnel = null;
     let connection = null;
     try {
@@ -332,11 +466,15 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         port: connectPort,
         user: cfg.user,
         password: cfg.password,
-        database: cfg.database || undefined
+        database: cfg.database || undefined,
+        connectTimeout: timeouts.openMs > 0 ? timeouts.openMs : undefined
       });
+      await validateConnection(connection, timeouts.validationMs);
       if (isReadOnlyConfig(cfg)) {
         await connection.query('SET SESSION TRANSACTION READ ONLY');
       }
+      const sessionTimezone = normalizeSessionTimezone(cfg.sessionTimezone);
+      await applySessionTimezone(connection, sessionTimezone);
       let dbName = cfg.database || '';
       if (!dbName) {
         const [rows] = await connection.query('SELECT DATABASE() AS db');
@@ -349,7 +487,11 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         user: cfg.user,
         password: cfg.password,
         database: cfg.database || undefined,
-        readOnly: isReadOnlyConfig(cfg)
+        readOnly: isReadOnlyConfig(cfg),
+        sessionTimezone,
+        connectionOpenTimeoutMs: timeouts.openMs,
+        connectionCloseTimeoutMs: timeouts.closeMs,
+        connectionValidationTimeoutMs: timeouts.validationMs
       };
       database = dbName;
       tunnel = createdTunnel;
@@ -357,7 +499,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     } catch (err) {
       if (connection) {
         try {
-          await connection.end();
+          await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
       if (createdTunnel && closeTunnel) closeTunnel(createdTunnel);
@@ -368,6 +510,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   const testConnection = async (cfg, sshConfig) => {
     let connectHost = cfg.host;
     let connectPort = Number(cfg.port || 3306);
+    const timeouts = resolveConnectionTimeouts(cfg);
     let testTunnel = null;
     let connection = null;
     try {
@@ -381,10 +524,11 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         port: connectPort,
         user: cfg.user,
         password: cfg.password,
-        database: cfg.database || undefined
+        database: cfg.database || undefined,
+        connectTimeout: timeouts.openMs > 0 ? timeouts.openMs : undefined
       });
-      await connection.query('SELECT 1');
-      await connection.end();
+      await validateConnection(connection, timeouts.validationMs);
+      await closeConnection(connection, timeouts.closeMs);
       connection = null;
       return { ok: true };
     } catch (err) {
@@ -393,7 +537,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     } finally {
       if (connection) {
         try {
-          await connection.end();
+          await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
       if (testTunnel && closeTunnel) closeTunnel(testTunnel);
@@ -402,13 +546,6 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
 
   const listTables = async () => {
     if (!client) return { ok: false, error: 'Not connected.' };
-    if (database) {
-      const [rows] = await client.query(
-        "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema = ? ORDER BY table_type, table_name",
-        [database]
-      );
-      return { ok: true, rows };
-    }
     const [rows] = await client.query(
       "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('mysql','information_schema','performance_schema','sys') ORDER BY table_schema, table_type, table_name"
     );
@@ -417,13 +554,6 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
 
   const listRoutines = async () => {
     if (!client) return { ok: false, error: 'Not connected.' };
-    if (database) {
-      const [rows] = await client.query(
-        "SELECT routine_schema, routine_name, routine_type FROM information_schema.routines WHERE routine_schema = ? ORDER BY routine_type, routine_name",
-        [database]
-      );
-      return { ok: true, rows };
-    }
     const [rows] = await client.query(
       "SELECT routine_schema, routine_name, routine_type FROM information_schema.routines WHERE routine_schema NOT IN ('mysql','information_schema','performance_schema','sys') ORDER BY routine_schema, routine_type, routine_name"
     );
@@ -618,13 +748,38 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
   const useDatabase = async (name) => {
     if (!client) return { ok: false, error: 'Not connected.' };
     if (!name) return { ok: false, error: 'Invalid database.' };
-    await client.changeUser({ database: name });
-    if (config && config.readOnly) {
-      await client.query('SET SESSION TRANSACTION READ ONLY');
+    const timeouts = resolveConnectionTimeouts(config);
+    try {
+      await client.changeUser({ database: name });
+      await validateConnection(client, timeouts.validationMs);
+      if (config && config.readOnly) {
+        await client.query('SET SESSION TRANSACTION READ ONLY');
+      }
+      await applySessionTimezone(client, config ? config.sessionTimezone : undefined);
+      database = name;
+      if (config) {
+        config.database = name;
+      }
+      return { ok: true };
+    } catch (err) {
+      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Failed to select database.';
+      return { ok: false, error: message };
     }
-    database = name;
-    if (config) config.database = name;
-    return { ok: true };
+  };
+
+  const setSessionTimezone = async (payload) => {
+    if (!client) return { ok: false, error: 'Not connected.' };
+    const source = payload && typeof payload === 'object' ? payload : { timezone: payload };
+    const requested = source.timezone || source.sessionTimezone || source.value;
+    const sessionTimezone = normalizeSessionTimezone(requested);
+    try {
+      const appliedTimezone = await applySessionTimezone(client, sessionTimezone, { strict: true });
+      if (config) config.sessionTimezone = sessionTimezone;
+      return { ok: true, applied: true, timezone: sessionTimezone, appliedTimezone };
+    } catch (err) {
+      const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Failed to set session timezone.';
+      return { ok: false, error: message };
+    }
   };
 
   const runQuery = async (payload) => {
@@ -672,7 +827,13 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     } catch (err) {
       currentQuery = null;
       const message = err && (err.sqlMessage || err.message) ? (err.sqlMessage || err.message) : 'Failed to run query.';
-      return { ok: false, error: message };
+      return {
+        ok: false,
+        error: message,
+        code: err && err.code ? String(err.code) : '',
+        sqlState: err && err.sqlState ? String(err.sqlState) : '',
+        errno: err && Number.isFinite(Number(err.errno)) ? Number(err.errno) : undefined
+      };
     }
   };
 
@@ -710,6 +871,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     getTableDefinition,
     listDatabases,
     useDatabase,
+    setSessionTimezone,
     runQuery,
     cancelQuery
   };

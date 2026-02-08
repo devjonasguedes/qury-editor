@@ -38,9 +38,12 @@
   "build": {
     "appId": "com.qury.editor",
     "productName": "Qury Editor",
+    "afterPack": "scripts/after-pack.cjs",
+    "icon": "public/icon.png",
     "asar": true,
     "directories": {
-      "output": "dist/release"
+      "output": "dist/release",
+      "buildResources": "public"
     },
     "files": [
       "out/**/*",
@@ -51,6 +54,7 @@
       "main": "out/main/index.js"
     },
     "mac": {
+      "icon": "public/icon.png",
       "target": [
         {
           "target": "zip",
@@ -62,6 +66,7 @@
       "artifactName": "${productName}-mac-${arch}.${ext}"
     },
     "win": {
+      "icon": "public/icon.png",
       "target": [
         {
           "target": "zip",
@@ -71,6 +76,9 @@
         }
       ],
       "artifactName": "${productName}-win-${arch}.${ext}"
+    },
+    "linux": {
+      "icon": "public/icon.png"
     }
   }
 }

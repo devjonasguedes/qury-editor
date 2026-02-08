@@ -2,7 +2,18 @@ const { Client } = require('pg');
 const { buildIndexes, buildConstraints, buildTriggers } = require('./metadata');
 
 const MAX_IPC_ROWS = 5000;
+const DEFAULT_SESSION_TIMEZONE = 'UTC';
+const DEFAULT_CONNECTION_OPEN_TIMEOUT_MS = 10000;
+const DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS = 5000;
+const DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS = 10000;
 const isReadOnlyConfig = (cfg) => !!(cfg && (cfg.readOnly || cfg.read_only));
+const normalizeSessionTimezone = (value) => String(value || '').trim() || DEFAULT_SESSION_TIMEZONE;
+const normalizeTimeoutMs = (value, fallback) => {
+  const normalizedFallback = Math.max(0, Number(fallback) || 0);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return normalizedFallback;
+  return Math.floor(parsed);
+};
 
 function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   let client = null;
@@ -11,9 +22,95 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   let tunnel = null;
   let currentQuery = null;
 
-  const disconnect = async () => {
+  const resolveConnectionTimeouts = (cfg) => ({
+    openMs: normalizeTimeoutMs(cfg && cfg.connectionOpenTimeoutMs, DEFAULT_CONNECTION_OPEN_TIMEOUT_MS),
+    closeMs: normalizeTimeoutMs(cfg && cfg.connectionCloseTimeoutMs, DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS),
+    validationMs: normalizeTimeoutMs(cfg && cfg.connectionValidationTimeoutMs, DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS)
+  });
+
+  const forceCloseConnection = (connection) => {
+    const stream = connection && connection.connection && connection.connection.stream;
+    if (stream && typeof stream.destroy === 'function') {
+      try {
+        stream.destroy();
+      } catch (_) {
+        // best effort
+      }
+    }
+  };
+
+  const closeConnection = async (connection, timeoutMs) => {
+    if (!connection) return;
+    const timeout = normalizeTimeoutMs(timeoutMs, DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS);
+    const closePromise = connection.end();
+    if (timeout <= 0) {
+      await closePromise;
+      return;
+    }
+    let timer = null;
     try {
-      if (client) await client.end();
+      await Promise.race([
+        closePromise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Connection close timeout after ${timeout}ms.`));
+          }, timeout);
+        })
+      ]);
+    } catch (err) {
+      forceCloseConnection(connection);
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const validateConnection = async (connection, timeoutMs) => {
+    const timeout = normalizeTimeoutMs(timeoutMs, DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS);
+    if (timeout <= 0) {
+      await connection.query('SELECT 1');
+      return;
+    }
+    let timer = null;
+    try {
+      await Promise.race([
+        connection.query('SELECT 1'),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Connection validation timeout after ${timeout}ms.`));
+          }, timeout);
+        })
+      ]);
+    } catch (err) {
+      forceCloseConnection(connection);
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const applySessionTimezone = async (connection, value, { strict = false } = {}) => {
+    const timezone = normalizeSessionTimezone(value);
+    try {
+      await connection.query("SELECT set_config('TIMEZONE', $1, false)", [timezone]);
+      return timezone;
+    } catch (err) {
+      if (strict || timezone === DEFAULT_SESSION_TIMEZONE) throw err;
+      await connection.query("SELECT set_config('TIMEZONE', $1, false)", [DEFAULT_SESSION_TIMEZONE]);
+      return DEFAULT_SESSION_TIMEZONE;
+    }
+  };
+
+  const disconnect = async () => {
+    const closeTimeoutMs = resolveConnectionTimeouts(config).closeMs;
+    try {
+      if (client) {
+        try {
+          await closeConnection(client, closeTimeoutMs);
+        } catch (_) {
+          // already force-closed when needed
+        }
+      }
     } finally {
       client = null;
       config = null;
@@ -27,6 +124,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   const connect = async (cfg, sshConfig) => {
     let connectHost = cfg.host;
     let connectPort = Number(cfg.port || 5432);
+    const timeouts = resolveConnectionTimeouts(cfg);
     let createdTunnel = null;
     let connection = null;
     try {
@@ -40,12 +138,15 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         port: connectPort,
         user: cfg.user,
         password: cfg.password,
-        database: cfg.database || undefined
+        database: cfg.database || undefined,
+        connectionTimeoutMillis: timeouts.openMs > 0 ? timeouts.openMs : undefined
       });
       await connection.connect();
+      await validateConnection(connection, timeouts.validationMs);
       if (isReadOnlyConfig(cfg)) {
         await connection.query('SET default_transaction_read_only = on');
       }
+      const sessionTimezone = await applySessionTimezone(connection, cfg.sessionTimezone);
       let dbName = cfg.database || '';
       if (!dbName) {
         const res = await connection.query('SELECT current_database() AS db');
@@ -58,7 +159,11 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         user: cfg.user,
         password: cfg.password,
         database: cfg.database || undefined,
-        readOnly: isReadOnlyConfig(cfg)
+        readOnly: isReadOnlyConfig(cfg),
+        sessionTimezone,
+        connectionOpenTimeoutMs: timeouts.openMs,
+        connectionCloseTimeoutMs: timeouts.closeMs,
+        connectionValidationTimeoutMs: timeouts.validationMs
       };
       database = dbName;
       tunnel = createdTunnel;
@@ -66,7 +171,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     } catch (err) {
       if (connection) {
         try {
-          await connection.end();
+          await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
       if (createdTunnel && closeTunnel) closeTunnel(createdTunnel);
@@ -79,6 +184,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     const databaseName = cfg.database || cfg.user || 'postgres';
     let connectHost = cfg.host;
     let connectPort = Number(cfg.port || 5432);
+    const timeouts = resolveConnectionTimeouts(cfg);
     let testTunnel = null;
     let connection = null;
     try {
@@ -92,11 +198,12 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         port: connectPort,
         user: cfg.user,
         password: cfg.password,
-        database: databaseName
+        database: databaseName,
+        connectionTimeoutMillis: timeouts.openMs > 0 ? timeouts.openMs : undefined
       });
       await connection.connect();
-      await connection.query('SELECT 1');
-      await connection.end();
+      await validateConnection(connection, timeouts.validationMs);
+      await closeConnection(connection, timeouts.closeMs);
       connection = null;
       return { ok: true };
     } catch (err) {
@@ -105,7 +212,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     } finally {
       if (connection) {
         try {
-          await connection.end();
+          await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
       if (testTunnel && closeTunnel) closeTunnel(testTunnel);
@@ -266,29 +373,63 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     if (!client) return { ok: false, error: 'Not connected.' };
     if (!name) return { ok: false, error: 'Invalid database.' };
     const cfg = config || client.connectionParameters || {};
+    const timeouts = resolveConnectionTimeouts(cfg);
     const next = new Client({
       host: cfg.host,
       port: cfg.port,
       user: cfg.user,
       password: cfg.password,
-      database: name
-    });
-    await next.connect();
-    if (cfg.readOnly) {
-      await next.query('SET default_transaction_read_only = on');
-    }
-    await client.end();
-    client = next;
-    database = name;
-    config = {
-      host: cfg.host,
-      port: cfg.port,
-      user: cfg.user,
-      password: cfg.password,
       database: name,
-      readOnly: !!cfg.readOnly
-    };
-    return { ok: true };
+      connectionTimeoutMillis: timeouts.openMs > 0 ? timeouts.openMs : undefined
+    });
+    try {
+      await next.connect();
+      await validateConnection(next, timeouts.validationMs);
+      if (cfg.readOnly) {
+        await next.query('SET default_transaction_read_only = on');
+      }
+      const sessionTimezone = await applySessionTimezone(next, cfg.sessionTimezone);
+      try {
+        await closeConnection(client, timeouts.closeMs);
+      } catch (_) {
+        // old connection already force-closed when needed
+      }
+      client = next;
+      database = name;
+      config = {
+        host: cfg.host,
+        port: cfg.port,
+        user: cfg.user,
+        password: cfg.password,
+        database: name,
+        readOnly: !!cfg.readOnly,
+        sessionTimezone,
+        connectionOpenTimeoutMs: timeouts.openMs,
+        connectionCloseTimeoutMs: timeouts.closeMs,
+        connectionValidationTimeoutMs: timeouts.validationMs
+      };
+      return { ok: true };
+    } catch (err) {
+      try {
+        await closeConnection(next, timeouts.closeMs);
+      } catch (_) {}
+      const message = err && err.message ? err.message : 'Failed to select database.';
+      return { ok: false, error: message };
+    }
+  };
+
+  const setSessionTimezone = async (payload) => {
+    if (!client) return { ok: false, error: 'Not connected.' };
+    const source = payload && typeof payload === 'object' ? payload : { timezone: payload };
+    const requested = source.timezone || source.sessionTimezone || source.value;
+    try {
+      const timezone = await applySessionTimezone(client, requested, { strict: true });
+      if (config) config.sessionTimezone = timezone;
+      return { ok: true, applied: true, timezone };
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Failed to set session timezone.';
+      return { ok: false, error: message };
+    }
   };
 
   const runQuery = async (payload) => {
@@ -315,7 +456,12 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
       };
     } catch (err) {
       const message = err && err.message ? err.message : 'Failed to run query.';
-      return { ok: false, error: message };
+      return {
+        ok: false,
+        error: message,
+        code: err && err.code ? String(err.code) : '',
+        sqlState: err && err.code ? String(err.code) : ''
+      };
     } finally {
       if (applyTimeout) {
         try {
@@ -363,6 +509,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     getTableDefinition,
     listDatabases,
     useDatabase,
+    setSessionTimezone,
     runQuery,
     cancelQuery
   };

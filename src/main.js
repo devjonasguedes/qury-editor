@@ -1871,6 +1871,14 @@ ipcMain.handle("db:useDatabase", async (_evt, name) => {
   return currentDriver.useDatabase(name);
 });
 
+ipcMain.handle("db:setSessionTimezone", async (_evt, payload) => {
+  if (!currentDriver) return { ok: true, applied: false };
+  if (!currentDriver.setSessionTimezone) {
+    return { ok: false, error: "Session timezone not supported." };
+  }
+  return currentDriver.setSessionTimezone(payload);
+});
+
 ipcMain.handle("db:testConnection", async (_evt, config) => {
   try {
     const normalizedConfig = {

@@ -37,10 +37,109 @@ const EDITOR_FONT_SIZE_KEY = 'sqlEditor.editorFontSize';
 const EDITOR_COLLAPSED_KEY_PREFIX = 'sqlEditor.editorCollapsed';
 const QUERY_DEFAULT_LIMIT_KEY = 'sqlEditor.defaultLimit';
 const QUERY_DEFAULT_TIMEOUT_KEY = 'sqlEditor.defaultTimeout';
+const SESSION_TIMEZONE_KEY = 'sqlEditor.sessionTimezone';
+const CONNECTION_OPEN_TIMEOUT_KEY = 'sqlEditor.connectionOpenTimeoutMs';
+const CONNECTION_CLOSE_TIMEOUT_KEY = 'sqlEditor.connectionCloseTimeoutMs';
+const CONNECTION_VALIDATION_TIMEOUT_KEY = 'sqlEditor.connectionValidationTimeoutMs';
+const ERROR_STOP_ON_FIRST_KEY = 'sqlEditor.errorStopOnFirst';
+const ERROR_CONTINUE_ON_ERROR_KEY = 'sqlEditor.errorContinueOnError';
+const ERROR_AUTO_OPEN_OUTPUT_KEY = 'sqlEditor.errorAutoOpenOutput';
+const ERROR_SHOW_DETAILED_CODE_KEY = 'sqlEditor.errorShowDetailedCode';
+const ERROR_HIDE_SENSITIVE_KEY = 'sqlEditor.errorHideSensitive';
+const ERROR_RETRY_TRANSIENT_KEY = 'sqlEditor.errorRetryTransient';
 const QUERY_DEFAULTS = Object.freeze({
   limit: '100',
   timeoutMs: '30000'
 });
+const CONNECTION_TIMEOUT_DEFAULTS = Object.freeze({
+  openMs: '10000',
+  closeMs: '5000',
+  validationMs: '10000'
+});
+const ERROR_HANDLING_DEFAULTS = Object.freeze({
+  stopOnFirstError: true,
+  continueOnError: false,
+  autoOpenOutputOnError: true,
+  showDetailedDbErrorCode: true,
+  hideSensitiveValuesInErrors: true,
+  retryTransientSelectErrors: false
+});
+const DEFAULT_SESSION_TIMEZONE = 'UTC';
+const SESSION_TIMEZONE_SYSTEM = 'SYSTEM';
+const SESSION_TIMEZONE_SYSTEM_LABEL = 'Use system timezone';
+const SESSION_TIMEZONE_ITEMS = Object.freeze([
+  { id: 'UTC', label: 'UTC', offset: 0, gmt: 'GMT+00:00' },
+
+  { id: 'America/Sao_Paulo', label: 'Brasilia / Sao Paulo', offset: -180, gmt: 'GMT-03:00' },
+  { id: 'America/Manaus', label: 'Manaus', offset: -240, gmt: 'GMT-04:00' },
+  { id: 'America/Cuiaba', label: 'Cuiaba', offset: -240, gmt: 'GMT-04:00' },
+  { id: 'America/Belem', label: 'Belem', offset: -180, gmt: 'GMT-03:00' },
+  { id: 'America/Porto_Velho', label: 'Porto Velho', offset: -240, gmt: 'GMT-04:00' },
+  { id: 'America/Rio_Branco', label: 'Rio Branco', offset: -300, gmt: 'GMT-05:00' },
+  { id: 'America/Noronha', label: 'Fernando de Noronha', offset: -120, gmt: 'GMT-02:00' },
+
+  { id: 'America/New_York', label: 'New York (ET)', offset: -300, gmt: 'GMT-05:00' },
+  { id: 'America/Chicago', label: 'Chicago (CT)', offset: -360, gmt: 'GMT-06:00' },
+  { id: 'America/Denver', label: 'Denver (MT)', offset: -420, gmt: 'GMT-07:00' },
+  { id: 'America/Los_Angeles', label: 'Los Angeles (PT)', offset: -480, gmt: 'GMT-08:00' },
+  { id: 'America/Phoenix', label: 'Phoenix', offset: -420, gmt: 'GMT-07:00' },
+  { id: 'America/Toronto', label: 'Toronto', offset: -300, gmt: 'GMT-05:00' },
+  { id: 'America/Vancouver', label: 'Vancouver', offset: -480, gmt: 'GMT-08:00' },
+
+  { id: 'America/Mexico_City', label: 'Mexico City', offset: -360, gmt: 'GMT-06:00' },
+  { id: 'America/Bogota', label: 'Bogota', offset: -300, gmt: 'GMT-05:00' },
+  { id: 'America/Lima', label: 'Lima', offset: -300, gmt: 'GMT-05:00' },
+  { id: 'America/Santiago', label: 'Santiago', offset: -240, gmt: 'GMT-04:00' },
+  { id: 'America/Buenos_Aires', label: 'Buenos Aires', offset: -180, gmt: 'GMT-03:00' },
+  { id: 'America/Montevideo', label: 'Montevideo', offset: -180, gmt: 'GMT-03:00' },
+  { id: 'America/Asuncion', label: 'Asuncion', offset: -240, gmt: 'GMT-04:00' },
+  { id: 'America/Caracas', label: 'Caracas', offset: -240, gmt: 'GMT-04:00' },
+
+  { id: 'Europe/London', label: 'London', offset: 0, gmt: 'GMT+00:00' },
+  { id: 'Europe/Dublin', label: 'Dublin', offset: 0, gmt: 'GMT+00:00' },
+  { id: 'Europe/Lisbon', label: 'Lisbon', offset: 0, gmt: 'GMT+00:00' },
+  { id: 'Europe/Paris', label: 'Paris', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Madrid', label: 'Madrid', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Berlin', label: 'Berlin', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Rome', label: 'Rome', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Amsterdam', label: 'Amsterdam', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Brussels', label: 'Brussels', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Zurich', label: 'Zurich', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Vienna', label: 'Vienna', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Stockholm', label: 'Stockholm', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Warsaw', label: 'Warsaw', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Europe/Athens', label: 'Athens', offset: 120, gmt: 'GMT+02:00' },
+  { id: 'Europe/Helsinki', label: 'Helsinki', offset: 120, gmt: 'GMT+02:00' },
+  { id: 'Europe/Istanbul', label: 'Istanbul', offset: 180, gmt: 'GMT+03:00' },
+  { id: 'Europe/Moscow', label: 'Moscow', offset: 180, gmt: 'GMT+03:00' },
+
+  { id: 'Africa/Johannesburg', label: 'Johannesburg', offset: 120, gmt: 'GMT+02:00' },
+  { id: 'Africa/Cairo', label: 'Cairo', offset: 120, gmt: 'GMT+02:00' },
+  { id: 'Africa/Nairobi', label: 'Nairobi', offset: 180, gmt: 'GMT+03:00' },
+  { id: 'Africa/Lagos', label: 'Lagos', offset: 60, gmt: 'GMT+01:00' },
+  { id: 'Africa/Casablanca', label: 'Casablanca', offset: 60, gmt: 'GMT+01:00' },
+
+  { id: 'Asia/Dubai', label: 'Dubai', offset: 240, gmt: 'GMT+04:00' },
+  { id: 'Asia/Riyadh', label: 'Riyadh', offset: 180, gmt: 'GMT+03:00' },
+  { id: 'Asia/Kolkata', label: 'Kolkata', offset: 330, gmt: 'GMT+05:30' },
+  { id: 'Asia/Bangkok', label: 'Bangkok', offset: 420, gmt: 'GMT+07:00' },
+  { id: 'Asia/Singapore', label: 'Singapore', offset: 480, gmt: 'GMT+08:00' },
+  { id: 'Asia/Hong_Kong', label: 'Hong Kong', offset: 480, gmt: 'GMT+08:00' },
+  { id: 'Asia/Shanghai', label: 'Shanghai', offset: 480, gmt: 'GMT+08:00' },
+  { id: 'Asia/Taipei', label: 'Taipei', offset: 480, gmt: 'GMT+08:00' },
+  { id: 'Asia/Seoul', label: 'Seoul', offset: 540, gmt: 'GMT+09:00' },
+  { id: 'Asia/Tokyo', label: 'Tokyo', offset: 540, gmt: 'GMT+09:00' },
+  { id: 'Asia/Jakarta', label: 'Jakarta', offset: 420, gmt: 'GMT+07:00' },
+  { id: 'Asia/Manila', label: 'Manila', offset: 480, gmt: 'GMT+08:00' },
+
+  { id: 'Australia/Sydney', label: 'Sydney', offset: 600, gmt: 'GMT+10:00' },
+  { id: 'Australia/Melbourne', label: 'Melbourne', offset: 600, gmt: 'GMT+10:00' },
+  { id: 'Australia/Brisbane', label: 'Brisbane', offset: 600, gmt: 'GMT+10:00' },
+  { id: 'Australia/Perth', label: 'Perth', offset: 480, gmt: 'GMT+08:00' },
+  { id: 'Pacific/Auckland', label: 'Auckland', offset: 720, gmt: 'GMT+12:00' }
+]);
+const SESSION_TIMEZONE_VALUES = new Set(SESSION_TIMEZONE_ITEMS.map((item) => item.id));
+const SESSION_TIMEZONE_ITEM_BY_ID = new Map(SESSION_TIMEZONE_ITEMS.map((item) => [item.id, item]));
 const QUERY_PROGRESS_SHOW_DELAY_MS = 5000;
 const POLICY_MODE_DEV = 'dev';
 const POLICY_MODE_STAGING = 'staging';
@@ -184,6 +283,7 @@ export function initHome({ api }) {
   const tableSearchClear = byId('tableSearchClear');
   const sidebarShell = byId('sidebarShell');
   const dbSelect = byId('dbSelect');
+  const dbSelectWrap = byId('dbSelectWrap');
   const sidebarResizer = byId('sidebarResizer');
   const editorResizer = byId('editorResizer');
   const sidebar = document.querySelector('.tables');
@@ -243,6 +343,7 @@ export function initHome({ api }) {
   const definitionSubtitle = byId('definitionSubtitle');
   const definitionFormatBtn = byId('definitionFormatBtn');
   const definitionCopyBtn = byId('definitionCopyBtn');
+  const definitionSaveBtn = byId('definitionSaveBtn');
   const definitionQueryInput = byId('definitionQueryInput');
   const settingsModal = byId('settingsModal');
   const settingsModalBackdrop = byId('settingsModalBackdrop');
@@ -252,7 +353,22 @@ export function initHome({ api }) {
   const settingsResetDefaultsBtn = byId('settingsResetDefaultsBtn');
   const settingsTabs = byId('settingsTabs');
   const settingsPanelGeneral = byId('settingsPanelGeneral');
+  const settingsPanelErrorsTimeouts = byId('settingsPanelErrorsTimeouts');
   const settingsPanelEnvironments = byId('settingsPanelEnvironments');
+  const settingsSessionTimezoneCombobox = byId('settingsSessionTimezoneCombobox');
+  const settingsSessionTimezone = byId('settingsSessionTimezone');
+  const settingsSessionTimezoneToggle = byId('settingsSessionTimezoneToggle');
+  const settingsSessionTimezoneMenu = byId('settingsSessionTimezoneMenu');
+  const settingsSessionTimezoneOptions = byId('settingsSessionTimezoneOptions');
+  const settingsConnectionOpenTimeout = byId('settingsConnectionOpenTimeout');
+  const settingsConnectionCloseTimeout = byId('settingsConnectionCloseTimeout');
+  const settingsConnectionValidationTimeout = byId('settingsConnectionValidationTimeout');
+  const settingsErrorStopOnFirst = byId('settingsErrorStopOnFirst');
+  const settingsErrorContinueOnError = byId('settingsErrorContinueOnError');
+  const settingsErrorAutoOpenOutput = byId('settingsErrorAutoOpenOutput');
+  const settingsErrorShowDetailedCode = byId('settingsErrorShowDetailedCode');
+  const settingsErrorHideSensitive = byId('settingsErrorHideSensitive');
+  const settingsErrorRetryTransient = byId('settingsErrorRetryTransient');
   const settingsDefaultLimit = byId('settingsDefaultLimit');
   const settingsDefaultTimeout = byId('settingsDefaultTimeout');
   const envPolicyDevAllowWrite = byId('envPolicyDevAllowWrite');
@@ -273,6 +389,8 @@ export function initHome({ api }) {
   let codeEditor = null;
   let snippetEditor = null;
   let definitionEditor = null;
+  let activeDefinitionTarget = null;
+  let isSavingDefinition = false;
   let tableView = null;
   let tableObjectTabsView = null;
   let lastSort = null;
@@ -291,6 +409,10 @@ export function initHome({ api }) {
   let activeSettingsTab = 'general';
   let activeConnectSettingsTab = 'connection';
   let activeConnectMode = 'full';
+  let sessionTimezoneOptionItems = [];
+  let sessionTimezoneVisibleItems = [];
+  let sessionTimezoneHighlightedIndex = -1;
+  let sessionTimezoneMenuOpen = false;
   let removeNativeThemeListener = null;
   let currentThemeMode = THEME_MODE_SYSTEM;
   let systemPrefersDark = true;
@@ -521,6 +643,424 @@ export function initHome({ api }) {
     return Array.from(select.options).some((option) => option.value === target);
   };
 
+  const SESSION_TIMEZONE_OFFSET_RE = /^([+-])(0\d|1[0-4]):([0-5]\d)$/;
+  const SESSION_TIMEZONE_IANA_RE = /^[A-Za-z_]+\/[A-Za-z0-9_\-+/]+$/;
+
+  const coerceOffsetTimezone = (value) => {
+    const text = String(value || '').trim();
+    const match = text.match(/^([+-])(\d{1,2})(?::?(\d{2}))?$/);
+    if (!match) return '';
+    const sign = match[1];
+    const hour = Number(match[2] || 0);
+    const minute = Number(match[3] || 0);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return '';
+    if (hour < 0 || hour > 14 || minute < 0 || minute > 59) return '';
+    return `${sign}${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  };
+
+  const extractSessionTimezoneToken = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const labelMatch = text.match(/^(.+?)\s+\(UTC[+-]\d{2}:\d{2}\)$/i);
+    if (labelMatch && labelMatch[1]) return String(labelMatch[1]).trim();
+    return text;
+  };
+
+  const resolveSystemSessionTimezone = () => {
+    try {
+      const systemTimezone = String(
+        Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+      ).trim();
+      if (SESSION_TIMEZONE_VALUES.has(systemTimezone)) return systemTimezone;
+      if (SESSION_TIMEZONE_IANA_RE.test(systemTimezone)) return systemTimezone;
+    } catch (_) {
+      // no-op
+    }
+    return DEFAULT_SESSION_TIMEZONE;
+  };
+
+  const normalizeSessionTimezone = (value) => {
+    const token = extractSessionTimezoneToken(value);
+    if (!token) return DEFAULT_SESSION_TIMEZONE;
+    if (token.toUpperCase() === DEFAULT_SESSION_TIMEZONE) return DEFAULT_SESSION_TIMEZONE;
+    if (token.toUpperCase() === SESSION_TIMEZONE_SYSTEM) return SESSION_TIMEZONE_SYSTEM;
+    if (/^use system timezone\b/i.test(token)) return SESSION_TIMEZONE_SYSTEM;
+    const offset = coerceOffsetTimezone(token);
+    if (offset) return offset;
+    if (SESSION_TIMEZONE_VALUES.has(token)) return token;
+    if (SESSION_TIMEZONE_IANA_RE.test(token)) return token;
+    return DEFAULT_SESSION_TIMEZONE;
+  };
+
+  const resolveUtcOffsetLabel = (timezone) => {
+    const normalized = normalizeSessionTimezone(timezone);
+    if (normalized === DEFAULT_SESSION_TIMEZONE) return 'UTC+00:00';
+    if (normalized === SESSION_TIMEZONE_SYSTEM) {
+      const effective = resolveSystemSessionTimezone();
+      return resolveUtcOffsetLabel(effective);
+    }
+    if (SESSION_TIMEZONE_OFFSET_RE.test(normalized)) return `UTC${normalized}`;
+    const preset = SESSION_TIMEZONE_ITEM_BY_ID.get(normalized);
+    if (preset && typeof preset.gmt === 'string') {
+      const utc = preset.gmt.trim().replace(/^GMT/i, 'UTC');
+      if (/^UTC[+-]\d{2}:\d{2}$/.test(utc)) return utc;
+    }
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: normalized,
+        timeZoneName: 'shortOffset',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(new Date());
+      const raw = String((parts.find((part) => part.type === 'timeZoneName') || {}).value || '')
+        .replace('−', '-')
+        .trim();
+      if (!raw) return 'UTC+00:00';
+      if (raw === 'GMT' || raw === 'UTC') return 'UTC+00:00';
+      const match = raw.match(/(?:GMT|UTC)\s*([+-]\d{1,2})(?::?(\d{2}))?/i);
+      if (!match) return 'UTC+00:00';
+      const sign = String(match[1]).startsWith('-') ? '-' : '+';
+      const hour = String(Math.abs(Number(match[1]))).padStart(2, '0');
+      const minute = String(match[2] || '00').padStart(2, '0');
+      return `UTC${sign}${hour}:${minute}`;
+    } catch (_) {
+      return 'UTC+00:00';
+    }
+  };
+
+  const buildSessionTimezoneDisplay = (timezone) => {
+    const normalized = normalizeSessionTimezone(timezone);
+    if (normalized === SESSION_TIMEZONE_SYSTEM) return SESSION_TIMEZONE_SYSTEM_LABEL;
+    return `${normalized} (${resolveUtcOffsetLabel(normalized)})`;
+  };
+
+  const buildSystemTimezoneOptionDisplay = () => {
+    const systemTimezone = resolveSystemSessionTimezone();
+    return `${SESSION_TIMEZONE_SYSTEM_LABEL} (${systemTimezone} ${resolveUtcOffsetLabel(systemTimezone)})`;
+  };
+
+  const setSessionTimezoneMenuOpen = (open) => {
+    const nextOpen = !!open;
+    sessionTimezoneMenuOpen = nextOpen;
+    if (settingsSessionTimezoneMenu) settingsSessionTimezoneMenu.classList.toggle('hidden', !nextOpen);
+    if (settingsSessionTimezoneCombobox) settingsSessionTimezoneCombobox.classList.toggle('open', nextOpen);
+    if (settingsSessionTimezone) settingsSessionTimezone.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+    if (settingsSessionTimezoneToggle) settingsSessionTimezoneToggle.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+    if (!nextOpen) sessionTimezoneHighlightedIndex = -1;
+  };
+
+  const renderSessionTimezoneMenu = () => {
+    if (!settingsSessionTimezoneOptions) return;
+    settingsSessionTimezoneOptions.innerHTML = '';
+    if (!sessionTimezoneVisibleItems.length) {
+      const empty = document.createElement('div');
+      empty.className = 'timezone-empty';
+      empty.textContent = 'No timezones found';
+      settingsSessionTimezoneOptions.appendChild(empty);
+      return;
+    }
+    sessionTimezoneVisibleItems.forEach((item, index) => {
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'timezone-option';
+      option.setAttribute('role', 'option');
+      option.textContent = item.display;
+      if (index === sessionTimezoneHighlightedIndex) option.classList.add('active');
+      option.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+      });
+      option.addEventListener('click', () => {
+        applySessionTimezoneToSettingsInput(item.timezone);
+        setSessionTimezoneMenuOpen(false);
+        if (settingsSessionTimezone) settingsSessionTimezone.focus();
+      });
+      settingsSessionTimezoneOptions.appendChild(option);
+    });
+  };
+
+  const ensureSessionTimezoneHighlightedVisible = () => {
+    if (!settingsSessionTimezoneOptions) return;
+    if (sessionTimezoneHighlightedIndex < 0) return;
+    const active = settingsSessionTimezoneOptions.querySelector('.timezone-option.active');
+    if (active && typeof active.scrollIntoView === 'function') {
+      active.scrollIntoView({ block: 'nearest' });
+    }
+  };
+
+  const setSessionTimezoneHighlightedIndex = (index) => {
+    if (!sessionTimezoneVisibleItems.length) {
+      sessionTimezoneHighlightedIndex = -1;
+      renderSessionTimezoneMenu();
+      return;
+    }
+    const next = Math.max(0, Math.min(sessionTimezoneVisibleItems.length - 1, Number(index) || 0));
+    sessionTimezoneHighlightedIndex = next;
+    renderSessionTimezoneMenu();
+    ensureSessionTimezoneHighlightedVisible();
+  };
+
+  const filterSessionTimezoneMenu = (query) => {
+    const token = extractSessionTimezoneToken(query).toLowerCase();
+    if (!token) {
+      sessionTimezoneVisibleItems = [...sessionTimezoneOptionItems];
+    } else {
+      sessionTimezoneVisibleItems = sessionTimezoneOptionItems.filter((item) => item.search.includes(token));
+    }
+    if (!sessionTimezoneVisibleItems.length) {
+      sessionTimezoneHighlightedIndex = -1;
+    } else if (sessionTimezoneHighlightedIndex < 0 || sessionTimezoneHighlightedIndex >= sessionTimezoneVisibleItems.length) {
+      sessionTimezoneHighlightedIndex = 0;
+    }
+    renderSessionTimezoneMenu();
+    ensureSessionTimezoneHighlightedVisible();
+  };
+
+  const renderSessionTimezoneOptions = (selectedTimezone = DEFAULT_SESSION_TIMEZONE) => {
+    const normalized = normalizeSessionTimezone(selectedTimezone);
+    const items = [];
+    items.push({
+      id: SESSION_TIMEZONE_SYSTEM,
+      label: SESSION_TIMEZONE_SYSTEM_LABEL,
+      gmt: resolveUtcOffsetLabel(SESSION_TIMEZONE_SYSTEM)
+    });
+    if (normalized !== SESSION_TIMEZONE_SYSTEM && !SESSION_TIMEZONE_ITEM_BY_ID.has(normalized)) {
+      items.push({ id: normalized, label: normalized, gmt: resolveUtcOffsetLabel(normalized) });
+    }
+    items.push(...SESSION_TIMEZONE_ITEMS);
+    sessionTimezoneOptionItems = items.map((item) => {
+      const timezone = item.id;
+      const display = timezone === SESSION_TIMEZONE_SYSTEM
+        ? buildSystemTimezoneOptionDisplay()
+        : buildSessionTimezoneDisplay(timezone);
+      const search = `${item.id} ${item.label || ''} ${display} ${(item.gmt || '').replace(/^GMT/i, 'UTC')}`.toLowerCase();
+      return {
+        timezone,
+        display,
+        search
+      };
+    });
+    const selectedIndex = sessionTimezoneOptionItems.findIndex((item) => item.timezone === normalized);
+    sessionTimezoneHighlightedIndex = selectedIndex >= 0 ? selectedIndex : -1;
+    filterSessionTimezoneMenu('');
+  };
+
+  const applySessionTimezoneToSettingsInput = (value) => {
+    const timezone = normalizeSessionTimezone(value);
+    renderSessionTimezoneOptions(timezone);
+    if (settingsSessionTimezone) settingsSessionTimezone.value = buildSessionTimezoneDisplay(timezone);
+    setSessionTimezoneMenuOpen(false);
+    return timezone;
+  };
+
+  const persistSessionTimezone = (value) => {
+    const next = normalizeSessionTimezone(value);
+    localStorage.setItem(SESSION_TIMEZONE_KEY, next);
+    return next;
+  };
+
+  const readStoredSessionTimezone = () => normalizeSessionTimezone(localStorage.getItem(SESSION_TIMEZONE_KEY));
+
+  const resolveEffectiveSessionTimezone = (value) => {
+    const normalized = normalizeSessionTimezone(value);
+    if (normalized === SESSION_TIMEZONE_SYSTEM) return resolveSystemSessionTimezone();
+    return normalized;
+  };
+
+  const readSessionTimezoneInput = () =>
+    normalizeSessionTimezone(settingsSessionTimezone ? settingsSessionTimezone.value : readStoredSessionTimezone());
+
+  const getSessionTimezoneSetting = () => resolveEffectiveSessionTimezone(readStoredSessionTimezone());
+
+  const initSessionTimezoneSettings = () => {
+    const storedTimezone = readStoredSessionTimezone();
+    applySessionTimezoneToSettingsInput(storedTimezone);
+  };
+
+  const normalizeTimeoutMsInput = (value, fallback) => {
+    const raw = String(value ?? '').trim();
+    const fallbackMs = Math.max(0, Number(fallback) || 0);
+    if (!raw) return String(fallbackMs);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return String(fallbackMs);
+    return String(Math.floor(parsed));
+  };
+
+  const normalizeConnectionTimeouts = (input) => {
+    const source = input && typeof input === 'object' ? input : {};
+    return {
+      openMs: normalizeTimeoutMsInput(source.openMs, CONNECTION_TIMEOUT_DEFAULTS.openMs),
+      closeMs: normalizeTimeoutMsInput(source.closeMs, CONNECTION_TIMEOUT_DEFAULTS.closeMs),
+      validationMs: normalizeTimeoutMsInput(source.validationMs, CONNECTION_TIMEOUT_DEFAULTS.validationMs)
+    };
+  };
+
+  const readStoredConnectionTimeouts = () =>
+    normalizeConnectionTimeouts({
+      openMs: localStorage.getItem(CONNECTION_OPEN_TIMEOUT_KEY),
+      closeMs: localStorage.getItem(CONNECTION_CLOSE_TIMEOUT_KEY),
+      validationMs: localStorage.getItem(CONNECTION_VALIDATION_TIMEOUT_KEY)
+    });
+
+  const applyConnectionTimeoutsToSettingsInputs = (input) => {
+    const next = normalizeConnectionTimeouts(input);
+    if (settingsConnectionOpenTimeout) settingsConnectionOpenTimeout.value = next.openMs;
+    if (settingsConnectionCloseTimeout) settingsConnectionCloseTimeout.value = next.closeMs;
+    if (settingsConnectionValidationTimeout) settingsConnectionValidationTimeout.value = next.validationMs;
+    return next;
+  };
+
+  const readConnectionTimeoutsInputs = () =>
+    normalizeConnectionTimeouts({
+      openMs: settingsConnectionOpenTimeout
+        ? settingsConnectionOpenTimeout.value
+        : CONNECTION_TIMEOUT_DEFAULTS.openMs,
+      closeMs: settingsConnectionCloseTimeout
+        ? settingsConnectionCloseTimeout.value
+        : CONNECTION_TIMEOUT_DEFAULTS.closeMs,
+      validationMs: settingsConnectionValidationTimeout
+        ? settingsConnectionValidationTimeout.value
+        : CONNECTION_TIMEOUT_DEFAULTS.validationMs
+    });
+
+  const persistConnectionTimeouts = (input) => {
+    const next = normalizeConnectionTimeouts(input);
+    localStorage.setItem(CONNECTION_OPEN_TIMEOUT_KEY, next.openMs);
+    localStorage.setItem(CONNECTION_CLOSE_TIMEOUT_KEY, next.closeMs);
+    localStorage.setItem(CONNECTION_VALIDATION_TIMEOUT_KEY, next.validationMs);
+    return next;
+  };
+
+  const getConnectionTimeoutSettings = () => {
+    const stored = readStoredConnectionTimeouts();
+    return {
+      connectionOpenTimeoutMs: Number(stored.openMs),
+      connectionCloseTimeoutMs: Number(stored.closeMs),
+      connectionValidationTimeoutMs: Number(stored.validationMs)
+    };
+  };
+
+  const normalizeBooleanSetting = (value, fallback) => {
+    if (value === true || value === false) return value;
+    if (value === null || value === undefined || value === '') return !!fallback;
+    const text = String(value).trim().toLowerCase();
+    if (text === '1' || text === 'true' || text === 'yes' || text === 'on') return true;
+    if (text === '0' || text === 'false' || text === 'no' || text === 'off') return false;
+    return !!fallback;
+  };
+
+  const normalizeErrorHandlingSettings = (input) => {
+    const source = input && typeof input === 'object' ? input : {};
+    const stopOnFirstError = normalizeBooleanSetting(
+      source.stopOnFirstError,
+      ERROR_HANDLING_DEFAULTS.stopOnFirstError
+    );
+    let continueOnError = normalizeBooleanSetting(
+      source.continueOnError,
+      ERROR_HANDLING_DEFAULTS.continueOnError
+    );
+    if (continueOnError === stopOnFirstError) continueOnError = !stopOnFirstError;
+    return {
+      stopOnFirstError,
+      continueOnError,
+      autoOpenOutputOnError: normalizeBooleanSetting(
+        source.autoOpenOutputOnError,
+        ERROR_HANDLING_DEFAULTS.autoOpenOutputOnError
+      ),
+      showDetailedDbErrorCode: normalizeBooleanSetting(
+        source.showDetailedDbErrorCode,
+        ERROR_HANDLING_DEFAULTS.showDetailedDbErrorCode
+      ),
+      hideSensitiveValuesInErrors: normalizeBooleanSetting(
+        source.hideSensitiveValuesInErrors,
+        ERROR_HANDLING_DEFAULTS.hideSensitiveValuesInErrors
+      ),
+      retryTransientSelectErrors: normalizeBooleanSetting(
+        source.retryTransientSelectErrors,
+        ERROR_HANDLING_DEFAULTS.retryTransientSelectErrors
+      )
+    };
+  };
+
+  const readStoredErrorHandlingSettings = () =>
+    normalizeErrorHandlingSettings({
+      stopOnFirstError: localStorage.getItem(ERROR_STOP_ON_FIRST_KEY),
+      continueOnError: localStorage.getItem(ERROR_CONTINUE_ON_ERROR_KEY),
+      autoOpenOutputOnError: localStorage.getItem(ERROR_AUTO_OPEN_OUTPUT_KEY),
+      showDetailedDbErrorCode: localStorage.getItem(ERROR_SHOW_DETAILED_CODE_KEY),
+      hideSensitiveValuesInErrors: localStorage.getItem(ERROR_HIDE_SENSITIVE_KEY),
+      retryTransientSelectErrors: localStorage.getItem(ERROR_RETRY_TRANSIENT_KEY)
+    });
+
+  const syncErrorModeInputs = (source = '') => {
+    if (!settingsErrorStopOnFirst || !settingsErrorContinueOnError) return;
+    if (source === 'stop') {
+      settingsErrorContinueOnError.checked = !settingsErrorStopOnFirst.checked;
+      return;
+    }
+    if (source === 'continue') {
+      settingsErrorStopOnFirst.checked = !settingsErrorContinueOnError.checked;
+      return;
+    }
+    if (settingsErrorStopOnFirst.checked === settingsErrorContinueOnError.checked) {
+      settingsErrorContinueOnError.checked = !settingsErrorStopOnFirst.checked;
+    }
+  };
+
+  const applyErrorHandlingToSettingsInputs = (input) => {
+    const next = normalizeErrorHandlingSettings(input);
+    if (settingsErrorStopOnFirst) settingsErrorStopOnFirst.checked = next.stopOnFirstError;
+    if (settingsErrorContinueOnError) settingsErrorContinueOnError.checked = next.continueOnError;
+    if (settingsErrorAutoOpenOutput) settingsErrorAutoOpenOutput.checked = next.autoOpenOutputOnError;
+    if (settingsErrorShowDetailedCode) settingsErrorShowDetailedCode.checked = next.showDetailedDbErrorCode;
+    if (settingsErrorHideSensitive) settingsErrorHideSensitive.checked = next.hideSensitiveValuesInErrors;
+    if (settingsErrorRetryTransient) settingsErrorRetryTransient.checked = next.retryTransientSelectErrors;
+    syncErrorModeInputs();
+    return normalizeErrorHandlingSettings({
+      stopOnFirstError: settingsErrorStopOnFirst ? settingsErrorStopOnFirst.checked : next.stopOnFirstError,
+      continueOnError: settingsErrorContinueOnError ? settingsErrorContinueOnError.checked : next.continueOnError,
+      autoOpenOutputOnError: settingsErrorAutoOpenOutput ? settingsErrorAutoOpenOutput.checked : next.autoOpenOutputOnError,
+      showDetailedDbErrorCode: settingsErrorShowDetailedCode ? settingsErrorShowDetailedCode.checked : next.showDetailedDbErrorCode,
+      hideSensitiveValuesInErrors: settingsErrorHideSensitive ? settingsErrorHideSensitive.checked : next.hideSensitiveValuesInErrors,
+      retryTransientSelectErrors: settingsErrorRetryTransient ? settingsErrorRetryTransient.checked : next.retryTransientSelectErrors
+    });
+  };
+
+  const readErrorHandlingSettingsInputs = () =>
+    normalizeErrorHandlingSettings({
+      stopOnFirstError: settingsErrorStopOnFirst
+        ? settingsErrorStopOnFirst.checked
+        : ERROR_HANDLING_DEFAULTS.stopOnFirstError,
+      continueOnError: settingsErrorContinueOnError
+        ? settingsErrorContinueOnError.checked
+        : ERROR_HANDLING_DEFAULTS.continueOnError,
+      autoOpenOutputOnError: settingsErrorAutoOpenOutput
+        ? settingsErrorAutoOpenOutput.checked
+        : ERROR_HANDLING_DEFAULTS.autoOpenOutputOnError,
+      showDetailedDbErrorCode: settingsErrorShowDetailedCode
+        ? settingsErrorShowDetailedCode.checked
+        : ERROR_HANDLING_DEFAULTS.showDetailedDbErrorCode,
+      hideSensitiveValuesInErrors: settingsErrorHideSensitive
+        ? settingsErrorHideSensitive.checked
+        : ERROR_HANDLING_DEFAULTS.hideSensitiveValuesInErrors,
+      retryTransientSelectErrors: settingsErrorRetryTransient
+        ? settingsErrorRetryTransient.checked
+        : ERROR_HANDLING_DEFAULTS.retryTransientSelectErrors
+    });
+
+  const persistErrorHandlingSettings = (input) => {
+    const next = normalizeErrorHandlingSettings(input);
+    localStorage.setItem(ERROR_STOP_ON_FIRST_KEY, next.stopOnFirstError ? '1' : '0');
+    localStorage.setItem(ERROR_CONTINUE_ON_ERROR_KEY, next.continueOnError ? '1' : '0');
+    localStorage.setItem(ERROR_AUTO_OPEN_OUTPUT_KEY, next.autoOpenOutputOnError ? '1' : '0');
+    localStorage.setItem(ERROR_SHOW_DETAILED_CODE_KEY, next.showDetailedDbErrorCode ? '1' : '0');
+    localStorage.setItem(ERROR_HIDE_SENSITIVE_KEY, next.hideSensitiveValuesInErrors ? '1' : '0');
+    localStorage.setItem(ERROR_RETRY_TRANSIENT_KEY, next.retryTransientSelectErrors ? '1' : '0');
+    return next;
+  };
+
+  const getErrorHandlingSettings = () => readStoredErrorHandlingSettings();
+
   const normalizeSelectValue = (select, value, fallback) => {
     const target = String(value || '');
     if (hasSelectOption(select, target)) return target;
@@ -655,7 +1195,11 @@ export function initHome({ api }) {
   };
 
   const setSettingsTab = (tab) => {
-    const next = tab === 'environments' ? 'environments' : 'general';
+    const next = tab === 'environments'
+      ? 'environments'
+      : tab === 'errors-timeouts'
+        ? 'errors-timeouts'
+        : 'general';
     activeSettingsTab = next;
     if (settingsTabs) {
       const items = settingsTabs.querySelectorAll('[data-settings-tab]');
@@ -666,10 +1210,12 @@ export function initHome({ api }) {
       });
     }
     if (settingsPanelGeneral) settingsPanelGeneral.classList.toggle('hidden', next !== 'general');
+    if (settingsPanelErrorsTimeouts) settingsPanelErrorsTimeouts.classList.toggle('hidden', next !== 'errors-timeouts');
     if (settingsPanelEnvironments) settingsPanelEnvironments.classList.toggle('hidden', next !== 'environments');
   };
 
   const closeSettingsModal = () => {
+    setSessionTimezoneMenuOpen(false);
     if (settingsModal) settingsModal.classList.add('hidden');
   };
 
@@ -706,6 +1252,9 @@ export function initHome({ api }) {
   const openSettingsModal = async () => {
     if (!settingsModal) return;
     setThemeMenuOpen(false);
+    applySessionTimezoneToSettingsInput(readStoredSessionTimezone());
+    applyErrorHandlingToSettingsInputs(readStoredErrorHandlingSettings());
+    applyConnectionTimeoutsToSettingsInputs(readStoredConnectionTimeouts());
     applyQueryDefaultsToSettingsInputs(readStoredQueryDefaults());
     await loadEnvironmentPolicySettings({ silent: false });
     setSettingsTab(activeSettingsTab || 'general');
@@ -713,6 +1262,12 @@ export function initHome({ api }) {
   };
 
   const resetGeneralSettingsDefaults = () => {
+    applySessionTimezoneToSettingsInput(DEFAULT_SESSION_TIMEZONE);
+  };
+
+  const resetErrorsTimeoutsSettingsDefaults = () => {
+    applyErrorHandlingToSettingsInputs(ERROR_HANDLING_DEFAULTS);
+    applyConnectionTimeoutsToSettingsInputs(CONNECTION_TIMEOUT_DEFAULTS);
     applyQueryDefaultsToSettingsInputs(QUERY_DEFAULTS);
   };
 
@@ -725,6 +1280,10 @@ export function initHome({ api }) {
   const resetSettingsDefaults = () => {
     if (activeSettingsTab === 'environments') {
       resetEnvironmentPolicyDefaults();
+      return;
+    }
+    if (activeSettingsTab === 'errors-timeouts') {
+      resetErrorsTimeoutsSettingsDefaults();
       return;
     }
     resetGeneralSettingsDefaults();
@@ -750,12 +1309,42 @@ export function initHome({ api }) {
     return { ok: true, saved: true };
   };
 
+  const applySessionTimezoneToActiveConnection = async (timezone) => {
+    if (!safeApi.setSessionTimezone) return { ok: true, applied: false };
+    const res = await safeApi.setSessionTimezone({ timezone });
+    if (!res || !res.ok) {
+      return { ok: false, error: (res && res.error) || 'Failed to set session timezone.' };
+    }
+    return { ok: true, applied: !!res.applied, timezone: normalizeSessionTimezone(res.timezone || timezone) };
+  };
+
   const saveSettings = async () => {
-    const queryDefaults = persistQueryDefaults(readQueryDefaultsInputs());
-    applyQueryDefaultsToEditorControls(queryDefaults);
-    applyQueryDefaultsToSettingsInputs(queryDefaults);
     if (settingsSaveBtn) settingsSaveBtn.disabled = true;
     try {
+      const sessionTimezone = readSessionTimezoneInput();
+      const previousTimezone = readStoredSessionTimezone();
+      if (sessionTimezone === SESSION_TIMEZONE_SYSTEM || sessionTimezone !== previousTimezone) {
+        const timezoneRes = await applySessionTimezoneToActiveConnection(
+          resolveEffectiveSessionTimezone(sessionTimezone)
+        );
+        if (!timezoneRes.ok) {
+          if (safeApi.showError) await safeApi.showError(timezoneRes.error);
+          return;
+        }
+      }
+      const persistedTimezone = persistSessionTimezone(sessionTimezone);
+      applySessionTimezoneToSettingsInput(persistedTimezone);
+
+      const errorHandling = persistErrorHandlingSettings(readErrorHandlingSettingsInputs());
+      applyErrorHandlingToSettingsInputs(errorHandling);
+
+      const connectionTimeouts = persistConnectionTimeouts(readConnectionTimeoutsInputs());
+      applyConnectionTimeoutsToSettingsInputs(connectionTimeouts);
+
+      const queryDefaults = persistQueryDefaults(readQueryDefaultsInputs());
+      applyQueryDefaultsToEditorControls(queryDefaults);
+      applyQueryDefaultsToSettingsInputs(queryDefaults);
+
       const envResult = await saveEnvironmentPolicySettings();
       if (!envResult || !envResult.ok) return;
       showToast('Settings saved');
@@ -1057,6 +1646,8 @@ export function initHome({ api }) {
       user: user ? user.value || '' : '',
       password: password ? password.value || '' : '',
       database: database ? database.value || '' : '',
+      sessionTimezone: getSessionTimezoneSetting(),
+      ...getConnectionTimeoutSettings(),
       readOnly: readOnly ? readOnly.checked : false,
       policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
       ssh: buildSshConfig()
@@ -1161,7 +1752,7 @@ export function initHome({ api }) {
     if (mainScreen) mainScreen.classList.remove('hidden');
     if (welcomeScreen) welcomeScreen.classList.toggle('hidden', connected);
     if (sidebarShell) sidebarShell.classList.toggle('hidden', !connected);
-    if (dbSelect) dbSelect.classList.toggle('hidden', !connected);
+    if (dbSelectWrap) dbSelectWrap.classList.toggle('hidden', !connected);
     if (sidebar) sidebar.classList.toggle('hidden', !connected);
     if (sidebarResizer) sidebarResizer.classList.toggle('hidden', !connected);
     if (editorResizer) editorResizer.classList.toggle('hidden', !connected);
@@ -1220,6 +1811,8 @@ export function initHome({ api }) {
     user: entry.user || '',
     password: entry.password || '',
     database: entry.database || '',
+    sessionTimezone: getSessionTimezoneSetting(),
+    ...getConnectionTimeoutSettings(),
     readOnly: isEntryReadOnly(entry),
     policyMode: getEntryPolicyMode(entry),
     ssh: getEntrySshConfig(entry)
@@ -1657,17 +2250,39 @@ export function initHome({ api }) {
     if (outputModal) outputModal.classList.add('hidden');
   };
 
-  const openDefinitionModal = ({ title, subtitle, sql } = {}) => {
+  const getDefinitionSql = () => {
+    if (definitionEditor) return definitionEditor.getValue();
+    return definitionQueryInput ? definitionQueryInput.value : '';
+  };
+
+  const syncDefinitionSaveState = () => {
+    if (!definitionSaveBtn) return;
+    const hasTarget = !!(
+      activeDefinitionTarget
+      && activeDefinitionTarget.kind === 'view'
+      && activeDefinitionTarget.name
+    );
+    const hasSql = !!String(getDefinitionSql() || '').trim();
+    definitionSaveBtn.disabled = isSavingDefinition || !hasTarget || !hasSql;
+  };
+
+  const openDefinitionModal = ({ title, subtitle, sql, target } = {}) => {
     if (!definitionModal) return;
+    activeDefinitionTarget = target || null;
+    isSavingDefinition = false;
     if (definitionTitle) definitionTitle.textContent = title || 'Definition';
     if (definitionSubtitle) definitionSubtitle.textContent = subtitle || '';
     if (definitionEditor) definitionEditor.setValue(sql || '');
     else if (definitionQueryInput) definitionQueryInput.value = sql || '';
+    syncDefinitionSaveState();
     definitionModal.classList.remove('hidden');
     if (definitionEditor) definitionEditor.refresh();
   };
 
   const closeDefinitionModal = () => {
+    activeDefinitionTarget = null;
+    isSavingDefinition = false;
+    syncDefinitionSaveState();
     if (definitionModal) definitionModal.classList.add('hidden');
   };
 
@@ -1940,10 +2555,144 @@ export function initHome({ api }) {
     }, QUERY_PROGRESS_SHOW_DELAY_MS);
   };
 
+  const sleep = (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, Math.max(0, Number(ms) || 0));
+    });
+
+  const TRANSIENT_SQLSTATE_CODES = new Set([
+    '40001', // serialization_failure
+    '40P01', // deadlock_detected
+    '53300', // too_many_connections
+    '57P01', // admin_shutdown
+    '57P02', // crash_shutdown
+    '57P03' // cannot_connect_now
+  ]);
+
+  const TRANSIENT_VENDOR_CODES = new Set([
+    '1205', // lock wait timeout
+    '1213', // deadlock
+    '1040', // too many connections
+    '2006', // server has gone away
+    '2013' // lost connection
+  ]);
+
+  const TRANSIENT_MESSAGE_PATTERNS = [
+    /\bdeadlock\b/i,
+    /\bserialization\b/i,
+    /\block wait timeout\b/i,
+    /\btoo many connections\b/i,
+    /\bserver has gone away\b/i,
+    /\blost connection\b/i,
+    /\bconnection (?:was )?(?:closed|reset|lost|refused|terminated)\b/i,
+    /\bnetwork\b/i,
+    /\btimeout\b/i,
+    /\btimed out\b/i,
+    /\bECONNRESET\b/i,
+    /\bETIMEDOUT\b/i
+  ];
+
+  const stripDbCodePrefixes = (value) => {
+    let text = String(value || '');
+    text = text.replace(/^\s*(?:SQLSTATE\s+)?[A-Z0-9_]{2,}\s*:\s*/i, '');
+    text = text.replace(/^\s*\[[A-Z0-9_]{2,}\]\s*/i, '');
+    text = text.replace(/\bSQLSTATE\s+[A-Z0-9]{5}\b/ig, '').trim();
+    return text || 'Error';
+  };
+
+  const redactSensitiveErrorText = (value) => {
+    let text = String(value || '');
+    text = text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^:@\/\s]+):([^@\/\s]+)@/ig, '$1***:***@');
+    text = text.replace(
+      /\b(password|passwd|pwd|token|secret|api[_-]?key)\b\s*([=:])\s*('[^']*'|"[^"]*"|`[^`]*`|[^\s,;]+)/ig,
+      '$1$2<redacted>'
+    );
+    text = text.replace(/\b(authorization)\b\s*:\s*(?:bearer\s+)?[^\s,;]+/ig, '$1: <redacted>');
+    return text;
+  };
+
+  const normalizeDbErrorPayload = (payload) => {
+    if (payload && typeof payload === 'object') {
+      return {
+        error: payload.error || payload.message || 'Error',
+        code: payload.code || '',
+        sqlState: payload.sqlState || payload.sqlstate || '',
+        errno: payload.errno
+      };
+    }
+    return { error: payload || 'Error', code: '', sqlState: '', errno: undefined };
+  };
+
+  const formatDbErrorMessage = (payload, settings) => {
+    const normalized = normalizeDbErrorPayload(payload);
+    const mode = normalizeErrorHandlingSettings(settings);
+    let message = String(normalized.error || 'Error');
+    if (!mode.showDetailedDbErrorCode) {
+      message = stripDbCodePrefixes(message);
+    } else {
+      const details = [];
+      if (normalized.sqlState && !String(message).includes(normalized.sqlState)) {
+        details.push(`SQLSTATE ${normalized.sqlState}`);
+      }
+      if (
+        normalized.code &&
+        !String(message).includes(normalized.code) &&
+        String(normalized.code) !== String(normalized.sqlState || '')
+      ) {
+        details.push(String(normalized.code));
+      }
+      if (normalized.errno !== undefined && normalized.errno !== null) {
+        const errnoToken = `ERRNO ${normalized.errno}`;
+        if (!String(message).includes(String(normalized.errno))) details.push(errnoToken);
+      }
+      if (details.length) {
+        message = `${message} (${details.join(' | ')})`;
+      }
+    }
+    if (mode.hideSensitiveValuesInErrors) {
+      message = redactSensitiveErrorText(message);
+    }
+    return String(message || 'Error').trim() || 'Error';
+  };
+
+  const isTransientDbError = (payload) => {
+    const normalized = normalizeDbErrorPayload(payload);
+    const sqlState = String(normalized.sqlState || '').toUpperCase();
+    const code = String(normalized.code || '').toUpperCase();
+    const errno = String(normalized.errno || '');
+    if (sqlState && TRANSIENT_SQLSTATE_CODES.has(sqlState)) return true;
+    if (code && TRANSIENT_SQLSTATE_CODES.has(code)) return true;
+    if (errno && TRANSIENT_VENDOR_CODES.has(errno)) return true;
+    const message = String(normalized.error || '');
+    return TRANSIENT_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
+  };
+
+  const runQueryWithRetry = async (payload, statementSql, settings) => {
+    const mode = normalizeErrorHandlingSettings(settings);
+    const allowRetry = mode.retryTransientSelectErrors && firstDmlKeyword(statementSql) === 'select';
+    const maxAttempts = allowRetry ? 2 : 1;
+    let attempt = 0;
+    let result = null;
+    while (attempt < maxAttempts) {
+      attempt += 1;
+      try {
+        result = await safeApi.runQuery(payload);
+      } catch (err) {
+        result = { ok: false, error: err && err.message ? err.message : 'Failed to run query.' };
+      }
+      if (result && result.ok) {
+        return { result, attempts: attempt, retried: attempt > 1 };
+      }
+      if (!allowRetry || attempt >= maxAttempts || !isTransientDbError(result)) break;
+      await sleep(250);
+    }
+    return { result, attempts: attempt, retried: attempt > 1 };
+  };
+
   const runSql = async (rawSql, sourceSqlOverride = '', options = {}) => {
     const applyDefaultLimit = options.applyDefaultLimit !== false;
     const executionSql = normalizeSql(rawSql);
-    if (!executionSql) return;
+    if (!executionSql) return false;
     setResultsVisible(true);
     if (tabTablesView) {
       const tab = tabTablesView.getActiveTab();
@@ -1955,16 +2704,21 @@ export function initHome({ api }) {
     const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : executionSql;
     const statements = splitStatements(executionSql);
     const total = statements.length || 1;
-    if (total === 0) return;
+    if (total === 0) return false;
     const timeoutMs = getTimeoutMs() || 0;
     const activeConnection = getActiveConnection();
     const activePolicyMode = getEntryPolicyMode(activeConnection);
     const activePolicyRule = getEnvironmentPolicyRule(activePolicyMode);
+    const errorSettings = getErrorHandlingSettings();
 
     let lastResult = null;
     let lastExecutedStmt = '';
     let policyApprovalToken = '';
     let firstApprovalAction = '';
+    let executedStatements = 0;
+    let errorCount = 0;
+    let lastErrorMessage = '';
+    let hasOutputErrorEntry = false;
 
     for (let i = 0; i < statements.length; i += 1) {
       const stmt = normalizeSql(statements[i]);
@@ -1976,13 +2730,13 @@ export function initHome({ api }) {
         const message = `${policyLabel} policy blocks ${classification.action} statements.`;
         await safeApi.showError(message);
         setQueryStatus({ state: 'error', message });
-        return;
+        return false;
       }
       if (classification.kind === 'write' && !activePolicyRule.allowWrite) {
         const message = `${policyLabel} policy blocks ${classification.action} statements.`;
         await safeApi.showError(message);
         setQueryStatus({ state: 'error', message });
-        return;
+        return false;
       }
       if (activePolicyRule.requireApproval && !firstApprovalAction) {
         if (classification.kind === 'write' && activePolicyRule.allowWrite) {
@@ -2001,7 +2755,7 @@ export function initHome({ api }) {
       });
       if (String(confirmation || '').trim().toUpperCase() !== POLICY_APPROVAL_TOKEN) {
         setQueryStatus({ state: 'error', message: `Canceled by ${policyLabel} policy` });
-        return;
+        return false;
       }
       policyApprovalToken = POLICY_APPROVAL_TOKEN;
     }
@@ -2018,6 +2772,7 @@ export function initHome({ api }) {
       for (let i = 0; i < statements.length; i += 1) {
         const stmt = normalizeSql(statements[i]);
         if (!stmt) continue;
+        executedStatements += 1;
         lastExecutedStmt = stmt;
         if (isDangerousStatement(stmt)) {
           const keyword = firstDmlKeyword(stmt);
@@ -2028,7 +2783,7 @@ export function initHome({ api }) {
           });
           if (String(confirmation || '').trim().toUpperCase() !== POLICY_APPROVAL_TOKEN) {
             setQueryStatus({ state: 'error', message: 'Canceled by safety check' });
-            return;
+            return false;
           }
         }
         const sql = applyDefaultLimit ? applyLimitIfSelect(stmt) : stmt;
@@ -2039,23 +2794,31 @@ export function initHome({ api }) {
           timeoutMs: timeoutMs || undefined
         };
         if (policyApprovalToken) payload.policyApproval = policyApprovalToken;
-        const res = await safeApi.runQuery(payload);
+        const { result: res } = await runQueryWithRetry(payload, stmt, errorSettings);
         if (!res || !res.ok) {
-          await safeApi.showError((res && res.error) || 'Failed to run query.');
-          setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Error' });
+          const formattedError = formatDbErrorMessage(res || { error: 'Failed to run query.' }, errorSettings);
+          errorCount += 1;
+          lastErrorMessage = formattedError;
           if (tabTablesView) {
             const tab = tabTablesView.getActiveTab();
             if (tab && tab.id) {
               appendOutputEntry(tab.id, buildOutputEntry({
                 sql: stmt,
                 ok: false,
-                error: res && res.error ? res.error : 'Error',
+                error: formattedError,
                 duration: Date.now() - startedAt
               }));
               updateOutputForActiveTab();
+              hasOutputErrorEntry = true;
             }
           }
-          return;
+          if (!errorSettings.continueOnError) {
+            await safeApi.showError(formattedError);
+            setQueryStatus({ state: 'error', message: formattedError });
+            if (errorSettings.autoOpenOutputOnError && hasOutputErrorEntry) openOutputModal();
+            return false;
+          }
+          continue;
         }
         lastResult = { rows: res.rows || [], totalRows: res.totalRows, truncated: res.truncated, stmt };
         if (historyManager) historyManager.recordHistory(stmt);
@@ -2076,6 +2839,35 @@ export function initHome({ api }) {
         }
       }
 
+      if (errorCount > 0) {
+        if (lastResult) {
+          const sourceStatements = splitStatements(sourceSql);
+          const lastSourceStmt = normalizeSql(
+            sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
+          );
+          renderResults(
+            lastResult.rows || [],
+            lastResult.totalRows,
+            lastResult.truncated,
+            lastExecutedStmt || lastResult.stmt,
+            lastSourceStmt || lastExecutedStmt || lastResult.stmt
+          );
+          setQueryStatus({
+            state: 'error',
+            message: `Completed with ${errorCount} error(s). Last rows: ${lastResult.totalRows || 0}`,
+            duration: Date.now() - overallStart
+          });
+        } else {
+          setQueryStatus({
+            state: 'error',
+            message: lastErrorMessage || `Completed with ${errorCount} error(s).`,
+            duration: Date.now() - overallStart
+          });
+        }
+        if (errorSettings.autoOpenOutputOnError && hasOutputErrorEntry) openOutputModal();
+        return false;
+      }
+
       if (lastResult) {
         const sourceStatements = splitStatements(sourceSql);
         const lastSourceStmt = normalizeSql(
@@ -2094,6 +2886,7 @@ export function initHome({ api }) {
           duration: Date.now() - overallStart
         });
       }
+      return executedStatements > 0;
     } finally {
       stopQueryProgress();
       if (runBtn) runBtn.disabled = false;
@@ -2384,7 +3177,8 @@ export function initHome({ api }) {
     const querySql = String(sql || '').trim() || buildSelectAllSql(schema, table);
     let openedTab = null;
     if (tabTablesView) {
-      openedTab = tabTablesView.createWithQuery(table, querySql);
+      const defaultDb = dbSelect ? String(dbSelect.value || '').trim() : '';
+      openedTab = tabTablesView.createWithQuery(table, querySql, { database: schema || defaultDb });
     }
     if (openedTab && openedTab.id) {
       setObjectContextForTab(openedTab.id, { schema, table });
@@ -2467,6 +3261,17 @@ export function initHome({ api }) {
     }
   };
 
+  const updateDbSelectUsageHint = (name = '') => {
+    if (!dbSelect) return;
+    const current = String(name || '').trim();
+    const title = current
+      ? `Runs USE database to set the default context. Current: ${current}.`
+      : 'Runs USE database to set the default context.';
+    dbSelect.title = title;
+    if (dbSelectWrap) dbSelectWrap.title = title;
+    dbSelect.setAttribute('aria-label', current ? `Use database. Current ${current}` : 'Use database');
+  };
+
   const refreshDatabases = async () => {
     if (!dbSelect) return;
     const res = await safeApi.listDatabases();
@@ -2487,6 +3292,8 @@ export function initHome({ api }) {
     if (targetDb) {
       dbSelect.value = targetDb;
     }
+    updateDbSelectUsageHint(targetDb);
+    if (tabTablesView) tabTablesView.render();
     if (targetDb && res.current !== targetDb) {
       const useRes = await safeApi.useDatabase(targetDb);
       if (!useRes || !useRes.ok) {
@@ -2535,8 +3342,46 @@ export function initHome({ api }) {
     }
     const title = 'View definition';
     const subtitle = schema ? `${schema}.${name}` : name;
-    openDefinitionModal({ title, subtitle, sql });
+    openDefinitionModal({
+      title,
+      subtitle,
+      sql,
+      target: {
+        kind: 'view',
+        schema: String(schema || ''),
+        name: String(name || '')
+      }
+    });
     setGlobalLoading(false);
+  };
+
+  const saveDefinition = async () => {
+    const target = activeDefinitionTarget;
+    if (!target || target.kind !== 'view' || !target.name) {
+      await safeApi.showError('Save unavailable for this definition.');
+      return;
+    }
+    const sql = String(getDefinitionSql() || '').trim();
+    if (!sql) {
+      await safeApi.showError('Empty definition.');
+      return;
+    }
+    isSavingDefinition = true;
+    syncDefinitionSaveState();
+    setGlobalLoading(true, 'Saving view...');
+    try {
+      const ok = await runSql(sql, sql, { applyDefaultLimit: false });
+      if (!ok) return;
+      if (treeView) {
+        const tables = await treeView.refresh();
+        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+      }
+      showToast('View saved');
+    } finally {
+      isSavingDefinition = false;
+      syncDefinitionSaveState();
+      setGlobalLoading(false);
+    }
   };
 
   const resetConnectionScopedUi = () => {
@@ -2572,7 +3417,7 @@ export function initHome({ api }) {
   const changeDatabase = async (name) => {
     const targetDb = String(name || '').trim();
     if (!targetDb) return;
-    setGlobalLoading(true, 'Switching database...');
+    setGlobalLoading(true, 'Running USE database...');
     try {
       const res = await safeApi.useDatabase(targetDb);
       if (!res || !res.ok) {
@@ -2592,6 +3437,9 @@ export function initHome({ api }) {
       if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(targetDb);
       const tables = treeView ? await treeView.refresh() : null;
       if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+      updateDbSelectUsageHint(targetDb);
+      if (tabTablesView) tabTablesView.render();
+      showToast(`Using database: ${targetDb}`);
     } finally {
       setGlobalLoading(false);
     }
@@ -2921,6 +3769,7 @@ export function initHome({ api }) {
       user: entryForValidation.user,
       password: entryForValidation.password,
       database: entryForValidation.database,
+      sessionTimezone: entryForValidation.sessionTimezone,
       readOnly: entryForValidation.readOnly,
       policyMode: entryForValidation.policyMode,
       ssh: entryForValidation.ssh
@@ -3188,7 +4037,7 @@ export function initHome({ api }) {
 
   if (definitionFormatBtn) {
     definitionFormatBtn.addEventListener('click', () => {
-      const source = definitionEditor ? definitionEditor.getValue() : (definitionQueryInput ? definitionQueryInput.value : '');
+      const source = getDefinitionSql();
       if (!source || !source.trim()) return;
       const active = getActiveConnection();
       const type = active && active.type ? String(active.type).toLowerCase() : '';
@@ -3196,12 +4045,13 @@ export function initHome({ api }) {
       const formatted = formatSql(source, { language });
       if (definitionEditor) definitionEditor.setValue(formatted);
       else if (definitionQueryInput) definitionQueryInput.value = formatted;
+      syncDefinitionSaveState();
     });
   }
 
   if (definitionCopyBtn) {
     definitionCopyBtn.addEventListener('click', async () => {
-      const source = definitionEditor ? definitionEditor.getValue() : (definitionQueryInput ? definitionQueryInput.value : '');
+      const source = getDefinitionSql();
       if (!source || !source.trim()) return;
       try {
         await navigator.clipboard.writeText(source);
@@ -3209,6 +4059,24 @@ export function initHome({ api }) {
       } catch (_) {
         if (safeApi.showError) await safeApi.showError('Unable to copy.');
       }
+    });
+  }
+
+  if (definitionSaveBtn) {
+    definitionSaveBtn.addEventListener('click', async () => {
+      await saveDefinition();
+    });
+  }
+
+  if (definitionModal) {
+    definitionModal.addEventListener('keydown', async (event) => {
+      const primaryKey = event.metaKey || event.ctrlKey;
+      if (!primaryKey || event.altKey || event.shiftKey) return;
+      const key = String(event.key || '').toLowerCase();
+      if (key !== 's') return;
+      if (definitionModal.classList.contains('hidden')) return;
+      event.preventDefault();
+      await saveDefinition();
     });
   }
 
@@ -3272,6 +4140,75 @@ export function initHome({ api }) {
       void saveSettings();
     });
   }
+  if (settingsErrorStopOnFirst) {
+    settingsErrorStopOnFirst.addEventListener('change', () => {
+      syncErrorModeInputs('stop');
+    });
+  }
+  if (settingsErrorContinueOnError) {
+    settingsErrorContinueOnError.addEventListener('change', () => {
+      syncErrorModeInputs('continue');
+    });
+  }
+  if (settingsSessionTimezoneToggle) {
+    settingsSessionTimezoneToggle.addEventListener('click', () => {
+      if (sessionTimezoneMenuOpen) {
+        setSessionTimezoneMenuOpen(false);
+      } else {
+        filterSessionTimezoneMenu('');
+        setSessionTimezoneMenuOpen(true);
+        if (settingsSessionTimezone) settingsSessionTimezone.focus();
+      }
+    });
+  }
+  if (settingsSessionTimezone) {
+    settingsSessionTimezone.addEventListener('focus', () => {
+      filterSessionTimezoneMenu('');
+      setSessionTimezoneMenuOpen(true);
+    });
+    settingsSessionTimezone.addEventListener('input', () => {
+      filterSessionTimezoneMenu(settingsSessionTimezone.value);
+      setSessionTimezoneMenuOpen(true);
+    });
+    settingsSessionTimezone.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
+        if (sessionTimezoneHighlightedIndex < 0) {
+          setSessionTimezoneHighlightedIndex(0);
+        } else {
+          setSessionTimezoneHighlightedIndex(sessionTimezoneHighlightedIndex + 1);
+        }
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
+        if (sessionTimezoneHighlightedIndex < 0) {
+          setSessionTimezoneHighlightedIndex(sessionTimezoneVisibleItems.length - 1);
+        } else {
+          setSessionTimezoneHighlightedIndex(sessionTimezoneHighlightedIndex - 1);
+        }
+        return;
+      }
+      if (event.key === 'Enter') {
+        if (!sessionTimezoneMenuOpen) return;
+        event.preventDefault();
+        const target = sessionTimezoneVisibleItems[sessionTimezoneHighlightedIndex];
+        if (target) {
+          applySessionTimezoneToSettingsInput(target.timezone);
+        } else {
+          applySessionTimezoneToSettingsInput(settingsSessionTimezone.value);
+        }
+        return;
+      }
+      if (event.key === 'Escape') {
+        if (!sessionTimezoneMenuOpen) return;
+        event.preventDefault();
+        setSessionTimezoneMenuOpen(false);
+      }
+    });
+  }
   if (themeMenu) {
     themeMenu.addEventListener('click', (event) => {
       const item = event.target.closest('[data-theme-mode]');
@@ -3282,6 +4219,13 @@ export function initHome({ api }) {
     });
   }
   document.addEventListener('click', (event) => {
+    if (
+      sessionTimezoneMenuOpen
+      && settingsSessionTimezoneCombobox
+      && !(event.target && event.target.closest('#settingsSessionTimezoneCombobox'))
+    ) {
+      setSessionTimezoneMenuOpen(false);
+    }
     if (!themeMenu || themeMenu.classList.contains('hidden')) return;
     if (event.target && event.target.closest('#themeControl')) return;
     setThemeMenuOpen(false);
@@ -3494,6 +4438,9 @@ export function initHome({ api }) {
   setConnectSettingsTab('connection');
   updateConnectionUrlPlaceholder(dbType ? dbType.value : 'mysql');
   setSettingsTab('general');
+  initSessionTimezoneSettings();
+  applyErrorHandlingToSettingsInputs(readStoredErrorHandlingSettings());
+  applyConnectionTimeoutsToSettingsInputs(readStoredConnectionTimeouts());
   applyQueryDefaultsToEditorControls(readStoredQueryDefaults());
   void loadEnvironmentPolicySettings({ silent: true });
   updateToggleEditorButtonState(true);
@@ -3539,6 +4486,9 @@ export function initHome({ api }) {
   if (definitionQueryInput) {
     definitionEditor = createCodeEditor({ textarea: definitionQueryInput });
     definitionEditor.init();
+    definitionEditor.onChange(() => {
+      syncDefinitionSaveState();
+    });
     if (sqlAutocomplete) {
       definitionEditor.setHintProvider({
         getHintOptions: () => sqlAutocomplete.getHintOptions(),
@@ -3546,6 +4496,7 @@ export function initHome({ api }) {
       });
     }
   }
+  syncDefinitionSaveState();
   codeEditor.setHandlers({
     run: () => handleRun(),
     runSelection: () => handleRunSelection()
@@ -3561,6 +4512,7 @@ export function initHome({ api }) {
       else if (query) query.value = value || '';
       refreshEditor();
     },
+    getCurrentDatabase: () => (dbSelect ? String(dbSelect.value || '').trim() : ''),
     onInput: (handler) => {
       if (codeEditor) codeEditor.onChange(() => {
         handler();

@@ -1102,6 +1102,86 @@ body.theme-light .saved-policy-option input:checked + span {
   line-height: 1.45;
 }
 
+.timezone-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.timezone-combobox input {
+  width: 100%;
+  padding-right: 34px;
+}
+
+.timezone-toggle {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.timezone-toggle:hover {
+  background: var(--surface-4);
+  color: var(--text);
+}
+
+.timezone-combobox.open .timezone-toggle i {
+  transform: rotate(180deg);
+}
+
+.timezone-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 1200;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+}
+
+.timezone-options {
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timezone-option {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 8px;
+}
+
+.timezone-option:hover,
+.timezone-option.active {
+  background: var(--surface-4);
+  border-color: var(--surface-5);
+  color: var(--text);
+}
+
+.timezone-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .settings-option {
   display: flex;
   align-items: center;
@@ -1122,9 +1202,25 @@ body.theme-light .saved-policy-option input:checked + span {
   gap: 10px;
 }
 
+.settings-timeout-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 @media (max-width: 760px) {
   .settings-general-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-timeout-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) and (min-width: 761px) {
+  .settings-timeout-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2028,6 +2124,25 @@ sidebar menu
   gap: 8px;
 }
 
+.db-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.db-select-prefix {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+  color: var(--text-muted-2);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .conn-dot {
   width: 10px;
   height: 10px;
@@ -2052,7 +2167,7 @@ body.theme-light .conn-dot {
 
 .panel-actions .db-select.small {
   height: 28px;
-  padding: 2px 8px;
+  padding: 2px 8px 2px 36px;
   font-size: 11px;
   max-width: 130px;
   width: auto;

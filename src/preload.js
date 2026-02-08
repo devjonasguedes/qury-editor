@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   listRoutines: () => ipcRenderer.invoke('db:listRoutines'),
   listDatabases: () => ipcRenderer.invoke('db:listDatabases'),
   useDatabase: (name) => ipcRenderer.invoke('db:useDatabase', name),
+  setSessionTimezone: (payload) => ipcRenderer.invoke('db:setSessionTimezone', payload),
   testConnection: (config) => ipcRenderer.invoke('db:testConnection', config),
   runQuery: (payload) => ipcRenderer.invoke('db:runQuery', payload),
   cancelQuery: () => ipcRenderer.invoke('db:cancelQuery'),

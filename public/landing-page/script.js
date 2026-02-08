@@ -1,14 +1,14 @@
 const downloadTargets = {
   mac: {
-    href: "./qury-mac.zip",
+    href: "https://drive.google.com/file/d/1iHZPjz7qWxKqEQNJA1o3zMm6FFmKp7CV/view?usp=sharing",
     label: "Download for macOS (ARM64)"
   },
   win: {
-    href: "./qury-windows.zip",
+    href: "https://drive.google.com/file/d/1BIlRBqmRvXV14aS1dmQMw6MCgO6WuLo_/view?usp=sharing",
     label: "Download for Windows (x64)"
   },
   linux: {
-    href: "./qury-linux.deb",
+    href: "https://drive.google.com/file/d/1r3XW17rCorFOoKzF7yXPEsSESyKi780J/view?usp=sharing",
     label: "Download for Linux (DEB x64)"
   },
   fallback: {

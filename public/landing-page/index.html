@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Qury Editor | SQL desktop for teams that need speed and control</title>
+    <title>
+      Qury Editor | SQL desktop for teams that need speed and control
+    </title>
     <meta
       name="description"
       content="Qury Editor is a desktop SQL editor for MySQL and PostgreSQL focused on productivity, safer operations, and faster analysis."
@@ -14,6 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Fira+Code:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
+    <link rel="icon" href="/icon.png" type="image/png" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -22,7 +25,7 @@
 
     <header class="topbar">
       <a class="brand" href="#">
-        <img src="./icon.png" alt="Qury Editor" />
+        <img src="/icon.png" alt="Qury Editor" />
         <span>Qury Editor</span>
       </a>
       <div class="topbar-right">
@@ -45,7 +48,9 @@
             Connect, query, and explore your data in seconds.
           </p>
           <div class="hero-actions">
-            <a id="downloadNowBtn" class="btn btn-primary" href="#download">Download now</a>
+            <a id="downloadNowBtn" class="btn btn-primary" href="#download"
+              >Download now</a
+            >
             <a class="btn btn-ghost" href="#benefits">Why teams choose it</a>
           </div>
           <ul class="hero-points">
@@ -68,7 +73,9 @@
             <span class="query-tab">cohort_retention.sql</span>
           </div>
           <div class="panel-grid">
-            <pre class="sql-editor"><code><span class="tok-key">SELECT</span> customer_id, total
+            <pre
+              class="sql-editor"
+            ><code><span class="tok-key">SELECT</span> customer_id, total
 <span class="tok-key">FROM</span> orders
 <span class="tok-key">WHERE</span> created_at &gt;= <span class="tok-key">CURRENT_DATE</span> - <span class="tok-key">INTERVAL</span> <span class="tok-string">'7 days'</span>
 <span class="tok-key">ORDER BY</span> total <span class="tok-key">DESC</span>
@@ -121,38 +128,57 @@
       <section id="features" class="section">
         <h2>Features that speed up daily SQL work</h2>
         <p class="section-subtitle">
-          Built around real pain points from analysts, data teams, and engineers.
+          Built around real pain points from analysts, data teams, and
+          engineers.
         </p>
         <div class="grid cards">
           <article class="card">
             <span class="card-tag">connection</span>
             <h3>Flexible connection flow</h3>
-            <p>Connect to MySQL and PostgreSQL with direct access or SSH tunnel in the same flow.</p>
+            <p>
+              Connect to MySQL and PostgreSQL with direct access or SSH tunnel
+              in the same flow.
+            </p>
           </article>
           <article class="card">
             <span class="card-tag">safety</span>
             <h3>Environment safety controls</h3>
-            <p>Configure Dev, Staging, and Prod with write restrictions and typed confirmation.</p>
+            <p>
+              Configure Dev, Staging, and Prod with write restrictions and typed
+              confirmation.
+            </p>
           </article>
           <article class="card">
             <span class="card-tag">editor</span>
             <h3>Intelligent autocomplete</h3>
-            <p>Table and column suggestions by active schema to reduce typing mistakes and wasted time.</p>
+            <p>
+              Table and column suggestions by active schema to reduce typing
+              mistakes and wasted time.
+            </p>
           </article>
           <article class="card">
             <span class="card-tag">workflow</span>
             <h3>Snippets and history</h3>
-            <p>Reuse SQL, keep per-connection history, and execute common queries faster.</p>
+            <p>
+              Reuse SQL, keep per-connection history, and execute common queries
+              faster.
+            </p>
           </article>
           <article class="card">
             <span class="card-tag">schema</span>
             <h3>Visual schema exploration</h3>
-            <p>Object tree, name/content search, and quick open for tables and views.</p>
+            <p>
+              Object tree, name/content search, and quick open for tables and
+              views.
+            </p>
           </article>
           <article class="card">
             <span class="card-tag">share</span>
             <h3>Share-ready outputs</h3>
-            <p>Copy cell/row data and export results to CSV or JSON with one click.</p>
+            <p>
+              Copy cell/row data and export results to CSV or JSON with one
+              click.
+            </p>
           </article>
         </div>
       </section>
@@ -166,22 +192,22 @@
           <article class="insight">
             <h3>1. Reduce risk without slowing work</h3>
             <p>
-              Environment policies and typed confirmation help avoid critical production mistakes
-              without sacrificing speed.
+              Environment policies and typed confirmation help avoid critical
+              production mistakes without sacrificing speed.
             </p>
           </article>
           <article class="insight">
             <h3>2. Productivity from day one</h3>
             <p>
-              Autocomplete, snippets, history, and export reduce repetitive work and increase the
-              amount of analysis delivered.
+              Autocomplete, snippets, history, and export reduce repetitive work
+              and increase the amount of analysis delivered.
             </p>
           </article>
           <article class="insight">
             <h3>3. Easy adoption across the team</h3>
             <p>
-              Familiar UI, quick connection setup, and a straightforward query flow reduce switching
-              resistance.
+              Familiar UI, quick connection setup, and a straightforward query
+              flow reduce switching resistance.
             </p>
           </article>
         </div>
@@ -194,7 +220,9 @@
         <div class="download-shell">
           <div class="download-head">
             <span class="download-kicker">Official desktop builds</span>
-            <span id="downloadDetected" class="download-detected">Detecting platform...</span>
+            <span id="downloadDetected" class="download-detected"
+              >Detecting platform...</span
+            >
           </div>
 
           <div class="download-grid">
@@ -204,8 +232,15 @@
                 <strong>macOS (ARM64)</strong>
               </div>
               <p>Build for Apple Silicon (M1, M2, M3, and newer).</p>
-              <div class="download-meta"><span>Package</span><span>ZIP</span></div>
-              <a class="download-btn" href="./qury-mac.zip">
+              <div class="download-meta">
+                <span>Package</span><span>ZIP</span>
+              </div>
+              <a
+                class="download-btn"
+                href="https://drive.google.com/file/d/1iHZPjz7qWxKqEQNJA1o3zMm6FFmKp7CV/view?usp=sharing"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Download build
               </a>
             </article>
@@ -216,8 +251,15 @@
                 <strong>Windows (x64)</strong>
               </div>
               <p>Standard 64-bit Windows build in ZIP format.</p>
-              <div class="download-meta"><span>Package</span><span>ZIP</span></div>
-              <a class="download-btn" href="./qury-windows.zip">
+              <div class="download-meta">
+                <span>Package</span><span>ZIP</span>
+              </div>
+              <a
+                class="download-btn"
+                href="https://drive.google.com/file/d/1BIlRBqmRvXV14aS1dmQMw6MCgO6WuLo_/view?usp=sharing"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Download build
               </a>
             </article>
@@ -228,38 +270,52 @@
                 <strong>Linux (x64)</strong>
               </div>
               <p>Debian package for 64-bit Linux distributions.</p>
-              <div class="download-meta"><span>Package</span><span>DEB</span></div>
-              <a class="download-btn" href="./qury-linux.deb">
+              <div class="download-meta">
+                <span>Package</span><span>DEB</span>
+              </div>
+              <a
+                class="download-btn"
+                href="https://drive.google.com/file/d/1r3XW17rCorFOoKzF7yXPEsSESyKi780J/view?usp=sharing"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Download build
               </a>
             </article>
           </div>
 
-          <p class="download-note">
-            More platforms coming soon.
-          </p>
+          <p class="download-note">More platforms coming soon.</p>
         </div>
       </section>
 
       <section id="faq" class="section">
         <h2>FAQ</h2>
-        <p class="section-subtitle">Quick answers to the most common questions.</p>
+        <p class="section-subtitle">
+          Quick answers to the most common questions.
+        </p>
 
         <div class="faq-list">
           <details class="faq-item" open>
             <summary>Is the macOS build signed?</summary>
             <p>
-              Not yet. macOS will show a Gatekeeper warning for unsigned apps. You can
-              open it via right-click &gt; Open, or remove the quarantine attribute.
+              Not yet. macOS will show a Gatekeeper warning for unsigned apps.
+              You can open it via right-click &gt; Open, or remove the
+              quarantine attribute.
             </p>
           </details>
           <details class="faq-item">
             <summary>Which databases are supported?</summary>
-            <p>MySQL and PostgreSQL are supported today, with more drivers planned.</p>
+            <p>
+              MySQL and PostgreSQL are supported today, with more drivers
+              planned.
+            </p>
           </details>
           <details class="faq-item">
             <summary>Does it support SSH tunneling?</summary>
-            <p>Yes. You can connect directly or through an SSH tunnel in the same flow.</p>
+            <p>
+              Yes. You can connect directly or through an SSH tunnel in the same
+              flow.
+            </p>
           </details>
           <details class="faq-item">
             <summary>Where are the download files stored?</summary>
@@ -275,10 +331,30 @@
     <footer>
       <p>
         (c) <span id="year"></span> Qury Editor. Built by
-        <a href="https://jonasguedes.com" target="_blank" rel="noopener noreferrer">Jonas Guedes</a>.
+        <a
+          href="https://jonasguedes.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Jonas Guedes</a
+        >.
       </p>
     </footer>
 
     <script src="./script.js"></script>
+
+    <!-- Google tag (gtag.js) -->
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-0XR21B71RV"
+    ></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+
+      gtag("config", "G-0XR21B71RV");
+    </script>
   </body>
 </html>

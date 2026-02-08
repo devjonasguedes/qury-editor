@@ -11,9 +11,25 @@ if (!target) {
 }
 
 const targets = {
-  "mac-arm64": { platform: "mac", arch: "arm64", ext: "zip", fixedName: "qury-mac.zip" },
-  "win-x64": { platform: "win", arch: "x64", ext: "zip", fixedName: "qury-windows.zip" },
-  "linux-x64": { platform: "linux", arch: "x64", ext: "deb", fixedName: "qury-linux.deb" },
+  "mac-arm64": {
+    platform: "mac",
+    arch: "arm64",
+    ext: "zip",
+    fixedName: "qury-mac.zip"
+  },
+  "win-x64": {
+    platform: "win",
+    arch: "x64",
+    ext: "zip",
+    fixedName: "qury-windows.zip"
+  },
+  "linux-x64": {
+    platform: "linux",
+    arch: "x64",
+    archAliases: ["amd64"],
+    ext: "deb",
+    fixedName: "qury-linux.deb"
+  }
 };
 
 const selected = targets[target];
@@ -27,16 +43,24 @@ const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 const productName =
   (pkg.build && pkg.build.productName) || pkg.productName || pkg.name || "App";
 
-const fileName = `${productName}-${selected.platform}-${selected.arch}.${selected.ext}`;
-const sourcePath = path.join(ROOT_DIR, "dist", "release", fileName);
+const archCandidates = [selected.arch].concat(selected.archAliases || []);
+const sourcePath = archCandidates
+  .map((arch) => {
+    const fileName = `${productName}-${selected.platform}-${arch}.${selected.ext}`;
+    return { arch, fileName, path: path.join(ROOT_DIR, "dist", "release", fileName) };
+  })
+  .find((entry) => fs.existsSync(entry.path));
 
-if (!fs.existsSync(sourcePath)) {
-  console.error(`Build artifact not found: ${sourcePath}`);
+if (!sourcePath) {
+  const attempted = archCandidates
+    .map((arch) => path.join(ROOT_DIR, "dist", "release", `${productName}-${selected.platform}-${arch}.${selected.ext}`))
+    .join("\n");
+  console.error(`Build artifact not found. Tried:\n${attempted}`);
   process.exit(1);
 }
 
 fs.mkdirSync(LANDING_DIR, { recursive: true });
 const destPath = path.join(LANDING_DIR, selected.fixedName);
-fs.copyFileSync(sourcePath, destPath);
+fs.copyFileSync(sourcePath.path, destPath);
 
-console.log(`Copied ${fileName} to ${destPath}`);
+console.log(`Copied ${sourcePath.fileName} to ${destPath}`);

@@ -67,7 +67,21 @@ export function createResultsRenderer({
     const headRow = document.createElement('tr');
     columns.forEach((col) => {
       const th = document.createElement('th');
-      th.textContent = col;
+      th.title = `Order by ${col}`;
+      const content = document.createElement('span');
+      content.className = 'results-header-content';
+
+      const label = document.createElement('span');
+      label.className = 'results-header-label';
+      label.textContent = col;
+
+      const icon = document.createElement('i');
+      icon.className = 'bi bi-arrow-down-up results-header-sort-icon';
+      icon.setAttribute('aria-hidden', 'true');
+
+      content.appendChild(label);
+      content.appendChild(icon);
+      th.appendChild(content);
       th.addEventListener('click', () => {
         if (onSort) onSort(col);
       });

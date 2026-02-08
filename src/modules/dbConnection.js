@@ -54,6 +54,8 @@ export function createDbConnection(api) {
     exportSavedConnections: () => safeApi.exportSavedConnections(),
     importSavedConnections: () => safeApi.importSavedConnections(),
     deleteConnection: (name) => safeApi.deleteConnection(name),
+    getPolicySettings: () => safeApi.getPolicySettings(),
+    savePolicySettings: (payload) => safeApi.savePolicySettings(payload),
     getNativeTheme: () => {
       if (api && typeof api.getNativeTheme === 'function') {
         return api.getNativeTheme();

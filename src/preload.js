@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   exportSavedConnections: () => ipcRenderer.invoke('connections:export'),
   importSavedConnections: () => ipcRenderer.invoke('connections:import'),
   deleteConnection: (name) => ipcRenderer.invoke('connections:delete', name),
+  getPolicySettings: () => ipcRenderer.invoke('settings:getPolicy'),
+  savePolicySettings: (payload) => ipcRenderer.invoke('settings:savePolicy', payload),
   connect: (config) => ipcRenderer.invoke('db:connect', config),
   disconnect: () => ipcRenderer.invoke('db:disconnect'),
   listTables: () => ipcRenderer.invoke('db:listTables'),

@@ -16,7 +16,7 @@ const { createDriver } = require("./drivers");
 
 let mainWindow = null;
 let currentDriver = null;
-let currentConnectionState = { readOnly: false };
+let currentConnectionState = { readOnly: false, policyMode: "dev" };
 let db = null;
 let dbPromise = null;
 let windowStateSaveTimer = null;
@@ -36,6 +36,7 @@ function dataDir() {
 const connectionsFile = () => path.join(dataDir(), "connections.json");
 const connectionsDb = () => path.join(dataDir(), "connections.db");
 const windowStateFile = () => path.join(dataDir(), "window-state.json");
+const policySettingsFile = () => path.join(dataDir(), "policy-settings.json");
 
 const SECRET_PREFIX = "safe:";
 const SECRET_FIELDS = [
@@ -70,6 +71,54 @@ const READ_ONLY_BLOCKED_KEYWORDS = new Set([
   "vacuum",
   "analyze",
 ]);
+const POLICY_MODE_DEV = "dev";
+const POLICY_MODE_STAGING = "staging";
+const POLICY_MODE_PROD = "prod";
+const POLICY_APPROVAL_TOKEN = "PROCEED";
+const DEFAULT_POLICY_RULES = Object.freeze({
+  [POLICY_MODE_DEV]: Object.freeze({
+    allowWrite: true,
+    allowDdlAdmin: true,
+    requireApproval: false,
+  }),
+  [POLICY_MODE_STAGING]: Object.freeze({
+    allowWrite: true,
+    allowDdlAdmin: false,
+    requireApproval: true,
+  }),
+  [POLICY_MODE_PROD]: Object.freeze({
+    allowWrite: false,
+    allowDdlAdmin: false,
+    requireApproval: false,
+  }),
+});
+const WRITE_BLOCKED_KEYWORDS = new Set([
+  "insert",
+  "update",
+  "delete",
+  "merge",
+  "upsert",
+  "replace",
+  "copy",
+]);
+const DDL_ADMIN_BLOCKED_KEYWORDS = new Set([
+  "create",
+  "alter",
+  "drop",
+  "truncate",
+  "rename",
+  "comment",
+  "grant",
+  "revoke",
+  "call",
+  "do",
+  "refresh",
+  "reindex",
+  "cluster",
+  "vacuum",
+  "analyze",
+]);
+let policyRules = null;
 
 function encodeSecret(value) {
   const text = value == null ? "" : String(value);
@@ -127,9 +176,12 @@ function toStoredConnectionEntry(entry) {
   const source = entry || {};
   const ssh = source.ssh || {};
   const rememberSecrets = shouldRememberSecrets(source);
+  const policyMode = getEntryPolicyMode(source);
   const normalized = {
     ...source,
     remember_secrets: rememberSecrets ? 1 : 0,
+    policy_mode: policyMode,
+    policyMode,
     password: source.password || "",
     ssh_password: source.ssh_password || ssh.password || "",
     ssh_private_key: source.ssh_private_key || ssh.privateKey || "",
@@ -144,10 +196,13 @@ function toStoredConnectionEntry(entry) {
 function toPublicConnectionEntry(entry) {
   const source = entry || {};
   const rememberSecrets = shouldRememberSecrets(source);
+  const policyMode = getEntryPolicyMode(source);
   const normalized = {
     ...source,
     remember_secrets: rememberSecrets ? 1 : 0,
     rememberSecrets,
+    policy_mode: policyMode,
+    policyMode,
   };
   if (!rememberSecrets) {
     return mapSecrets(normalized, () => "");
@@ -282,6 +337,7 @@ async function initDb() {
           user TEXT,
           password TEXT,
           remember_secrets INTEGER DEFAULT 0,
+          policy_mode TEXT DEFAULT 'dev',
           database TEXT,
           last_connected_at INTEGER DEFAULT 0,
           read_only INTEGER DEFAULT 0,
@@ -317,6 +373,36 @@ function ensureConnectionsSchema(dbInstance) {
       dbInstance.run(
         "ALTER TABLE connections ADD COLUMN read_only INTEGER DEFAULT 0",
       );
+      changed = true;
+    }
+    if (!cols.includes("policy_mode")) {
+      dbInstance.run(
+        "ALTER TABLE connections ADD COLUMN policy_mode TEXT DEFAULT 'dev'",
+      );
+      changed = true;
+    }
+    const invalidPolicyCount = dbInstance.exec(`
+      SELECT COUNT(*) AS count
+      FROM connections
+      WHERE policy_mode IS NULL
+        OR TRIM(policy_mode) = ''
+        OR LOWER(policy_mode) NOT IN ('dev', 'staging', 'prod')
+    `);
+    const invalidRows =
+      invalidPolicyCount &&
+      invalidPolicyCount[0] &&
+      invalidPolicyCount[0].values &&
+      invalidPolicyCount[0].values[0]
+        ? Number(invalidPolicyCount[0].values[0][0]) || 0
+        : 0;
+    if (invalidRows > 0) {
+      dbInstance.run(`
+        UPDATE connections
+        SET policy_mode = 'dev'
+        WHERE policy_mode IS NULL
+          OR TRIM(policy_mode) = ''
+          OR LOWER(policy_mode) NOT IN ('dev', 'staging', 'prod')
+      `);
       changed = true;
     }
     if (!cols.includes("ssh_enabled")) {
@@ -400,12 +486,13 @@ function migrateConnectionsIfNeeded(dbInstance) {
   });
   const stmt = dbInstance.prepare(`
     INSERT OR REPLACE INTO connections
-      (name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const item of byName.values()) {
     const stored = toStoredConnectionEntry(item);
+    const policyMode = getEntryPolicyMode(item);
     const readOnly = item.read_only || item.readOnly ? 1 : 0;
     const sshEnabled =
       item.ssh_enabled || (item.ssh && item.ssh.enabled) || item.sshEnabled
@@ -419,6 +506,7 @@ function migrateConnectionsIfNeeded(dbInstance) {
       item.user || "",
       stored.password || "",
       stored.remember_secrets || 0,
+      policyMode,
       item.database || "",
       item.last_connected_at || item.lastConnectedAt || item.lastUsed || 0,
       readOnly,
@@ -519,6 +607,133 @@ function normalizeConnectionType(value) {
   if (text === "postgres") return "postgresql";
   if (text === "postgresql" || text === "mysql") return text;
   return text || "mysql";
+}
+
+function normalizePolicyMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === POLICY_MODE_STAGING || mode === POLICY_MODE_PROD) return mode;
+  return POLICY_MODE_DEV;
+}
+
+function clonePolicyRules(input) {
+  const source = input || {};
+  return {
+    [POLICY_MODE_DEV]: {
+      ...(source[POLICY_MODE_DEV] || DEFAULT_POLICY_RULES[POLICY_MODE_DEV]),
+    },
+    [POLICY_MODE_STAGING]: {
+      ...(source[POLICY_MODE_STAGING] || DEFAULT_POLICY_RULES[POLICY_MODE_STAGING]),
+    },
+    [POLICY_MODE_PROD]: {
+      ...(source[POLICY_MODE_PROD] || DEFAULT_POLICY_RULES[POLICY_MODE_PROD]),
+    },
+  };
+}
+
+function normalizePolicyRule(input, fallback) {
+  const source = input && typeof input === "object" ? input : {};
+  const base = fallback || DEFAULT_POLICY_RULES[POLICY_MODE_DEV];
+  const allowWriteValue =
+    source.allowWrite !== undefined
+      ? source.allowWrite
+      : source.allow_write !== undefined
+        ? source.allow_write
+        : base.allowWrite;
+  const allowDdlAdminValue =
+    source.allowDdlAdmin !== undefined
+      ? source.allowDdlAdmin
+      : source.allow_ddl_admin !== undefined
+        ? source.allow_ddl_admin
+        : base.allowDdlAdmin;
+  const requireApprovalValue =
+    source.requireApproval !== undefined
+      ? source.requireApproval
+      : source.require_approval !== undefined
+        ? source.require_approval
+        : base.requireApproval;
+  return {
+    allowWrite: !!allowWriteValue,
+    allowDdlAdmin: !!allowDdlAdminValue,
+    requireApproval: !!requireApprovalValue,
+  };
+}
+
+function normalizePolicyRules(input) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    [POLICY_MODE_DEV]: normalizePolicyRule(
+      source[POLICY_MODE_DEV],
+      DEFAULT_POLICY_RULES[POLICY_MODE_DEV],
+    ),
+    [POLICY_MODE_STAGING]: normalizePolicyRule(
+      source[POLICY_MODE_STAGING],
+      DEFAULT_POLICY_RULES[POLICY_MODE_STAGING],
+    ),
+    [POLICY_MODE_PROD]: normalizePolicyRule(
+      source[POLICY_MODE_PROD],
+      DEFAULT_POLICY_RULES[POLICY_MODE_PROD],
+    ),
+  };
+}
+
+function readPolicyRules() {
+  try {
+    const raw = fs.readFileSync(policySettingsFile(), "utf8");
+    const parsed = JSON.parse(raw);
+    const envs =
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.environments &&
+      typeof parsed.environments === "object"
+        ? parsed.environments
+        : parsed;
+    return normalizePolicyRules(envs);
+  } catch (_) {
+    return clonePolicyRules(DEFAULT_POLICY_RULES);
+  }
+}
+
+function writePolicyRules(nextRules) {
+  const payload = {
+    version: 1,
+    updated_at: Date.now(),
+    environments: normalizePolicyRules(nextRules),
+  };
+  fs.mkdirSync(path.dirname(policySettingsFile()), { recursive: true });
+  fs.writeFileSync(policySettingsFile(), JSON.stringify(payload, null, 2), "utf8");
+}
+
+function ensurePolicyRulesLoaded() {
+  if (!policyRules) {
+    policyRules = readPolicyRules();
+  }
+  return policyRules;
+}
+
+function getPolicyRulesSnapshot() {
+  return clonePolicyRules(ensurePolicyRulesLoaded());
+}
+
+function savePolicyRules(input) {
+  const normalized = normalizePolicyRules(input);
+  policyRules = normalized;
+  writePolicyRules(normalized);
+  return getPolicyRulesSnapshot();
+}
+
+function getPolicyRuleByMode(mode) {
+  const policyMode = normalizePolicyMode(mode);
+  const current = ensurePolicyRulesLoaded();
+  return (
+    current[policyMode] ||
+    DEFAULT_POLICY_RULES[policyMode] ||
+    DEFAULT_POLICY_RULES[POLICY_MODE_DEV]
+  );
+}
+
+function getEntryPolicyMode(entry) {
+  if (!entry || typeof entry !== "object") return POLICY_MODE_DEV;
+  return normalizePolicyMode(entry.policyMode || entry.policy_mode);
 }
 
 function isReadOnlyConfig(config) {
@@ -668,6 +883,187 @@ function readOnlyViolation(sqlText) {
   return null;
 }
 
+function sanitizeSqlForPolicy(sql) {
+  const text = String(sql || "");
+  let sanitized = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+        sanitized += "\n";
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        i += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 1;
+        continue;
+      }
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 1;
+        continue;
+      }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+
+    if (inBacktick) {
+      if (ch === "`") inBacktick = false;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      continue;
+    }
+
+    sanitized += ch;
+  }
+
+  return sanitized.toLowerCase();
+}
+
+function findFirstBlockedKeyword(text, keywords) {
+  const tokenRegex = /\b[a-z]+\b/g;
+  let match = tokenRegex.exec(text);
+  while (match) {
+    const token = match[0];
+    if (keywords.has(token)) {
+      return { token, index: match.index };
+    }
+    match = tokenRegex.exec(text);
+  }
+  return null;
+}
+
+function statementPolicyClassification(sql) {
+  const sanitized = sanitizeSqlForPolicy(sql);
+  if (!sanitized.trim()) return null;
+
+  const firstWrite = findFirstBlockedKeyword(sanitized, WRITE_BLOCKED_KEYWORDS);
+  const firstDdlAdmin = findFirstBlockedKeyword(
+    sanitized,
+    DDL_ADMIN_BLOCKED_KEYWORDS,
+  );
+  const selectIntoMatch = /\bselect\b[\s\S]*\binto\b/.exec(sanitized);
+  const selectIntoWrite = selectIntoMatch
+    ? { token: "select into", index: selectIntoMatch.index }
+    : null;
+
+  let effectiveWrite = firstWrite;
+  if (
+    selectIntoWrite &&
+    (!effectiveWrite || selectIntoWrite.index < effectiveWrite.index)
+  ) {
+    effectiveWrite = selectIntoWrite;
+  }
+
+  if (!effectiveWrite && !firstDdlAdmin) return null;
+
+  if (
+    firstDdlAdmin &&
+    (!effectiveWrite || firstDdlAdmin.index <= effectiveWrite.index)
+  ) {
+    return { kind: "ddlAdmin", action: firstDdlAdmin.token.toUpperCase() };
+  }
+
+  return {
+    kind: "write",
+    action: effectiveWrite.token.toUpperCase(),
+  };
+}
+
+function extractPolicyApproval(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  return String(payload.policyApproval || payload.policy_approval || "")
+    .trim()
+    .toUpperCase();
+}
+
+function policyViolation(sqlText, mode, approvalToken) {
+  const statements = splitSqlStatements(sqlText);
+  if (statements.length === 0) return null;
+
+  const policyMode = normalizePolicyMode(mode);
+  const rule = getPolicyRuleByMode(policyMode);
+  const label = policyMode.toUpperCase();
+
+  for (const statement of statements) {
+    const classification = statementPolicyClassification(statement);
+    if (!classification) continue;
+
+    if (classification.kind === "ddlAdmin" && !rule.allowDdlAdmin) {
+      return {
+        message: `${label} policy blocks ${classification.action} statements.`,
+      };
+    }
+
+    if (classification.kind === "write") {
+      if (!rule.allowWrite) {
+        return {
+          message: `${label} policy blocks ${classification.action} statements.`,
+        };
+      }
+      if (rule.requireApproval && approvalToken !== POLICY_APPROVAL_TOKEN) {
+        return {
+          message: `${label} policy requires explicit confirmation for ${classification.action} statements.`,
+        };
+      }
+    }
+
+    if (classification.kind !== "write" && rule.requireApproval) {
+      if (approvalToken !== POLICY_APPROVAL_TOKEN) {
+        return {
+          message: `${label} policy requires explicit confirmation for ${classification.action} statements.`,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 function extractSqlFromRunPayload(payload) {
   if (typeof payload === "string") return payload;
   if (!payload || typeof payload !== "object") return "";
@@ -703,6 +1099,7 @@ function connectionFingerprint(entry) {
     normalizedPart(source.user),
     normalizedPart(source.database),
     readOnly ? "ro" : "rw",
+    normalizedPart(getEntryPolicyMode(source)),
     sshEnabled ? "ssh" : "direct",
     normalizedPart(ssh.host || source.ssh_host || source.sshHost),
     normalizedPart(ssh.port || source.ssh_port || source.sshPort),
@@ -734,6 +1131,8 @@ function normalizeImportedConnection(entry, index) {
     password: String(source.password || ""),
     database: String(source.database || "").trim(),
     readOnly: !!(source.readOnly || source.read_only),
+    policyMode: getEntryPolicyMode(source),
+    policy_mode: getEntryPolicyMode(source),
     ssh: sshEnabled
       ? {
           enabled: true,
@@ -773,6 +1172,7 @@ function toConnectionMetadata(entry) {
     (ssh && ssh.enabled)
   );
   const readOnly = !!(source.read_only || source.readOnly);
+  const policyMode = getEntryPolicyMode(source);
   return {
     name: String(source.name || "").trim(),
     type: normalizeConnectionType(source.type),
@@ -780,6 +1180,7 @@ function toConnectionMetadata(entry) {
     port: String(source.port || "").trim(),
     user: String(source.user || ""),
     database: String(source.database || "").trim(),
+    policy_mode: policyMode,
     last_connected_at: Number(
       source.last_connected_at || source.lastConnectedAt || 0,
     ) || 0,
@@ -805,7 +1206,7 @@ function toConnectionMetadata(entry) {
 
 function getConnectionMetadata(dbInstance) {
   const res = dbInstance.exec(
-    "SELECT name, type, host, port, user, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
+    "SELECT name, type, host, port, user, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
   );
   return rowsFromExec(res);
 }
@@ -826,6 +1227,7 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
     throw new Error("Connection name is required.");
   }
   const stored = toStoredConnectionEntry(entry);
+  const policyMode = getEntryPolicyMode(entry);
   const readOnly = !!(entry && (entry.read_only || entry.readOnly));
   const sshEnabled = !!(
     entry &&
@@ -833,9 +1235,9 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
   );
   const stmt = dbInstance.prepare(`
     INSERT INTO connections
-      (name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       type = excluded.type,
       host = excluded.host,
@@ -843,6 +1245,7 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
       user = excluded.user,
       password = excluded.password,
       remember_secrets = excluded.remember_secrets,
+      policy_mode = excluded.policy_mode,
       database = excluded.database,
       last_connected_at = CASE
         WHEN excluded.last_connected_at > 0 THEN excluded.last_connected_at
@@ -867,6 +1270,7 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
     entry.user || "",
     stored.password || "",
     stored.remember_secrets || 0,
+    policyMode,
     entry.database || "",
     entry.last_connected_at || entry.lastConnectedAt || 0,
     readOnly ? 1 : 0,
@@ -973,14 +1377,41 @@ function closeTunnel(tunnel) {
 async function listConnections() {
   const dbInstance = await initDb();
   const res = dbInstance.exec(
-    "SELECT name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
+    "SELECT name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
   );
   return rowsFromExec(res).map((entry) => toPublicConnectionEntry(entry));
 }
 
 async function saveConnection(entry) {
   const dbInstance = await initDb();
-  upsertConnectionRecord(dbInstance, entry);
+  const source = entry && typeof entry === "object" ? entry : {};
+  const originalName = String(
+    source.originalName || source.original_name || "",
+  ).trim();
+  const nextEntry = { ...source };
+  delete nextEntry.originalName;
+  delete nextEntry.original_name;
+  const nextName = String(nextEntry.name || "").trim();
+  const now = Date.now();
+  nextEntry.last_connected_at = now;
+
+  dbInstance.run("BEGIN");
+  try {
+    upsertConnectionRecord(dbInstance, nextEntry, now);
+    if (originalName && nextName && originalName !== nextName) {
+      const deleteStmt = dbInstance.prepare(
+        "DELETE FROM connections WHERE name = ?",
+      );
+      deleteStmt.run([originalName]);
+      deleteStmt.free();
+    }
+    dbInstance.run("COMMIT");
+  } catch (err) {
+    try {
+      dbInstance.run("ROLLBACK");
+    } catch (_) {}
+    throw err;
+  }
   persistDb(dbInstance);
   return listConnections();
 }
@@ -1177,7 +1608,7 @@ async function disconnect() {
     }
   } finally {
     currentDriver = null;
-    currentConnectionState = { readOnly: false };
+    currentConnectionState = { readOnly: false, policyMode: POLICY_MODE_DEV };
   }
 }
 
@@ -1282,6 +1713,7 @@ nativeTheme.on("updated", () => {
 
 app.whenReady().then(() => {
   if (!hasSingleInstanceLock) return;
+  ensurePolicyRulesLoaded();
   createWindow();
 });
 
@@ -1338,12 +1770,34 @@ ipcMain.handle("connections:import", async (evt) => {
   return importConnections(owner);
 });
 
+ipcMain.handle("settings:getPolicy", async () => {
+  return { ok: true, policies: getPolicyRulesSnapshot() };
+});
+
+ipcMain.handle("settings:savePolicy", async (_evt, payload) => {
+  try {
+    const source =
+      payload && typeof payload === "object" && payload.policies
+        ? payload.policies
+        : payload;
+    const policies = savePolicyRules(source);
+    return { ok: true, policies };
+  } catch (err) {
+    const message =
+      err && err.message
+        ? err.message
+        : "Failed to save policy settings.";
+    return { ok: false, error: message };
+  }
+});
+
 ipcMain.handle("db:connect", async (_evt, config) => {
   try {
     await disconnect();
     const normalizedConfig = {
       ...(config || {}),
       readOnly: isReadOnlyConfig(config),
+      policyMode: getEntryPolicyMode(config),
     };
     const type =
       normalizedConfig.type === "postgres" ? "postgresql" : normalizedConfig.type;
@@ -1356,7 +1810,10 @@ ipcMain.handle("db:connect", async (_evt, config) => {
     if (!res || !res.ok)
       return res || { ok: false, error: "Failed to connect." };
     currentDriver = driver;
-    currentConnectionState = { readOnly: normalizedConfig.readOnly };
+    currentConnectionState = {
+      readOnly: normalizedConfig.readOnly,
+      policyMode: normalizedConfig.policyMode,
+    };
     return { ok: true };
   } catch (err) {
     const message = err && err.message ? err.message : "Failed to connect.";
@@ -1433,8 +1890,8 @@ ipcMain.handle("db:testConnection", async (_evt, config) => {
 
 ipcMain.handle("db:runQuery", async (_evt, payload) => {
   if (!currentDriver) return { ok: false, error: "Not connected." };
+  const sql = extractSqlFromRunPayload(payload);
   if (currentConnectionState && currentConnectionState.readOnly) {
-    const sql = extractSqlFromRunPayload(payload);
     const blockedAction = readOnlyViolation(sql);
     if (blockedAction) {
       return {
@@ -1442,6 +1899,14 @@ ipcMain.handle("db:runQuery", async (_evt, payload) => {
         error: `Read-only connection blocks ${blockedAction} statements.`,
       };
     }
+  }
+  const policyMode = currentConnectionState
+    ? currentConnectionState.policyMode
+    : POLICY_MODE_DEV;
+  const approvalToken = extractPolicyApproval(payload);
+  const blockedByPolicy = policyViolation(sql, policyMode, approvalToken);
+  if (blockedByPolicy) {
+    return { ok: false, error: blockedByPolicy.message };
   }
   return currentDriver.runQuery(payload);
 });

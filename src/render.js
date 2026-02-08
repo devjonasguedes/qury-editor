@@ -4,6 +4,7 @@ import {
   buildConnectionBaseKey,
   connectionTitle,
   getEntrySshConfig,
+  getEntryPolicyMode,
   isEntryReadOnly,
   isEntrySsh
 } from './modules/connectionUtils.js';
@@ -27,7 +28,60 @@ const SIDEBAR_KEY = 'sqlEditor.sidebarWidth';
 const EDITOR_HEIGHT_KEY = 'sqlEditor.editorHeight';
 const EDITOR_FONT_SIZE_KEY = 'sqlEditor.editorFontSize';
 const EDITOR_COLLAPSED_KEY_PREFIX = 'sqlEditor.editorCollapsed';
+const QUERY_DEFAULT_LIMIT_KEY = 'sqlEditor.defaultLimit';
+const QUERY_DEFAULT_TIMEOUT_KEY = 'sqlEditor.defaultTimeout';
+const QUERY_DEFAULTS = Object.freeze({
+  limit: '100',
+  timeoutMs: '30000'
+});
 const QUERY_PROGRESS_SHOW_DELAY_MS = 5000;
+const POLICY_MODE_DEV = 'dev';
+const POLICY_MODE_STAGING = 'staging';
+const POLICY_MODE_PROD = 'prod';
+const POLICY_APPROVAL_TOKEN = 'PROCEED';
+const ENVIRONMENT_POLICY_DEFAULTS = Object.freeze({
+  [POLICY_MODE_DEV]: Object.freeze({
+    allowWrite: true,
+    allowDdlAdmin: true,
+    requireApproval: false
+  }),
+  [POLICY_MODE_STAGING]: Object.freeze({
+    allowWrite: true,
+    allowDdlAdmin: false,
+    requireApproval: true
+  }),
+  [POLICY_MODE_PROD]: Object.freeze({
+    allowWrite: false,
+    allowDdlAdmin: false,
+    requireApproval: false
+  })
+});
+const POLICY_WRITE_KEYWORDS = new Set([
+  'insert',
+  'update',
+  'delete',
+  'merge',
+  'upsert',
+  'replace',
+  'copy'
+]);
+const POLICY_DDL_ADMIN_KEYWORDS = new Set([
+  'create',
+  'alter',
+  'drop',
+  'truncate',
+  'rename',
+  'comment',
+  'grant',
+  'revoke',
+  'call',
+  'do',
+  'refresh',
+  'reindex',
+  'cluster',
+  'vacuum',
+  'analyze'
+]);
 
 export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
@@ -41,6 +95,7 @@ export function initHome({ api }) {
   const saveName = byId('saveName');
   const rememberPassword = byId('rememberPassword');
   const readOnly = byId('readOnly');
+  const policyMode = byId('policyMode');
   const tabDirectBtn = byId('tabDirectBtn');
   const tabSshBtn = byId('tabSshBtn');
   const sshHost = byId('sshHost');
@@ -57,6 +112,7 @@ export function initHome({ api }) {
   const clearFormBtn = byId('clearFormBtn');
   const cancelEditBtn = byId('cancelEditBtn');
   const savedList = byId('savedList');
+  const savedPolicyFilters = byId('savedPolicyFilters');
   const importConnectionsBtn = byId('importConnectionsBtn');
   const exportConnectionsBtn = byId('exportConnectionsBtn');
   const mainScreen = byId('mainScreen');
@@ -83,8 +139,17 @@ export function initHome({ api }) {
   const credentialCloseBtn = byId('credentialCloseBtn');
   const credentialCancelBtn = byId('credentialCancelBtn');
   const credentialConfirmBtn = byId('credentialConfirmBtn');
+  const policyApprovalModal = byId('policyApprovalModal');
+  const policyApprovalModalBackdrop = byId('policyApprovalModalBackdrop');
+  const policyApprovalTitle = byId('policyApprovalTitle');
+  const policyApprovalSubtitle = byId('policyApprovalSubtitle');
+  const policyApprovalInput = byId('policyApprovalInput');
+  const policyApprovalCloseBtn = byId('policyApprovalCloseBtn');
+  const policyApprovalCancelBtn = byId('policyApprovalCancelBtn');
+  const policyApprovalConfirmBtn = byId('policyApprovalConfirmBtn');
   const themeToggle = byId('themeToggle');
   const themeMenu = byId('themeMenu');
+  const openSettingsBtn = byId('openSettingsBtn');
   const sidebarTreeBtn = byId('sidebarTreeBtn');
   const sidebarHistoryBtn = byId('sidebarHistoryBtn');
   const sidebarSnippetsBtn = byId('sidebarSnippetsBtn');
@@ -164,6 +229,26 @@ export function initHome({ api }) {
   const definitionFormatBtn = byId('definitionFormatBtn');
   const definitionCopyBtn = byId('definitionCopyBtn');
   const definitionQueryInput = byId('definitionQueryInput');
+  const settingsModal = byId('settingsModal');
+  const settingsModalBackdrop = byId('settingsModalBackdrop');
+  const settingsCloseBtn = byId('settingsCloseBtn');
+  const settingsCancelBtn = byId('settingsCancelBtn');
+  const settingsSaveBtn = byId('settingsSaveBtn');
+  const settingsResetDefaultsBtn = byId('settingsResetDefaultsBtn');
+  const settingsTabs = byId('settingsTabs');
+  const settingsPanelGeneral = byId('settingsPanelGeneral');
+  const settingsPanelEnvironments = byId('settingsPanelEnvironments');
+  const settingsDefaultLimit = byId('settingsDefaultLimit');
+  const settingsDefaultTimeout = byId('settingsDefaultTimeout');
+  const envPolicyDevAllowWrite = byId('envPolicyDevAllowWrite');
+  const envPolicyDevAllowDdl = byId('envPolicyDevAllowDdl');
+  const envPolicyDevRequireApproval = byId('envPolicyDevRequireApproval');
+  const envPolicyStagingAllowWrite = byId('envPolicyStagingAllowWrite');
+  const envPolicyStagingAllowDdl = byId('envPolicyStagingAllowDdl');
+  const envPolicyStagingRequireApproval = byId('envPolicyStagingRequireApproval');
+  const envPolicyProdAllowWrite = byId('envPolicyProdAllowWrite');
+  const envPolicyProdAllowDdl = byId('envPolicyProdAllowDdl');
+  const envPolicyProdRequireApproval = byId('envPolicyProdRequireApproval');
 
   let isConnecting = false;
   let isEditingConnection = false;
@@ -186,6 +271,9 @@ export function initHome({ api }) {
   let queryProgressTimer = null;
   let queryProgressRevealTimer = null;
   let queryProgressStartedAt = 0;
+  let editingConnectionSeed = null;
+  let environmentPolicyRules = null;
+  let activeSettingsTab = 'general';
   let removeNativeThemeListener = null;
   let currentThemeMode = THEME_MODE_SYSTEM;
   let systemPrefersDark = true;
@@ -193,6 +281,7 @@ export function initHome({ api }) {
   const MIN_EDITOR_FONT_SIZE = 12;
   const MAX_EDITOR_FONT_SIZE = 16;
   let credentialPromptResolver = null;
+  let policyApprovalPromptResolver = null;
 
   const safeApi = api || {};
 
@@ -337,9 +426,335 @@ export function initHome({ api }) {
     setThemeMode(currentThemeMode, { persist: false });
   };
 
+  const cloneEnvironmentPolicyRules = (input) => {
+    const source = input || ENVIRONMENT_POLICY_DEFAULTS;
+    return {
+      [POLICY_MODE_DEV]: {
+        ...(source[POLICY_MODE_DEV] || ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_DEV])
+      },
+      [POLICY_MODE_STAGING]: {
+        ...(source[POLICY_MODE_STAGING] || ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_STAGING])
+      },
+      [POLICY_MODE_PROD]: {
+        ...(source[POLICY_MODE_PROD] || ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_PROD])
+      }
+    };
+  };
+
+  const normalizeEnvironmentPolicyRule = (input, fallback) => {
+    const source = input && typeof input === 'object' ? input : {};
+    const base = fallback || ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_DEV];
+    return {
+      allowWrite: source.allowWrite !== undefined ? !!source.allowWrite : !!base.allowWrite,
+      allowDdlAdmin: source.allowDdlAdmin !== undefined ? !!source.allowDdlAdmin : !!base.allowDdlAdmin,
+      requireApproval: source.requireApproval !== undefined ? !!source.requireApproval : !!base.requireApproval
+    };
+  };
+
+  const normalizeEnvironmentPolicyRules = (input) => {
+    const source = input && typeof input === 'object' ? input : {};
+    return {
+      [POLICY_MODE_DEV]: normalizeEnvironmentPolicyRule(
+        source[POLICY_MODE_DEV],
+        ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_DEV]
+      ),
+      [POLICY_MODE_STAGING]: normalizeEnvironmentPolicyRule(
+        source[POLICY_MODE_STAGING],
+        ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_STAGING]
+      ),
+      [POLICY_MODE_PROD]: normalizeEnvironmentPolicyRule(
+        source[POLICY_MODE_PROD],
+        ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_PROD]
+      )
+    };
+  };
+
+  const resolveEnvironmentPoliciesPayload = (payload) => {
+    if (!payload || typeof payload !== 'object') return payload;
+    if (payload.policies && typeof payload.policies === 'object') return payload.policies;
+    if (payload.environments && typeof payload.environments === 'object') return payload.environments;
+    return payload;
+  };
+
+  const setEnvironmentPolicyRules = (rules) => {
+    environmentPolicyRules = normalizeEnvironmentPolicyRules(resolveEnvironmentPoliciesPayload(rules));
+    return environmentPolicyRules;
+  };
+
+  const getEnvironmentPolicyRules = () => {
+    if (!environmentPolicyRules) {
+      environmentPolicyRules = cloneEnvironmentPolicyRules(ENVIRONMENT_POLICY_DEFAULTS);
+    }
+    return environmentPolicyRules;
+  };
+
+  const getEnvironmentPolicyRule = (mode) => {
+    const policyMode = getEntryPolicyMode({ policyMode: mode });
+    const rules = getEnvironmentPolicyRules();
+    return (
+      rules[policyMode] ||
+      ENVIRONMENT_POLICY_DEFAULTS[policyMode] ||
+      ENVIRONMENT_POLICY_DEFAULTS[POLICY_MODE_DEV]
+    );
+  };
+
+  const hasSelectOption = (select, value) => {
+    if (!select || !select.options) return false;
+    const target = String(value || '');
+    return Array.from(select.options).some((option) => option.value === target);
+  };
+
+  const normalizeSelectValue = (select, value, fallback) => {
+    const target = String(value || '');
+    if (hasSelectOption(select, target)) return target;
+    const fallbackValue = String(fallback || '');
+    if (hasSelectOption(select, fallbackValue)) return fallbackValue;
+    return select && select.options && select.options.length ? select.options[0].value : fallbackValue;
+  };
+
+  const normalizeQueryDefaults = (input) => {
+    const source = input && typeof input === 'object' ? input : {};
+    const limitAnchor = settingsDefaultLimit || limitSelect;
+    const timeoutAnchor = settingsDefaultTimeout || timeoutSelect;
+    return {
+      limit: normalizeSelectValue(limitAnchor, source.limit, QUERY_DEFAULTS.limit),
+      timeoutMs: normalizeSelectValue(timeoutAnchor, source.timeoutMs, QUERY_DEFAULTS.timeoutMs)
+    };
+  };
+
+  const readStoredQueryDefaults = () =>
+    normalizeQueryDefaults({
+      limit: localStorage.getItem(QUERY_DEFAULT_LIMIT_KEY),
+      timeoutMs: localStorage.getItem(QUERY_DEFAULT_TIMEOUT_KEY)
+    });
+
+  const applyQueryDefaultsToEditorControls = (input) => {
+    const next = normalizeQueryDefaults(input);
+    if (limitSelect) {
+      limitSelect.value = normalizeSelectValue(limitSelect, next.limit, QUERY_DEFAULTS.limit);
+    }
+    if (timeoutSelect) {
+      timeoutSelect.value = normalizeSelectValue(timeoutSelect, next.timeoutMs, QUERY_DEFAULTS.timeoutMs);
+    }
+    return next;
+  };
+
+  const applyQueryDefaultsToSettingsInputs = (input) => {
+    const next = normalizeQueryDefaults(input);
+    if (settingsDefaultLimit) {
+      settingsDefaultLimit.value = normalizeSelectValue(settingsDefaultLimit, next.limit, QUERY_DEFAULTS.limit);
+    }
+    if (settingsDefaultTimeout) {
+      settingsDefaultTimeout.value = normalizeSelectValue(
+        settingsDefaultTimeout,
+        next.timeoutMs,
+        QUERY_DEFAULTS.timeoutMs
+      );
+    }
+    return next;
+  };
+
+  const readQueryDefaultsInputs = () =>
+    normalizeQueryDefaults({
+      limit: settingsDefaultLimit ? settingsDefaultLimit.value : (limitSelect ? limitSelect.value : QUERY_DEFAULTS.limit),
+      timeoutMs: settingsDefaultTimeout
+        ? settingsDefaultTimeout.value
+        : (timeoutSelect ? timeoutSelect.value : QUERY_DEFAULTS.timeoutMs)
+    });
+
+  const persistQueryDefaults = (input) => {
+    const next = normalizeQueryDefaults(input);
+    localStorage.setItem(QUERY_DEFAULT_LIMIT_KEY, next.limit);
+    localStorage.setItem(QUERY_DEFAULT_TIMEOUT_KEY, next.timeoutMs);
+    return next;
+  };
+
+  const getEnvironmentPolicyInputs = () => ({
+    [POLICY_MODE_DEV]: {
+      allowWrite: envPolicyDevAllowWrite,
+      allowDdlAdmin: envPolicyDevAllowDdl,
+      requireApproval: envPolicyDevRequireApproval
+    },
+    [POLICY_MODE_STAGING]: {
+      allowWrite: envPolicyStagingAllowWrite,
+      allowDdlAdmin: envPolicyStagingAllowDdl,
+      requireApproval: envPolicyStagingRequireApproval
+    },
+    [POLICY_MODE_PROD]: {
+      allowWrite: envPolicyProdAllowWrite,
+      allowDdlAdmin: envPolicyProdAllowDdl,
+      requireApproval: envPolicyProdRequireApproval
+    }
+  });
+
+  const applyEnvironmentPolicyInputs = (rules) => {
+    const nextRules = normalizeEnvironmentPolicyRules(rules);
+    const inputs = getEnvironmentPolicyInputs();
+    [POLICY_MODE_DEV, POLICY_MODE_STAGING, POLICY_MODE_PROD].forEach((mode) => {
+      const fields = inputs[mode] || {};
+      const rule = nextRules[mode];
+      if (fields.allowWrite) fields.allowWrite.checked = !!rule.allowWrite;
+      if (fields.allowDdlAdmin) fields.allowDdlAdmin.checked = !!rule.allowDdlAdmin;
+      if (fields.requireApproval) fields.requireApproval.checked = !!rule.requireApproval;
+    });
+  };
+
+  const readEnvironmentPolicyInputs = () => {
+    const inputs = getEnvironmentPolicyInputs();
+    const next = {};
+    [POLICY_MODE_DEV, POLICY_MODE_STAGING, POLICY_MODE_PROD].forEach((mode) => {
+      const defaults = ENVIRONMENT_POLICY_DEFAULTS[mode];
+      const fields = inputs[mode] || {};
+      next[mode] = {
+        allowWrite:
+          fields.allowWrite && fields.allowWrite.checked !== undefined
+            ? !!fields.allowWrite.checked
+            : !!defaults.allowWrite,
+        allowDdlAdmin:
+          fields.allowDdlAdmin && fields.allowDdlAdmin.checked !== undefined
+            ? !!fields.allowDdlAdmin.checked
+            : !!defaults.allowDdlAdmin,
+        requireApproval:
+          fields.requireApproval && fields.requireApproval.checked !== undefined
+            ? !!fields.requireApproval.checked
+            : !!defaults.requireApproval
+      };
+    });
+    return normalizeEnvironmentPolicyRules(next);
+  };
+
+  const areEnvironmentPoliciesEqual = (left, right) => {
+    const normalizedLeft = normalizeEnvironmentPolicyRules(left);
+    const normalizedRight = normalizeEnvironmentPolicyRules(right);
+    return [POLICY_MODE_DEV, POLICY_MODE_STAGING, POLICY_MODE_PROD].every((mode) => {
+      const a = normalizedLeft[mode];
+      const b = normalizedRight[mode];
+      return (
+        a.allowWrite === b.allowWrite &&
+        a.allowDdlAdmin === b.allowDdlAdmin &&
+        a.requireApproval === b.requireApproval
+      );
+    });
+  };
+
+  const setSettingsTab = (tab) => {
+    const next = tab === 'environments' ? 'environments' : 'general';
+    activeSettingsTab = next;
+    if (settingsTabs) {
+      const items = settingsTabs.querySelectorAll('[data-settings-tab]');
+      items.forEach((item) => {
+        const selected = item.getAttribute('data-settings-tab') === next;
+        item.classList.toggle('active', selected);
+        item.setAttribute('aria-selected', selected ? 'true' : 'false');
+      });
+    }
+    if (settingsPanelGeneral) settingsPanelGeneral.classList.toggle('hidden', next !== 'general');
+    if (settingsPanelEnvironments) settingsPanelEnvironments.classList.toggle('hidden', next !== 'environments');
+  };
+
+  const closeSettingsModal = () => {
+    if (settingsModal) settingsModal.classList.add('hidden');
+  };
+
+  const loadEnvironmentPolicySettings = async ({ silent = true } = {}) => {
+    const fallback = cloneEnvironmentPolicyRules(ENVIRONMENT_POLICY_DEFAULTS);
+    try {
+      if (!safeApi.getPolicySettings) {
+        setEnvironmentPolicyRules(fallback);
+        applyEnvironmentPolicyInputs(fallback);
+        return fallback;
+      }
+      const res = await safeApi.getPolicySettings();
+      if (!res || !res.ok) {
+        if (!silent && safeApi.showError) {
+          await safeApi.showError((res && res.error) || 'Failed to load policy settings.');
+        }
+        setEnvironmentPolicyRules(fallback);
+        applyEnvironmentPolicyInputs(fallback);
+        return fallback;
+      }
+      const next = setEnvironmentPolicyRules(res.policies || res);
+      applyEnvironmentPolicyInputs(next);
+      return next;
+    } catch (err) {
+      if (!silent && safeApi.showError) {
+        await safeApi.showError(err && err.message ? err.message : 'Failed to load policy settings.');
+      }
+      setEnvironmentPolicyRules(fallback);
+      applyEnvironmentPolicyInputs(fallback);
+      return fallback;
+    }
+  };
+
+  const openSettingsModal = async () => {
+    if (!settingsModal) return;
+    setThemeMenuOpen(false);
+    applyQueryDefaultsToSettingsInputs(readStoredQueryDefaults());
+    await loadEnvironmentPolicySettings({ silent: false });
+    setSettingsTab(activeSettingsTab || 'general');
+    settingsModal.classList.remove('hidden');
+  };
+
+  const resetGeneralSettingsDefaults = () => {
+    applyQueryDefaultsToSettingsInputs(QUERY_DEFAULTS);
+  };
+
+  const resetEnvironmentPolicyDefaults = () => {
+    const next = cloneEnvironmentPolicyRules(ENVIRONMENT_POLICY_DEFAULTS);
+    setEnvironmentPolicyRules(next);
+    applyEnvironmentPolicyInputs(next);
+  };
+
+  const resetSettingsDefaults = () => {
+    if (activeSettingsTab === 'environments') {
+      resetEnvironmentPolicyDefaults();
+      return;
+    }
+    resetGeneralSettingsDefaults();
+  };
+
+  const saveEnvironmentPolicySettings = async () => {
+    const next = readEnvironmentPolicyInputs();
+    const current = getEnvironmentPolicyRules();
+    if (areEnvironmentPoliciesEqual(current, next)) return { ok: true, saved: false };
+    if (!safeApi.savePolicySettings) {
+      if (safeApi.showError) await safeApi.showError('Settings API unavailable.');
+      return { ok: false };
+    }
+    const res = await safeApi.savePolicySettings({ policies: next });
+    if (!res || !res.ok) {
+      if (safeApi.showError) {
+        await safeApi.showError((res && res.error) || 'Failed to save policy settings.');
+      }
+      return { ok: false };
+    }
+    const saved = setEnvironmentPolicyRules(res.policies || next);
+    applyEnvironmentPolicyInputs(saved);
+    return { ok: true, saved: true };
+  };
+
+  const saveSettings = async () => {
+    const queryDefaults = persistQueryDefaults(readQueryDefaultsInputs());
+    applyQueryDefaultsToEditorControls(queryDefaults);
+    applyQueryDefaultsToSettingsInputs(queryDefaults);
+    if (settingsSaveBtn) settingsSaveBtn.disabled = true;
+    try {
+      const envResult = await saveEnvironmentPolicySettings();
+      if (!envResult || !envResult.ok) return;
+      showToast('Settings saved');
+      closeSettingsModal();
+    } finally {
+      if (settingsSaveBtn) settingsSaveBtn.disabled = false;
+    }
+  };
+
 
   const setEditMode = (enabled) => {
     isEditingConnection = enabled;
+    if (!enabled) {
+      editingConnectionSeed = null;
+      if (saveName) delete saveName.dataset.originalName;
+    }
     if (cancelEditBtn) cancelEditBtn.classList.toggle('hidden', !enabled);
   };
 
@@ -388,6 +803,41 @@ export function initHome({ api }) {
     });
   };
 
+  const closePolicyApprovalPrompt = (result = '') => {
+    if (policyApprovalModal) policyApprovalModal.classList.add('hidden');
+    const resolver = policyApprovalPromptResolver;
+    policyApprovalPromptResolver = null;
+    if (resolver) resolver(result);
+  };
+
+  const isValidPolicyApprovalInput = (value) =>
+    String(value || '').trim().toUpperCase() === POLICY_APPROVAL_TOKEN;
+
+  const updatePolicyApprovalConfirmState = () => {
+    if (!policyApprovalConfirmBtn) return;
+    const currentValue = policyApprovalInput ? policyApprovalInput.value : '';
+    policyApprovalConfirmBtn.disabled = !isValidPolicyApprovalInput(currentValue);
+  };
+
+  const promptPolicyApproval = ({ policyLabel, actionLabel } = {}) => {
+    if (!policyApprovalModal) return Promise.resolve('');
+    if (policyApprovalPromptResolver) closePolicyApprovalPrompt('');
+    if (policyApprovalTitle) {
+      policyApprovalTitle.textContent = `${policyLabel || 'Policy'} confirmation`;
+    }
+    if (policyApprovalSubtitle) {
+      const action = actionLabel ? ` ${actionLabel}` : '';
+      policyApprovalSubtitle.textContent = `${policyLabel || 'Policy'} requires confirmation for${action}. Type ${POLICY_APPROVAL_TOKEN} to continue.`;
+    }
+    if (policyApprovalInput) policyApprovalInput.value = '';
+    updatePolicyApprovalConfirmState();
+    policyApprovalModal.classList.remove('hidden');
+    if (policyApprovalInput) policyApprovalInput.focus();
+    return new Promise((resolve) => {
+      policyApprovalPromptResolver = resolve;
+    });
+  };
+
   const resolveConnectEntry = async (entry) => {
     if (!entry || !entry.name || !safeApi.listSavedConnections) return entry;
     try {
@@ -423,6 +873,65 @@ export function initHome({ api }) {
     return config;
   };
 
+  const hasRuntimeSecretsInConfig = (config) => {
+    if (!config) return false;
+    const ssh = config.ssh || {};
+    return !!(
+      (config.password && String(config.password).length) ||
+      (ssh.password && String(ssh.password).length) ||
+      (ssh.privateKey && String(ssh.privateKey).length) ||
+      (ssh.passphrase && String(ssh.passphrase).length)
+    );
+  };
+
+  const buildPromptEntryForValidation = (baseEntry, currentConfig) => {
+    const fallback = {
+      name: currentConfig && currentConfig.name ? currentConfig.name : '',
+      host: currentConfig && currentConfig.host ? currentConfig.host : '',
+      type: currentConfig && currentConfig.type ? currentConfig.type : 'mysql',
+      ssh: currentConfig && currentConfig.ssh ? { ...currentConfig.ssh } : { enabled: false }
+    };
+    if (!baseEntry) return fallback;
+    const merged = { ...baseEntry };
+    merged.ssh = {
+      ...getEntrySshConfig(baseEntry),
+      ...(currentConfig && currentConfig.ssh ? currentConfig.ssh : {})
+    };
+    if (!merged.name && fallback.name) merged.name = fallback.name;
+    if (!merged.host && fallback.host) merged.host = fallback.host;
+    if (!merged.type && fallback.type) merged.type = fallback.type;
+    return merged;
+  };
+
+  const resolveSaveValidationEntry = async (name) => {
+    if (editingConnectionSeed) {
+      return resolveConnectEntry(editingConnectionSeed);
+    }
+    if (!name) return null;
+    return resolveConnectEntry({ name });
+  };
+
+  const ensureValidationSecretsIfNeeded = async (config) => {
+    const next = {
+      ...(config || {}),
+      ssh: { ...((config && config.ssh) || {}) }
+    };
+    if (hasRuntimeSecretsInConfig(next)) return next;
+    if (!isEditingConnection) return next;
+    const sourceEntry = await resolveSaveValidationEntry(next.name);
+    if (!sourceEntry || entryRemembersSecrets(sourceEntry)) return next;
+    const promptEntry = buildPromptEntryForValidation(sourceEntry, next);
+    const secrets = await promptConnectionSecrets(promptEntry);
+    if (!secrets) return null;
+    next.password = secrets.password || '';
+    if (next.ssh && next.ssh.enabled) {
+      next.ssh.password = secrets.sshPassword || '';
+      next.ssh.privateKey = secrets.sshPrivateKey || '';
+      next.ssh.passphrase = secrets.sshPassphrase || '';
+    }
+    return next;
+  };
+
   const resetConnectionForm = () => {
     if (dbType) dbType.value = 'mysql';
     if (host) host.value = 'localhost';
@@ -431,8 +940,10 @@ export function initHome({ api }) {
     if (password) password.value = '';
     if (database) database.value = '';
     if (saveName) saveName.value = '';
+    if (saveName) delete saveName.dataset.originalName;
     if (rememberPassword) rememberPassword.checked = false;
     if (readOnly) readOnly.checked = false;
+    if (policyMode) policyMode.value = 'dev';
     setConnectTab('direct');
     if (sshHost) sshHost.value = '';
     if (sshPort) sshPort.value = '';
@@ -546,6 +1057,7 @@ export function initHome({ api }) {
     password: entry.password || '',
     database: entry.database || '',
     readOnly: isEntryReadOnly(entry),
+    policyMode: getEntryPolicyMode(entry),
     ssh: getEntrySshConfig(entry)
   });
 
@@ -619,6 +1131,7 @@ export function initHome({ api }) {
     if (saveName) saveName.value = entry.name || '';
     if (rememberPassword) rememberPassword.checked = entryRemembersSecrets(entry);
     if (readOnly) readOnly.checked = isEntryReadOnly(entry);
+    if (policyMode) policyMode.value = getEntryPolicyMode(entry);
     const ssh = getEntrySshConfig(entry);
     setConnectTab(ssh.enabled ? 'ssh' : 'direct');
     if (sshHost) sshHost.value = ssh.host || '';
@@ -1075,6 +1588,125 @@ export function initHome({ api }) {
     applyResultsPanelState({ snapshot, objectContext: context });
   };
 
+  const sanitizeSqlForPolicy = (sqlText) => {
+    const text = String(sqlText || '');
+    let sanitized = '';
+    let inSingle = false;
+    let inDouble = false;
+    let inBacktick = false;
+    let inLineComment = false;
+    let inBlockComment = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      const next = text[i + 1];
+
+      if (inLineComment) {
+        if (ch === '\n') {
+          inLineComment = false;
+          sanitized += '\n';
+        }
+        continue;
+      }
+
+      if (inBlockComment) {
+        if (ch === '*' && next === '/') {
+          i += 1;
+          inBlockComment = false;
+        }
+        continue;
+      }
+
+      if (inSingle) {
+        if (ch === "'" && next === "'") {
+          i += 1;
+          continue;
+        }
+        if (ch === "'") inSingle = false;
+        continue;
+      }
+
+      if (inDouble) {
+        if (ch === '"' && next === '"') {
+          i += 1;
+          continue;
+        }
+        if (ch === '"') inDouble = false;
+        continue;
+      }
+
+      if (inBacktick) {
+        if (ch === '`') inBacktick = false;
+        continue;
+      }
+
+      if (ch === '-' && next === '-') {
+        inLineComment = true;
+        i += 1;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        i += 1;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = true;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = true;
+        continue;
+      }
+      if (ch === '`') {
+        inBacktick = true;
+        continue;
+      }
+
+      sanitized += ch;
+    }
+
+    return sanitized.toLowerCase();
+  };
+
+  const findFirstPolicyKeyword = (text, keywords) => {
+    const tokenRegex = /\b[a-z]+\b/g;
+    let match = tokenRegex.exec(text);
+    while (match) {
+      const token = match[0];
+      if (keywords.has(token)) {
+        return { token, index: match.index };
+      }
+      match = tokenRegex.exec(text);
+    }
+    return null;
+  };
+
+  const classifyStatementByPolicy = (statementSql) => {
+    const sanitized = sanitizeSqlForPolicy(statementSql);
+    if (!sanitized.trim()) return null;
+
+    const firstWrite = findFirstPolicyKeyword(sanitized, POLICY_WRITE_KEYWORDS);
+    const firstDdlAdmin = findFirstPolicyKeyword(sanitized, POLICY_DDL_ADMIN_KEYWORDS);
+    const selectIntoMatch = /\bselect\b[\s\S]*\binto\b/.exec(sanitized);
+    const selectIntoWrite = selectIntoMatch
+      ? { token: 'select into', index: selectIntoMatch.index }
+      : null;
+
+    let effectiveWrite = firstWrite;
+    if (selectIntoWrite && (!effectiveWrite || selectIntoWrite.index < effectiveWrite.index)) {
+      effectiveWrite = selectIntoWrite;
+    }
+
+    if (!effectiveWrite && !firstDdlAdmin) return null;
+
+    if (firstDdlAdmin && (!effectiveWrite || firstDdlAdmin.index <= effectiveWrite.index)) {
+      return { kind: 'ddlAdmin', action: String(firstDdlAdmin.token || '').toUpperCase() };
+    }
+
+    return { kind: 'write', action: String(effectiveWrite.token || '').toUpperCase() };
+  };
+
   const normalizeSql = (sql) => String(sql || '').trim().replace(/;$/, '').trim();
 
   const applyLimit = (sql) => {
@@ -1158,9 +1790,55 @@ export function initHome({ api }) {
     const total = statements.length || 1;
     if (total === 0) return;
     const timeoutMs = getTimeoutMs() || 0;
+    const activeConnection = getActiveConnection();
+    const activePolicyMode = getEntryPolicyMode(activeConnection);
+    const activePolicyRule = getEnvironmentPolicyRule(activePolicyMode);
 
     let lastResult = null;
     let lastExecutedStmt = '';
+    let policyApprovalToken = '';
+    let firstApprovalAction = '';
+
+    for (let i = 0; i < statements.length; i += 1) {
+      const stmt = normalizeSql(statements[i]);
+      if (!stmt) continue;
+      const classification = classifyStatementByPolicy(stmt);
+      if (!classification) continue;
+      const policyLabel = String(activePolicyMode || POLICY_MODE_DEV).toUpperCase();
+      if (classification.kind === 'ddlAdmin' && !activePolicyRule.allowDdlAdmin) {
+        const message = `${policyLabel} policy blocks ${classification.action} statements.`;
+        await safeApi.showError(message);
+        setQueryStatus({ state: 'error', message });
+        return;
+      }
+      if (classification.kind === 'write' && !activePolicyRule.allowWrite) {
+        const message = `${policyLabel} policy blocks ${classification.action} statements.`;
+        await safeApi.showError(message);
+        setQueryStatus({ state: 'error', message });
+        return;
+      }
+      if (activePolicyRule.requireApproval && !firstApprovalAction) {
+        if (classification.kind === 'write' && activePolicyRule.allowWrite) {
+          firstApprovalAction = classification.action;
+        } else if (classification.kind === 'ddlAdmin' && activePolicyRule.allowDdlAdmin) {
+          firstApprovalAction = classification.action;
+        }
+      }
+    }
+
+    if (activePolicyRule.requireApproval && firstApprovalAction) {
+      const policyLabel = String(activePolicyMode || POLICY_MODE_DEV).toUpperCase();
+      const confirmation = await promptPolicyApproval({
+        policyLabel: `${policyLabel} policy`,
+        actionLabel: firstApprovalAction
+      });
+      if (String(confirmation || '').trim().toUpperCase() !== POLICY_APPROVAL_TOKEN) {
+        setQueryStatus({ state: 'error', message: `Canceled by ${policyLabel} policy` });
+        return;
+      }
+      policyApprovalToken = POLICY_APPROVAL_TOKEN;
+    }
+
     const overallStart = Date.now();
     if (runBtn) runBtn.disabled = true;
     if (runSelectionBtn) runSelectionBtn.disabled = true;
@@ -1173,17 +1851,25 @@ export function initHome({ api }) {
         lastExecutedStmt = stmt;
         if (isDangerousStatement(stmt)) {
           const keyword = firstDmlKeyword(stmt);
-          const actionLabel = keyword ? keyword.toUpperCase() : 'QUERY';
-          const confirmed = confirm(`Confirm ${actionLabel} without WHERE?`);
-          if (!confirmed) {
-            setQueryStatus({ state: 'error', message: 'Canceled by user' });
+          const actionLabel = keyword ? `${keyword.toUpperCase()} without WHERE` : 'dangerous statement';
+          const confirmation = await promptPolicyApproval({
+            policyLabel: 'Safety check',
+            actionLabel
+          });
+          if (String(confirmation || '').trim().toUpperCase() !== POLICY_APPROVAL_TOKEN) {
+            setQueryStatus({ state: 'error', message: 'Canceled by safety check' });
             return;
           }
         }
         const sql = applyLimitIfSelect(stmt);
         const startedAt = Date.now();
         setQueryStatus({ state: 'running', message: `Running ${i + 1}/${total}...` });
-        const res = await safeApi.runQuery({ sql, timeoutMs: timeoutMs || undefined });
+        const payload = {
+          sql,
+          timeoutMs: timeoutMs || undefined
+        };
+        if (policyApprovalToken) payload.policyApproval = policyApprovalToken;
+        const res = await safeApi.runQuery(payload);
         if (!res || !res.ok) {
           await safeApi.showError((res && res.error) || 'Failed to run query.');
           setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Error' });
@@ -1701,6 +2387,26 @@ export function initHome({ api }) {
     return ok;
   };
 
+  const normalizeSavedPolicyFilter = (value) => {
+    const mode = String(value || '').trim().toLowerCase();
+    if (mode === 'dev' || mode === 'staging' || mode === 'prod' || mode === 'all') {
+      return mode;
+    }
+    return 'all';
+  };
+
+  const getSavedPolicyFilter = () => {
+    if (!savedPolicyFilters) return 'all';
+    const selected = savedPolicyFilters.querySelector('input[name="savedPolicyFilter"]:checked');
+    return normalizeSavedPolicyFilter(selected ? selected.value : 'all');
+  };
+
+  const formatSavedPolicyFilterLabel = (value) => {
+    const mode = normalizeSavedPolicyFilter(value);
+    if (mode === 'all') return 'All';
+    return mode.toUpperCase();
+  };
+
   const isSshTabActive = () => {
     if (!tabSshBtn) return false;
     return tabSshBtn.classList.contains('active');
@@ -1795,15 +2501,27 @@ export function initHome({ api }) {
   const renderSavedList = async () => {
     if (!savedList) return;
     const list = await safeApi.listSavedConnections();
+    const entries = Array.isArray(list) ? list : [];
+    const filterMode = getSavedPolicyFilter();
+    const filtered = filterMode === 'all'
+      ? entries
+      : entries.filter((entry) => getEntryPolicyMode(entry) === filterMode);
     savedList.innerHTML = '';
-    if (!Array.isArray(list) || list.length === 0) {
+    if (entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
       empty.textContent = 'No saved connections.';
       savedList.appendChild(empty);
       return;
     }
-    list.forEach((entry) => {
+    if (filtered.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'tree-empty';
+      empty.textContent = `No saved connections for ${formatSavedPolicyFilterLabel(filterMode)}.`;
+      savedList.appendChild(empty);
+      return;
+    }
+    filtered.forEach((entry) => {
       const item = document.createElement('div');
       item.className = 'saved-item';
 
@@ -1816,9 +2534,30 @@ export function initHome({ api }) {
 
       const meta = document.createElement('div');
       meta.className = 'saved-meta';
-      const roTag = isEntryReadOnly(entry) ? ' • RO' : '';
-      const sshTag = isEntrySsh(entry) ? ' • SSH' : '';
-      meta.textContent = `${entry.type} • ${entry.host}:${entry.port || ''}${entry.database ? ` • ${entry.database}` : ''}${roTag}${sshTag}`;
+      const metaMain = document.createElement('span');
+      metaMain.className = 'saved-meta-main';
+      const typeLabel = String(entry.type || '').trim().toUpperCase();
+      const hostLabel = entry.port ? `${entry.host}:${entry.port}` : `${entry.host}`;
+      const segments = [typeLabel, hostLabel];
+      if (entry.database) segments.push(String(entry.database));
+      metaMain.textContent = segments.filter(Boolean).join(' • ');
+
+      const badges = document.createElement('div');
+      badges.className = 'saved-badges';
+      const appendBadge = (text, variant = '') => {
+        const badge = document.createElement('span');
+        badge.className = variant ? `saved-badge ${variant}` : 'saved-badge';
+        badge.textContent = text;
+        badges.appendChild(badge);
+      };
+
+      const policy = String(getEntryPolicyMode(entry) || 'dev').toLowerCase();
+      appendBadge(policy.toUpperCase(), `is-${policy}`);
+      if (isEntryReadOnly(entry)) appendBadge('RO', 'is-readonly');
+      if (isEntrySsh(entry)) appendBadge('SSH', 'is-ssh');
+
+      meta.appendChild(metaMain);
+      meta.appendChild(badges);
 
       info.appendChild(title);
       info.appendChild(meta);
@@ -1847,6 +2586,12 @@ export function initHome({ api }) {
       });
 
       editBtn.addEventListener('click', () => {
+        editingConnectionSeed = entry ? { ...entry, ssh: getEntrySshConfig(entry) } : null;
+        if (saveName) {
+          const originalName = entry && entry.name ? String(entry.name).trim() : '';
+          if (originalName) saveName.dataset.originalName = originalName;
+          else delete saveName.dataset.originalName;
+        }
         applyEntryToForm(entry);
         setEditMode(true);
         openConnectModal({ keepForm: true, mode: 'full' });
@@ -1873,6 +2618,7 @@ export function initHome({ api }) {
       password: password ? password.value || '' : '',
       database: database ? database.value || '' : '',
       readOnly: readOnly ? readOnly.checked : false,
+      policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
       ssh: buildSshConfig()
     };
 
@@ -1909,24 +2655,40 @@ export function initHome({ api }) {
       database: database ? database.value || '' : '',
       rememberSecrets: rememberPassword ? rememberPassword.checked : false,
       readOnly: readOnly ? readOnly.checked : false,
+      policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
       ssh: buildSshConfig()
     };
 
+    const entryForValidation = await ensureValidationSecretsIfNeeded(entry);
+    if (!entryForValidation) return;
+
     const res = await testConnectionWithLoading({
-      type: entry.type,
-      host: entry.host,
-      port: entry.port || undefined,
-      user: entry.user,
-      password: entry.password,
-      database: entry.database,
-      readOnly: entry.readOnly,
-      ssh: entry.ssh
+      type: entryForValidation.type,
+      host: entryForValidation.host,
+      port: entryForValidation.port || undefined,
+      user: entryForValidation.user,
+      password: entryForValidation.password,
+      database: entryForValidation.database,
+      readOnly: entryForValidation.readOnly,
+      policyMode: entryForValidation.policyMode,
+      ssh: entryForValidation.ssh
     });
     if (!res.ok) {
       await safeApi.showError(res.error || 'Failed to test connection.');
       return;
     }
-    await safeApi.saveConnection(entry);
+    const originalName = editingConnectionSeed && editingConnectionSeed.name
+      ? String(editingConnectionSeed.name).trim()
+      : (saveName && saveName.dataset && saveName.dataset.originalName
+        ? String(saveName.dataset.originalName).trim()
+        : '');
+    const nextName = entry && entry.name ? String(entry.name).trim() : '';
+    const payload =
+      isEditingConnection && originalName
+        ? { ...entry, originalName }
+        : entry;
+
+    await safeApi.saveConnection(payload);
     setEditMode(false);
     await renderSavedList();
     closeConnectModal();
@@ -1934,6 +2696,7 @@ export function initHome({ api }) {
 
   const testConnection = async () => {
     const config = {
+      name: saveName ? saveName.value.trim() : '',
       type: dbType ? dbType.value : 'mysql',
       host: host ? host.value || 'localhost' : 'localhost',
       port: port ? port.value || undefined : undefined,
@@ -1941,10 +2704,14 @@ export function initHome({ api }) {
       password: password ? password.value || '' : '',
       database: database ? database.value || '' : '',
       readOnly: readOnly ? readOnly.checked : false,
+      policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
       ssh: buildSshConfig()
     };
 
-    const res = await testConnectionWithLoading(config);
+    const configForValidation = await ensureValidationSecretsIfNeeded(config);
+    if (!configForValidation) return;
+
+    const res = await testConnectionWithLoading(configForValidation);
     if (!res.ok) {
       await safeApi.showError(res.error || 'Failed to test connection.');
       return;
@@ -1957,6 +2724,14 @@ export function initHome({ api }) {
   }
   if (tabSshBtn) {
     tabSshBtn.addEventListener('click', () => setConnectTab('ssh'));
+  }
+
+  if (savedPolicyFilters) {
+    savedPolicyFilters.addEventListener('change', (event) => {
+      const target = event && event.target ? event.target : null;
+      if (!target || target.name !== 'savedPolicyFilter') return;
+      void renderSavedList();
+    });
   }
 
   if (homeBtn) {
@@ -2078,6 +2853,36 @@ export function initHome({ api }) {
     });
   }
 
+  if (policyApprovalCloseBtn) {
+    policyApprovalCloseBtn.addEventListener('click', () => closePolicyApprovalPrompt(''));
+  }
+
+  if (policyApprovalCancelBtn) {
+    policyApprovalCancelBtn.addEventListener('click', () => closePolicyApprovalPrompt(''));
+  }
+
+  if (policyApprovalModalBackdrop) {
+    policyApprovalModalBackdrop.addEventListener('click', () => closePolicyApprovalPrompt(''));
+  }
+
+  if (policyApprovalConfirmBtn) {
+    policyApprovalConfirmBtn.addEventListener('click', () => {
+      closePolicyApprovalPrompt(policyApprovalInput ? policyApprovalInput.value || '' : '');
+    });
+  }
+
+  if (policyApprovalInput) {
+    policyApprovalInput.addEventListener('input', () => {
+      updatePolicyApprovalConfirmState();
+    });
+    policyApprovalInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      if (!policyApprovalModal || policyApprovalModal.classList.contains('hidden')) return;
+      event.preventDefault();
+      if (policyApprovalConfirmBtn) policyApprovalConfirmBtn.click();
+    });
+  }
+
   if (queryOutputBtn) {
     queryOutputBtn.addEventListener('click', () => openOutputModal());
   }
@@ -2177,6 +2982,36 @@ export function initHome({ api }) {
       setThemeMenuOpen(!isOpen);
     });
   }
+  if (openSettingsBtn) {
+    openSettingsBtn.addEventListener('click', () => {
+      void openSettingsModal();
+    });
+  }
+  if (settingsTabs) {
+    settingsTabs.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-settings-tab]');
+      if (!item) return;
+      const tab = item.getAttribute('data-settings-tab');
+      setSettingsTab(tab);
+    });
+  }
+  if (settingsCloseBtn) {
+    settingsCloseBtn.addEventListener('click', () => closeSettingsModal());
+  }
+  if (settingsCancelBtn) {
+    settingsCancelBtn.addEventListener('click', () => closeSettingsModal());
+  }
+  if (settingsModalBackdrop) {
+    settingsModalBackdrop.addEventListener('click', () => closeSettingsModal());
+  }
+  if (settingsResetDefaultsBtn) {
+    settingsResetDefaultsBtn.addEventListener('click', () => resetSettingsDefaults());
+  }
+  if (settingsSaveBtn) {
+    settingsSaveBtn.addEventListener('click', () => {
+      void saveSettings();
+    });
+  }
   if (themeMenu) {
     themeMenu.addEventListener('click', (event) => {
       const item = event.target.closest('[data-theme-mode]');
@@ -2194,6 +3029,8 @@ export function initHome({ api }) {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       setThemeMenuOpen(false);
+      closeSettingsModal();
+      closePolicyApprovalPrompt('');
     }
   });
   if (typeof safeApi.onNativeThemeUpdated === 'function') {
@@ -2366,6 +3203,9 @@ export function initHome({ api }) {
   }
 
   setScreen(false);
+  setSettingsTab('general');
+  applyQueryDefaultsToEditorControls(readStoredQueryDefaults());
+  void loadEnvironmentPolicySettings({ silent: true });
   updateToggleEditorButtonState(true);
   void loadThemeMode();
   loadEditorFontSize();

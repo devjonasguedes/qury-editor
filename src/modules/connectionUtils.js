@@ -3,6 +3,17 @@ export function isEntryReadOnly(entry) {
   return !!(entry.readOnly || entry.read_only);
 }
 
+export function normalizePolicyMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'staging' || mode === 'prod') return mode;
+  return 'dev';
+}
+
+export function getEntryPolicyMode(entry) {
+  if (!entry) return 'dev';
+  return normalizePolicyMode(entry.policyMode || entry.policy_mode);
+}
+
 export function isEntrySsh(entry) {
   if (!entry) return false;
   if (entry.ssh && entry.ssh.enabled) return true;
@@ -27,6 +38,7 @@ export function getEntrySshConfig(entry) {
 export function buildConnectionKey(entry) {
   if (!entry) return null;
   const ssh = getEntrySshConfig(entry);
+  const policyMode = getEntryPolicyMode(entry);
   return [
     entry.type || '',
     entry.host || '',
@@ -34,6 +46,7 @@ export function buildConnectionKey(entry) {
     entry.user || '',
     entry.database || '',
     isEntryReadOnly(entry) ? 'ro' : 'rw',
+    policyMode,
     ssh.enabled ? 'ssh' : 'direct',
     ssh.host || '',
     ssh.port || '',
@@ -44,6 +57,7 @@ export function buildConnectionKey(entry) {
 export function buildConnectionBaseKey(entry) {
   if (!entry) return null;
   const ssh = getEntrySshConfig(entry);
+  const policyMode = getEntryPolicyMode(entry);
   return [
     entry.type || '',
     entry.host || '',
@@ -51,6 +65,7 @@ export function buildConnectionBaseKey(entry) {
     entry.user || '',
     '',
     isEntryReadOnly(entry) ? 'ro' : 'rw',
+    policyMode,
     ssh.enabled ? 'ssh' : 'direct',
     ssh.host || '',
     ssh.port || '',

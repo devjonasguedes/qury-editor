@@ -62,6 +62,14 @@
               </button>
             </div>
           </div>
+          <button
+            id="openSettingsBtn"
+            class="icon-btn"
+            title="Settings"
+            aria-label="Settings"
+          >
+            <i class="bi bi-gear"></i>
+          </button>
         </div>
       </header>
 
@@ -215,7 +223,27 @@
             </div>
             <div class="onboard welcome-card">
               <div class="onboard-header">
-                <div class="connect-title">Saved connections</div>
+                <div class="onboard-title-wrap">
+                  <div class="connect-title">Saved connections</div>
+                  <div id="savedPolicyFilters" class="saved-policy-filters" role="radiogroup" aria-label="Filter by environment">
+                    <label class="saved-policy-option">
+                      <input type="radio" name="savedPolicyFilter" value="all" checked />
+                      <span>All</span>
+                    </label>
+                    <label class="saved-policy-option">
+                      <input type="radio" name="savedPolicyFilter" value="dev" />
+                      <span>Dev</span>
+                    </label>
+                    <label class="saved-policy-option">
+                      <input type="radio" name="savedPolicyFilter" value="staging" />
+                      <span>Staging</span>
+                    </label>
+                    <label class="saved-policy-option">
+                      <input type="radio" name="savedPolicyFilter" value="prod" />
+                      <span>Prod</span>
+                    </label>
+                  </div>
+                </div>
                 <div class="onboard-actions">
                   <button id="importConnectionsBtn" class="icon-btn mini" title="Import saved connections">
                     <i class="bi bi-upload"></i>
@@ -520,12 +548,24 @@
                     </div>
                   </div>
 
-                  <div class="field span-2 checkbox-field">
-                    <label>
-                      <input id="readOnly" type="checkbox" />
-                      Read-only (production)
-                    </label>
-                    <div class="field-hint">Blocks INSERT/UPDATE/DELETE/DDL.</div>
+                  <div class="field span-2 access-controls">
+                    <div class="access-control access-readonly">
+                      <div class="access-control-title">Read-only</div>
+                      <label class="access-checkbox">
+                        <input id="readOnly" type="checkbox" />
+                        Block writes and DDL
+                      </label>
+                      <div class="field-hint">Recommended for production credentials.</div>
+                    </div>
+                    <div class="access-control access-policy">
+                      <label class="access-control-title" for="policyMode">Environment policy</label>
+                      <select id="policyMode">
+                        <option value="dev">Dev</option>
+                        <option value="staging">Staging</option>
+                        <option value="prod">Prod</option>
+                      </select>
+                      <div class="field-hint">Defines default execution safety for this connection.</div>
+                    </div>
                   </div>
 
                   <div id="sshFields" class="ssh-fields hidden">
@@ -651,6 +691,43 @@
         </div>
       </div>
 
+      <div id="policyApprovalModal" class="modal hidden">
+        <div id="policyApprovalModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card small">
+          <div class="connect-panel">
+            <div class="connect-header">
+              <div>
+                <div id="policyApprovalTitle" class="connect-title">
+                  Confirm policy action
+                </div>
+                <div id="policyApprovalSubtitle" class="connect-subtitle">
+                  Type PROCEED to continue.
+                </div>
+              </div>
+              <button id="policyApprovalCloseBtn" class="icon-btn" title="Close">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="approval-form">
+              <div class="field">
+                <label>Confirmation</label>
+                <input
+                  id="policyApprovalInput"
+                  autocomplete="off"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                  placeholder="Type PROCEED"
+                />
+              </div>
+              <div class="actions end">
+                <button id="policyApprovalCancelBtn" class="secondary">Cancel</button>
+                <button id="policyApprovalConfirmBtn">Continue</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="snippetModal" class="modal hidden">
         <div id="snippetModalBackdrop" class="modal-backdrop"></div>
         <div class="modal-card">
@@ -691,41 +768,150 @@
 
       <div id="settingsModal" class="modal hidden">
         <div id="settingsModalBackdrop" class="modal-backdrop"></div>
-        <div class="modal-card small">
+        <div class="modal-card">
           <div class="connect-panel">
             <div class="connect-header">
               <div>
-                <div class="connect-title">Preferences</div>
+                <div class="connect-title">Settings</div>
                 <div id="settingsSubtitle" class="connect-subtitle">
-                  Clear saved data for this connection.
+                  Configure global behavior.
                 </div>
               </div>
               <button id="settingsCloseBtn" class="icon-btn" title="Close">
                 <i class="bi bi-x"></i>
               </button>
             </div>
-            <div class="settings-section">
-              <div class="settings-section-title">Connection data</div>
-              <label class="settings-option">
-                <input id="clearTabs" type="checkbox" />
-                Open tabs
-              </label>
-              <label class="settings-option">
-                <input id="clearHistory" type="checkbox" />
-                Query history
-              </label>
-              <label class="settings-option">
-                <input id="clearSnippets" type="checkbox" />
-                Saved snippets
-              </label>
-              <label class="settings-option">
-                <input id="clearTreeState" type="checkbox" />
-                Tree (expansion)
-              </label>
+
+            <div class="settings-tabs" id="settingsTabs" role="tablist" aria-label="Settings tabs">
+              <button
+                type="button"
+                class="settings-tab active"
+                data-settings-tab="general"
+                role="tab"
+                aria-selected="true"
+              >
+                General
+              </button>
+              <button
+                type="button"
+                class="settings-tab"
+                data-settings-tab="environments"
+                role="tab"
+                aria-selected="false"
+              >
+                Environments
+              </button>
             </div>
+
+            <div
+              id="settingsPanelGeneral"
+              class="settings-panel"
+              role="tabpanel"
+              aria-label="General settings"
+            >
+              <div class="settings-section">
+                <div class="settings-section-title">Query defaults</div>
+                <div class="settings-note">
+                  Choose default LIMIT and timeout values used in the SQL editor.
+                </div>
+                <div class="settings-general-grid">
+                  <div class="field">
+                    <label for="settingsDefaultLimit">Default limit</label>
+                    <select id="settingsDefaultLimit">
+                      <option value="50">50</option>
+                      <option value="100" selected>100</option>
+                      <option value="200">200</option>
+                      <option value="500">500</option>
+                      <option value="1000">1000</option>
+                      <option value="none">No limit</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="settingsDefaultTimeout">Default timeout</label>
+                    <select id="settingsDefaultTimeout">
+                      <option value="5000">5s</option>
+                      <option value="15000">15s</option>
+                      <option value="30000" selected>30s</option>
+                      <option value="60000">60s</option>
+                      <option value="none">No timeout</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-section">
+                <div class="settings-section-title">Safety model</div>
+                <div class="settings-note">
+                  Environment rules are enforced in backend. Read-only also remains active on each connection.
+                </div>
+                <div class="settings-note">
+                  Use the Environments tab to tune write, DDL/Admin, and confirmation requirements.
+                </div>
+              </div>
+            </div>
+
+            <div
+              id="settingsPanelEnvironments"
+              class="settings-panel hidden"
+              role="tabpanel"
+              aria-label="Environment policy settings"
+            >
+              <div class="settings-section">
+                <div class="settings-section-title">Environment policies</div>
+                <div class="env-policy-grid" id="envPolicyGrid">
+                  <div class="env-policy-header">Environment</div>
+                  <div class="env-policy-header">Allow write (DML)</div>
+                  <div class="env-policy-header">Allow DDL/Admin</div>
+                  <div class="env-policy-header">Require typed confirmation</div>
+
+                  <div class="env-policy-label">Dev</div>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyDevAllowWrite" type="checkbox" />
+                    <span>Enabled</span>
+                  </label>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyDevAllowDdl" type="checkbox" />
+                    <span>Enabled</span>
+                  </label>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyDevRequireApproval" type="checkbox" />
+                    <span>PROCEED</span>
+                  </label>
+
+                  <div class="env-policy-label">Staging</div>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyStagingAllowWrite" type="checkbox" />
+                    <span>Enabled</span>
+                  </label>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyStagingAllowDdl" type="checkbox" />
+                    <span>Enabled</span>
+                  </label>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyStagingRequireApproval" type="checkbox" />
+                    <span>PROCEED</span>
+                  </label>
+
+                  <div class="env-policy-label">Prod</div>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyProdAllowWrite" type="checkbox" />
+                    <span>Enabled</span>
+                  </label>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyProdAllowDdl" type="checkbox" />
+                    <span>Enabled</span>
+                  </label>
+                  <label class="env-policy-toggle">
+                    <input id="envPolicyProdRequireApproval" type="checkbox" />
+                    <span>PROCEED</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <div class="actions end">
               <button id="settingsCancelBtn" class="secondary">Cancel</button>
-              <button id="settingsClearBtn" class="danger">Clear selected</button>
+              <button id="settingsResetDefaultsBtn" class="secondary">Reset defaults</button>
+              <button id="settingsSaveBtn">Save</button>
             </div>
           </div>
         </div>

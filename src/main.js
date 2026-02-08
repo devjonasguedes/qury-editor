@@ -16,6 +16,7 @@ const { createDriver } = require("./drivers");
 
 let mainWindow = null;
 let currentDriver = null;
+let currentConnectionState = { readOnly: false };
 let db = null;
 let dbPromise = null;
 let windowStateSaveTimer = null;
@@ -45,6 +46,30 @@ const SECRET_FIELDS = [
 ];
 const DEFAULT_WINDOW_SIZE = { width: 1200, height: 900 };
 const MIN_WINDOW_SIZE = { width: 800, height: 600 };
+const READ_ONLY_BLOCKED_KEYWORDS = new Set([
+  "insert",
+  "update",
+  "delete",
+  "merge",
+  "upsert",
+  "replace",
+  "create",
+  "alter",
+  "drop",
+  "truncate",
+  "rename",
+  "comment",
+  "grant",
+  "revoke",
+  "call",
+  "do",
+  "copy",
+  "refresh",
+  "reindex",
+  "cluster",
+  "vacuum",
+  "analyze",
+]);
 
 function encodeSecret(value) {
   const text = value == null ? "" : String(value);
@@ -489,6 +514,376 @@ function persistDb(dbInstance) {
   fs.writeFileSync(connectionsDb(), Buffer.from(data));
 }
 
+function normalizeConnectionType(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "postgres") return "postgresql";
+  if (text === "postgresql" || text === "mysql") return text;
+  return text || "mysql";
+}
+
+function isReadOnlyConfig(config) {
+  if (!config || typeof config !== "object") return false;
+  return !!(config.readOnly || config.read_only);
+}
+
+function splitSqlStatements(sql) {
+  const text = String(sql || "");
+  const statements = [];
+  let current = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (inLineComment) {
+      current += ch;
+      if (ch === "\n") inLineComment = false;
+      continue;
+    }
+
+    if (inBlockComment) {
+      current += ch;
+      if (ch === "*" && next === "/") {
+        current += next;
+        i += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inBacktick) {
+      if (ch === "-" && next === "-") {
+        inLineComment = true;
+        current += ch + next;
+        i += 1;
+        continue;
+      }
+      if (ch === "/" && next === "*") {
+        inBlockComment = true;
+        current += ch + next;
+        i += 1;
+        continue;
+      }
+    }
+
+    if (!inDouble && !inBacktick && ch === "'") {
+      if (inSingle && next === "'") {
+        current += ch + next;
+        i += 1;
+        continue;
+      }
+      inSingle = !inSingle;
+      current += ch;
+      continue;
+    }
+
+    if (!inSingle && !inBacktick && ch === '"') {
+      if (inDouble && next === '"') {
+        current += ch + next;
+        i += 1;
+        continue;
+      }
+      inDouble = !inDouble;
+      current += ch;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && ch === "`") {
+      inBacktick = !inBacktick;
+      current += ch;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inBacktick && ch === ";") {
+      const stmt = current.trim();
+      if (stmt) statements.push(stmt);
+      current = "";
+      continue;
+    }
+
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
+function stripLeadingComments(sql) {
+  let text = String(sql || "");
+  let changed = true;
+  while (changed) {
+    changed = false;
+    text = text.trimStart();
+    if (text.startsWith("--")) {
+      const idx = text.indexOf("\n");
+      text = idx === -1 ? "" : text.slice(idx + 1);
+      changed = true;
+      continue;
+    }
+    if (text.startsWith("/*")) {
+      const idx = text.indexOf("*/");
+      text = idx === -1 ? "" : text.slice(idx + 2);
+      changed = true;
+      continue;
+    }
+  }
+  return text.trimStart();
+}
+
+function statementActionKeyword(sql) {
+  const cleaned = stripLeadingComments(sql);
+  if (!cleaned) return "";
+  const lower = cleaned.toLowerCase();
+
+  const cteOrExplain = lower.startsWith("with") || lower.startsWith("explain");
+  if (cteOrExplain) {
+    const match = lower.match(
+      /\b(select|insert|update|delete|merge|upsert|replace|create|alter|drop|truncate|rename|comment|grant|revoke|call|do|copy|refresh|reindex|cluster|vacuum|analyze)\b/,
+    );
+    return match ? match[1] : "";
+  }
+
+  const match = lower.match(/^([a-z]+)/);
+  return match ? match[1] : "";
+}
+
+function readOnlyViolation(sqlText) {
+  const statements = splitSqlStatements(sqlText);
+  if (statements.length === 0) return null;
+
+  for (const statement of statements) {
+    const action = statementActionKeyword(statement);
+    if (!action) continue;
+    if (READ_ONLY_BLOCKED_KEYWORDS.has(action)) {
+      return action.toUpperCase();
+    }
+  }
+
+  return null;
+}
+
+function extractSqlFromRunPayload(payload) {
+  if (typeof payload === "string") return payload;
+  if (!payload || typeof payload !== "object") return "";
+  return String(payload.sql || "");
+}
+
+function normalizedPart(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizedPortForFingerprint(type, port) {
+  const value = normalizedPart(port);
+  if (value) return value;
+  if (type === "postgresql") return "5432";
+  if (type === "mysql") return "3306";
+  return "";
+}
+
+function connectionFingerprint(entry) {
+  const source = entry || {};
+  const ssh = source.ssh || {};
+  const type = normalizeConnectionType(source.type);
+  const sshEnabled = !!(
+    source.ssh_enabled ||
+    source.sshEnabled ||
+    (ssh && ssh.enabled)
+  );
+  const readOnly = !!(source.read_only || source.readOnly);
+  return [
+    type,
+    normalizedPart(source.host || "localhost"),
+    normalizedPortForFingerprint(type, source.port),
+    normalizedPart(source.user),
+    normalizedPart(source.database),
+    readOnly ? "ro" : "rw",
+    sshEnabled ? "ssh" : "direct",
+    normalizedPart(ssh.host || source.ssh_host || source.sshHost),
+    normalizedPart(ssh.port || source.ssh_port || source.sshPort),
+    normalizedPart(ssh.user || source.ssh_user || source.sshUser),
+    normalizedPart(ssh.localPort || source.ssh_local_port || source.sshLocalPort),
+  ].join("|");
+}
+
+function normalizeConnectionName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeImportedConnection(entry, index) {
+  if (!entry || typeof entry !== "object") return null;
+  const source = entry;
+  const ssh = source.ssh || {};
+  const sshEnabled = !!(
+    source.ssh_enabled ||
+    source.sshEnabled ||
+    (ssh && ssh.enabled)
+  );
+  const normalized = {
+    ...source,
+    name: String(source.name || "").trim() || `Imported connection ${index + 1}`,
+    type: normalizeConnectionType(source.type),
+    host: String(source.host || "").trim() || "localhost",
+    port: String(source.port || "").trim(),
+    user: String(source.user || ""),
+    password: String(source.password || ""),
+    database: String(source.database || "").trim(),
+    readOnly: !!(source.readOnly || source.read_only),
+    ssh: sshEnabled
+      ? {
+          enabled: true,
+          host: String(ssh.host || source.ssh_host || source.sshHost || "").trim(),
+          port: String(ssh.port || source.ssh_port || source.sshPort || "").trim(),
+          user: String(ssh.user || source.ssh_user || source.sshUser || "").trim(),
+          password: String(
+            ssh.password || source.ssh_password || source.sshPassword || "",
+          ),
+          privateKey: String(
+            ssh.privateKey || source.ssh_private_key || source.sshPrivateKey || "",
+          ),
+          passphrase: String(
+            ssh.passphrase || source.ssh_passphrase || source.sshPassphrase || "",
+          ),
+          localPort: String(
+            ssh.localPort || source.ssh_local_port || source.sshLocalPort || "",
+          ).trim(),
+        }
+      : { enabled: false },
+  };
+  if (source.rememberSecrets !== undefined) {
+    normalized.rememberSecrets = !!source.rememberSecrets;
+  }
+  if (source.remember_secrets !== undefined) {
+    normalized.remember_secrets = source.remember_secrets;
+  }
+  return normalized;
+}
+
+function toConnectionMetadata(entry) {
+  const source = entry || {};
+  const ssh = source.ssh || {};
+  const sshEnabled = !!(
+    source.ssh_enabled ||
+    source.sshEnabled ||
+    (ssh && ssh.enabled)
+  );
+  const readOnly = !!(source.read_only || source.readOnly);
+  return {
+    name: String(source.name || "").trim(),
+    type: normalizeConnectionType(source.type),
+    host: String(source.host || "").trim(),
+    port: String(source.port || "").trim(),
+    user: String(source.user || ""),
+    database: String(source.database || "").trim(),
+    last_connected_at: Number(
+      source.last_connected_at || source.lastConnectedAt || 0,
+    ) || 0,
+    read_only: readOnly ? 1 : 0,
+    ssh_enabled: sshEnabled ? 1 : 0,
+    ssh_host: String(
+      source.ssh_host || (ssh && ssh.host) || source.sshHost || "",
+    ).trim(),
+    ssh_port: String(
+      source.ssh_port || (ssh && ssh.port) || source.sshPort || "",
+    ).trim(),
+    ssh_user: String(
+      source.ssh_user || (ssh && ssh.user) || source.sshUser || "",
+    ).trim(),
+    ssh_local_port: String(
+      source.ssh_local_port ||
+        (ssh && ssh.localPort) ||
+        source.sshLocalPort ||
+        "",
+    ).trim(),
+  };
+}
+
+function getConnectionMetadata(dbInstance) {
+  const res = dbInstance.exec(
+    "SELECT name, type, host, port, user, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
+  );
+  return rowsFromExec(res);
+}
+
+function rebuildFingerprintMapByName(metaByName) {
+  const fingerprintMap = new Map();
+  for (const meta of metaByName.values()) {
+    const fingerprint = connectionFingerprint(meta);
+    if (!fingerprintMap.has(fingerprint)) {
+      fingerprintMap.set(fingerprint, meta);
+    }
+  }
+  return fingerprintMap;
+}
+
+function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
+  if (!entry || !entry.name) {
+    throw new Error("Connection name is required.");
+  }
+  const stored = toStoredConnectionEntry(entry);
+  const readOnly = !!(entry && (entry.read_only || entry.readOnly));
+  const sshEnabled = !!(
+    entry &&
+    (entry.ssh_enabled || entry.sshEnabled || (entry.ssh && entry.ssh.enabled))
+  );
+  const stmt = dbInstance.prepare(`
+    INSERT INTO connections
+      (name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+    VALUES
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      type = excluded.type,
+      host = excluded.host,
+      port = excluded.port,
+      user = excluded.user,
+      password = excluded.password,
+      remember_secrets = excluded.remember_secrets,
+      database = excluded.database,
+      last_connected_at = CASE
+        WHEN excluded.last_connected_at > 0 THEN excluded.last_connected_at
+        ELSE connections.last_connected_at
+      END,
+      read_only = excluded.read_only,
+      ssh_enabled = excluded.ssh_enabled,
+      ssh_host = excluded.ssh_host,
+      ssh_port = excluded.ssh_port,
+      ssh_user = excluded.ssh_user,
+      ssh_password = excluded.ssh_password,
+      ssh_private_key = excluded.ssh_private_key,
+      ssh_passphrase = excluded.ssh_passphrase,
+      ssh_local_port = excluded.ssh_local_port,
+      updated_at = excluded.updated_at
+  `);
+  stmt.run([
+    entry.name,
+    normalizeConnectionType(entry.type),
+    entry.host || "",
+    entry.port || "",
+    entry.user || "",
+    stored.password || "",
+    stored.remember_secrets || 0,
+    entry.database || "",
+    entry.last_connected_at || entry.lastConnectedAt || 0,
+    readOnly ? 1 : 0,
+    sshEnabled ? 1 : 0,
+    entry.ssh_host || (entry.ssh && entry.ssh.host) || "",
+    entry.ssh_port || (entry.ssh && entry.ssh.port) || "",
+    entry.ssh_user || (entry.ssh && entry.ssh.user) || "",
+    stored.ssh_password || "",
+    stored.ssh_private_key || "",
+    stored.ssh_passphrase || "",
+    entry.ssh_local_port || (entry.ssh && entry.ssh.localPort) || "",
+    now,
+    now,
+  ]);
+  stmt.free();
+}
+
 function normalizeSshConfig(ssh) {
   if (!ssh || !ssh.enabled) return null;
   const host = ssh.host || "";
@@ -585,60 +980,7 @@ async function listConnections() {
 
 async function saveConnection(entry) {
   const dbInstance = await initDb();
-  const stored = toStoredConnectionEntry(entry);
-  const readOnly = !!(entry && (entry.read_only || entry.readOnly));
-  const sshEnabled = !!(
-    entry &&
-    (entry.ssh_enabled || entry.sshEnabled || (entry.ssh && entry.ssh.enabled))
-  );
-  const now = Date.now();
-  const stmt = dbInstance.prepare(`
-    INSERT INTO connections
-      (name, type, host, port, user, password, remember_secrets, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
-    VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(name) DO UPDATE SET
-      type = excluded.type,
-      host = excluded.host,
-      port = excluded.port,
-      user = excluded.user,
-      password = excluded.password,
-      remember_secrets = excluded.remember_secrets,
-      database = excluded.database,
-      read_only = excluded.read_only,
-      ssh_enabled = excluded.ssh_enabled,
-      ssh_host = excluded.ssh_host,
-      ssh_port = excluded.ssh_port,
-      ssh_user = excluded.ssh_user,
-      ssh_password = excluded.ssh_password,
-      ssh_private_key = excluded.ssh_private_key,
-      ssh_passphrase = excluded.ssh_passphrase,
-      ssh_local_port = excluded.ssh_local_port,
-      updated_at = excluded.updated_at
-  `);
-  stmt.run([
-    entry.name,
-    entry.type,
-    entry.host || "",
-    entry.port || "",
-    entry.user || "",
-    stored.password || "",
-    stored.remember_secrets || 0,
-    entry.database || "",
-    entry.last_connected_at || entry.lastConnectedAt || 0,
-    readOnly ? 1 : 0,
-    sshEnabled ? 1 : 0,
-    entry.ssh_host || (entry.ssh && entry.ssh.host) || "",
-    entry.ssh_port || (entry.ssh && entry.ssh.port) || "",
-    entry.ssh_user || (entry.ssh && entry.ssh.user) || "",
-    stored.ssh_password || "",
-    stored.ssh_private_key || "",
-    stored.ssh_passphrase || "",
-    entry.ssh_local_port || (entry.ssh && entry.ssh.localPort) || "",
-    now,
-    now,
-  ]);
-  stmt.free();
+  upsertConnectionRecord(dbInstance, entry);
   persistDb(dbInstance);
   return listConnections();
 }
@@ -658,6 +1000,167 @@ async function touchConnection(name) {
   return listConnections();
 }
 
+async function exportConnections(ownerWindow) {
+  try {
+    const connections = await listConnections();
+    const stamp = new Date().toISOString().slice(0, 10);
+    const defaultPath = path.join(
+      app.getPath("documents"),
+      `qury-connections-${stamp}.json`,
+    );
+    const activeOwner =
+      ownerWindow && !ownerWindow.isDestroyed()
+        ? ownerWindow
+        : BrowserWindow.getFocusedWindow() || mainWindow || undefined;
+    if (activeOwner && !activeOwner.isDestroyed()) activeOwner.focus();
+    const saveResult = await dialog.showSaveDialog({
+      title: "Export saved connections",
+      buttonLabel: "Export",
+      defaultPath,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!saveResult || saveResult.canceled || !saveResult.filePath) {
+      return { ok: false, canceled: true };
+    }
+    const payload = {
+      exported_at: new Date().toISOString(),
+      app: "Qury Editor",
+      connections,
+    };
+    fs.writeFileSync(
+      saveResult.filePath,
+      `${JSON.stringify(payload, null, 2)}\n`,
+      "utf8",
+    );
+    return {
+      ok: true,
+      path: saveResult.filePath,
+      count: Array.isArray(connections) ? connections.length : 0,
+    };
+  } catch (err) {
+    const message = err && err.message ? err.message : "Failed to export.";
+    return { ok: false, error: message };
+  }
+}
+
+async function importConnections(ownerWindow) {
+  try {
+    const activeOwner =
+      ownerWindow && !ownerWindow.isDestroyed()
+        ? ownerWindow
+        : BrowserWindow.getFocusedWindow() || mainWindow || undefined;
+    if (activeOwner && !activeOwner.isDestroyed()) activeOwner.focus();
+    const openResult = await dialog.showOpenDialog({
+      title: "Import saved connections",
+      buttonLabel: "Import",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+      properties: ["openFile"],
+    });
+    if (
+      !openResult ||
+      openResult.canceled ||
+      !openResult.filePaths ||
+      !openResult.filePaths[0]
+    ) {
+      return { ok: false, canceled: true };
+    }
+
+    const raw = fs.readFileSync(openResult.filePaths[0], "utf8");
+    const parsed = JSON.parse(raw);
+    const sourceList = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed && parsed.connections)
+        ? parsed.connections
+        : null;
+    if (!sourceList) {
+      return { ok: false, error: "Invalid file format. Expected a JSON list." };
+    }
+
+    const dbInstance = await initDb();
+    const now = Date.now();
+    const existing = getConnectionMetadata(dbInstance);
+    const metadataByName = new Map(
+      existing.map((item) => [normalizeConnectionName(item.name), item]),
+    );
+    let metadataByFingerprint = rebuildFingerprintMapByName(metadataByName);
+
+    let added = 0;
+    let updated = 0;
+    let matchedBySimilarity = 0;
+    let skipped = 0;
+
+    dbInstance.run("BEGIN TRANSACTION");
+    try {
+      sourceList.forEach((item, index) => {
+        const normalized = normalizeImportedConnection(item, index);
+        if (!normalized || !normalized.name) {
+          skipped += 1;
+          return;
+        }
+
+        const importedNameKey = normalizeConnectionName(normalized.name);
+        const byName = metadataByName.get(importedNameKey);
+
+        if (byName && byName.name) {
+          normalized.name = byName.name;
+          if (!normalized.last_connected_at && byName.last_connected_at) {
+            normalized.last_connected_at = byName.last_connected_at;
+          }
+          upsertConnectionRecord(dbInstance, normalized, now);
+          updated += 1;
+          const nextMeta = toConnectionMetadata(normalized);
+          metadataByName.set(normalizeConnectionName(nextMeta.name), nextMeta);
+          metadataByFingerprint = rebuildFingerprintMapByName(metadataByName);
+          return;
+        }
+
+        const fingerprint = connectionFingerprint(normalized);
+        const similar = metadataByFingerprint.get(fingerprint);
+        if (similar && similar.name) {
+          normalized.name = similar.name;
+          if (!normalized.last_connected_at && similar.last_connected_at) {
+            normalized.last_connected_at = similar.last_connected_at;
+          }
+          upsertConnectionRecord(dbInstance, normalized, now);
+          updated += 1;
+          matchedBySimilarity += 1;
+          const nextMeta = toConnectionMetadata(normalized);
+          metadataByName.set(normalizeConnectionName(nextMeta.name), nextMeta);
+          metadataByFingerprint = rebuildFingerprintMapByName(metadataByName);
+          return;
+        }
+
+        upsertConnectionRecord(dbInstance, normalized, now);
+        added += 1;
+        const nextMeta = toConnectionMetadata(normalized);
+        metadataByName.set(normalizeConnectionName(nextMeta.name), nextMeta);
+        metadataByFingerprint = rebuildFingerprintMapByName(metadataByName);
+      });
+
+      dbInstance.run("COMMIT");
+    } catch (err) {
+      try {
+        dbInstance.run("ROLLBACK");
+      } catch (_) {}
+      throw err;
+    }
+
+    persistDb(dbInstance);
+    return {
+      ok: true,
+      path: openResult.filePaths[0],
+      total: sourceList.length,
+      added,
+      updated,
+      matchedBySimilarity,
+      skipped,
+    };
+  } catch (err) {
+    const message = err && err.message ? err.message : "Failed to import.";
+    return { ok: false, error: message };
+  }
+}
+
 async function deleteConnection(name) {
   const dbInstance = await initDb();
   const stmt = dbInstance.prepare("DELETE FROM connections WHERE name = ?");
@@ -674,6 +1177,7 @@ async function disconnect() {
     }
   } finally {
     currentDriver = null;
+    currentConnectionState = { readOnly: false };
   }
 }
 
@@ -824,19 +1328,35 @@ ipcMain.handle("connections:touch", async (_evt, name) => {
   return touchConnection(name);
 });
 
+ipcMain.handle("connections:export", async (evt) => {
+  const owner = evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
+  return exportConnections(owner);
+});
+
+ipcMain.handle("connections:import", async (evt) => {
+  const owner = evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
+  return importConnections(owner);
+});
+
 ipcMain.handle("db:connect", async (_evt, config) => {
   try {
     await disconnect();
-    const type = config.type === "postgres" ? "postgresql" : config.type;
-    const sshConfig = normalizeSshConfig(config.ssh);
+    const normalizedConfig = {
+      ...(config || {}),
+      readOnly: isReadOnlyConfig(config),
+    };
+    const type =
+      normalizedConfig.type === "postgres" ? "postgresql" : normalizedConfig.type;
+    const sshConfig = normalizeSshConfig(normalizedConfig.ssh);
     const driver = createDriver(type, {
       createTunnel: createSshTunnel,
       closeTunnel,
     });
-    const res = await driver.connect(config, sshConfig);
+    const res = await driver.connect(normalizedConfig, sshConfig);
     if (!res || !res.ok)
       return res || { ok: false, error: "Failed to connect." };
     currentDriver = driver;
+    currentConnectionState = { readOnly: normalizedConfig.readOnly };
     return { ok: true };
   } catch (err) {
     const message = err && err.message ? err.message : "Failed to connect.";
@@ -913,6 +1433,16 @@ ipcMain.handle("db:testConnection", async (_evt, config) => {
 
 ipcMain.handle("db:runQuery", async (_evt, payload) => {
   if (!currentDriver) return { ok: false, error: "Not connected." };
+  if (currentConnectionState && currentConnectionState.readOnly) {
+    const sql = extractSqlFromRunPayload(payload);
+    const blockedAction = readOnlyViolation(sql);
+    if (blockedAction) {
+      return {
+        ok: false,
+        error: `Read-only connection blocks ${blockedAction} statements.`,
+      };
+    }
+  }
   return currentDriver.runQuery(payload);
 });
 

@@ -2,6 +2,7 @@ const { Client } = require('pg');
 const { buildIndexes, buildConstraints, buildTriggers } = require('./metadata');
 
 const MAX_IPC_ROWS = 5000;
+const isReadOnlyConfig = (cfg) => !!(cfg && (cfg.readOnly || cfg.read_only));
 
 function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   let client = null;
@@ -42,6 +43,9 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         database: cfg.database || undefined
       });
       await connection.connect();
+      if (isReadOnlyConfig(cfg)) {
+        await connection.query('SET default_transaction_read_only = on');
+      }
       let dbName = cfg.database || '';
       if (!dbName) {
         const res = await connection.query('SELECT current_database() AS db');
@@ -53,7 +57,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         port: connectPort,
         user: cfg.user,
         password: cfg.password,
-        database: cfg.database || undefined
+        database: cfg.database || undefined,
+        readOnly: isReadOnlyConfig(cfg)
       };
       database = dbName;
       tunnel = createdTunnel;
@@ -269,10 +274,20 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
       database: name
     });
     await next.connect();
+    if (cfg.readOnly) {
+      await next.query('SET default_transaction_read_only = on');
+    }
     await client.end();
     client = next;
     database = name;
-    config = { host: cfg.host, port: cfg.port, user: cfg.user, password: cfg.password, database: name };
+    config = {
+      host: cfg.host,
+      port: cfg.port,
+      user: cfg.user,
+      password: cfg.password,
+      database: name,
+      readOnly: !!cfg.readOnly
+    };
     return { ok: true };
   };
 

@@ -2,6 +2,7 @@ const mysql = require('mysql2/promise');
 const { buildIndexes, buildConstraints, buildTriggers } = require('./metadata');
 
 const MAX_IPC_ROWS = 5000;
+const isReadOnlyConfig = (cfg) => !!(cfg && (cfg.readOnly || cfg.read_only));
 
 function normalizeIdentifier(value) {
   return String(value || '').trim().replace(/^`|`$/g, '').replace(/^"|"$/g, '');
@@ -333,6 +334,9 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         password: cfg.password,
         database: cfg.database || undefined
       });
+      if (isReadOnlyConfig(cfg)) {
+        await connection.query('SET SESSION TRANSACTION READ ONLY');
+      }
       let dbName = cfg.database || '';
       if (!dbName) {
         const [rows] = await connection.query('SELECT DATABASE() AS db');
@@ -344,7 +348,8 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         port: connectPort,
         user: cfg.user,
         password: cfg.password,
-        database: cfg.database || undefined
+        database: cfg.database || undefined,
+        readOnly: isReadOnlyConfig(cfg)
       };
       database = dbName;
       tunnel = createdTunnel;
@@ -614,6 +619,9 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     if (!client) return { ok: false, error: 'Not connected.' };
     if (!name) return { ok: false, error: 'Invalid database.' };
     await client.changeUser({ database: name });
+    if (config && config.readOnly) {
+      await client.query('SET SESSION TRANSACTION READ ONLY');
+    }
     database = name;
     if (config) config.database = name;
     return { ok: true };

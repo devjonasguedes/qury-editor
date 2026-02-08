@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('api', {
   listSavedConnections: () => ipcRenderer.invoke('connections:list'),
   saveConnection: (entry) => ipcRenderer.invoke('connections:save', entry),
   touchConnection: (name) => ipcRenderer.invoke('connections:touch', name),
+  exportSavedConnections: () => ipcRenderer.invoke('connections:export'),
+  importSavedConnections: () => ipcRenderer.invoke('connections:import'),
   deleteConnection: (name) => ipcRenderer.invoke('connections:delete', name),
   connect: (config) => ipcRenderer.invoke('db:connect', config),
   disconnect: () => ipcRenderer.invoke('db:disconnect'),

@@ -57,6 +57,8 @@ export function initHome({ api }) {
   const clearFormBtn = byId('clearFormBtn');
   const cancelEditBtn = byId('cancelEditBtn');
   const savedList = byId('savedList');
+  const importConnectionsBtn = byId('importConnectionsBtn');
+  const exportConnectionsBtn = byId('exportConnectionsBtn');
   const mainScreen = byId('mainScreen');
   const welcomeScreen = byId('welcomeScreen');
   const connectSpinner = byId('connectSpinner');
@@ -1727,6 +1729,8 @@ export function initHome({ api }) {
     if (testBtn) testBtn.disabled = loading;
     if (clearFormBtn) clearFormBtn.disabled = loading;
     if (cancelEditBtn) cancelEditBtn.disabled = loading;
+    if (importConnectionsBtn) importConnectionsBtn.disabled = loading;
+    if (exportConnectionsBtn) exportConnectionsBtn.disabled = loading;
     if (openConnectModalBtn) openConnectModalBtn.disabled = loading;
     if (quickConnectBtn) quickConnectBtn.disabled = loading;
     if (savedList) savedList.classList.toggle('is-connecting', loading);
@@ -1965,6 +1969,64 @@ export function initHome({ api }) {
       if (tabConnectionsView) tabConnectionsView.clearActive();
       renderConnectionTabs();
       renderSavedList();
+    });
+  }
+
+  if (exportConnectionsBtn) {
+    exportConnectionsBtn.addEventListener('click', async () => {
+      try {
+        if (!safeApi.exportSavedConnections) {
+          await safeApi.showError('Export API unavailable. Restart the app and try again.');
+          return;
+        }
+        showToast('Opening save dialog...');
+        const res = await safeApi.exportSavedConnections();
+        if (!res || !res.ok) {
+          if (res && res.canceled) return;
+          await safeApi.showError((res && res.error) || 'Failed to export saved connections.');
+          return;
+        }
+        showToast(`Exported ${res.count || 0} connection(s)`);
+      } catch (err) {
+        const message = err && err.message ? err.message : '';
+        if (message.includes("No handler registered for 'connections:export'")) {
+          await safeApi.showError('Export unavailable in this running process. Restart the app and try again.');
+          return;
+        }
+        await safeApi.showError('Failed to export saved connections.');
+      }
+    });
+  }
+
+  if (importConnectionsBtn) {
+    importConnectionsBtn.addEventListener('click', async () => {
+      try {
+        if (!safeApi.importSavedConnections) {
+          await safeApi.showError('Import API unavailable. Restart the app and try again.');
+          return;
+        }
+        const confirmed = confirm(
+          'Importar conexoes pode atualizar conexoes existentes com o mesmo nome ou configuracao similar. Deseja continuar?',
+        );
+        if (!confirmed) return;
+        showToast('Opening file dialog...');
+        const res = await safeApi.importSavedConnections();
+        if (!res || !res.ok) {
+          if (res && res.canceled) return;
+          await safeApi.showError((res && res.error) || 'Failed to import saved connections.');
+          return;
+        }
+        await renderSavedList();
+        const label = `Imported ${res.added || 0} new, updated ${res.updated || 0}`;
+        showToast(label);
+      } catch (err) {
+        const message = err && err.message ? err.message : '';
+        if (message.includes("No handler registered for 'connections:import'")) {
+          await safeApi.showError('Import unavailable in this running process. Restart the app and try again.');
+          return;
+        }
+        await safeApi.showError('Failed to import saved connections.');
+      }
     });
   }
 

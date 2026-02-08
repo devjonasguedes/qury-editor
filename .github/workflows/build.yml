@@ -8,6 +8,8 @@ on:
 
 jobs:
   build:
+    env:
+      ELECTRON_BUILDER_PUBLISH: never
     strategy:
       fail-fast: false
       matrix:

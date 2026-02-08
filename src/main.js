@@ -81,21 +81,53 @@ function mapSecrets(entry, mapper) {
   return next;
 }
 
+function shouldRememberSecrets(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  if (entry.rememberSecrets !== undefined) return !!entry.rememberSecrets;
+  if (entry.remember_secrets !== undefined) return Number(entry.remember_secrets) === 1;
+  if (entry.save_secrets !== undefined) return Number(entry.save_secrets) === 1;
+  const ssh = entry.ssh || {};
+  return !!(
+    entry.password ||
+    entry.ssh_password ||
+    entry.ssh_private_key ||
+    entry.ssh_passphrase ||
+    ssh.password ||
+    ssh.privateKey ||
+    ssh.passphrase
+  );
+}
+
 function toStoredConnectionEntry(entry) {
   const source = entry || {};
   const ssh = source.ssh || {};
+  const rememberSecrets = shouldRememberSecrets(source);
   const normalized = {
     ...source,
+    remember_secrets: rememberSecrets ? 1 : 0,
     password: source.password || "",
     ssh_password: source.ssh_password || ssh.password || "",
     ssh_private_key: source.ssh_private_key || ssh.privateKey || "",
     ssh_passphrase: source.ssh_passphrase || ssh.passphrase || "",
   };
+  if (!rememberSecrets) {
+    return mapSecrets(normalized, () => "");
+  }
   return mapSecrets(normalized, encodeSecret);
 }
 
 function toPublicConnectionEntry(entry) {
-  return mapSecrets(entry || {}, decodeSecret);
+  const source = entry || {};
+  const rememberSecrets = shouldRememberSecrets(source);
+  const normalized = {
+    ...source,
+    remember_secrets: rememberSecrets ? 1 : 0,
+    rememberSecrets,
+  };
+  if (!rememberSecrets) {
+    return mapSecrets(normalized, () => "");
+  }
+  return mapSecrets(normalized, decodeSecret);
 }
 
 function readWindowState() {
@@ -224,6 +256,7 @@ async function initDb() {
           port TEXT,
           user TEXT,
           password TEXT,
+          remember_secrets INTEGER DEFAULT 0,
           database TEXT,
           read_only INTEGER DEFAULT 0,
           ssh_enabled INTEGER DEFAULT 0,
@@ -294,6 +327,23 @@ function ensureConnectionsSchema(dbInstance) {
       dbInstance.run("ALTER TABLE connections ADD COLUMN ssh_local_port TEXT");
       changed = true;
     }
+    if (!cols.includes("remember_secrets")) {
+      dbInstance.run(
+        "ALTER TABLE connections ADD COLUMN remember_secrets INTEGER DEFAULT 0",
+      );
+      dbInstance.run(`
+        UPDATE connections
+        SET remember_secrets = CASE
+          WHEN COALESCE(password, '') <> ''
+            OR COALESCE(ssh_password, '') <> ''
+            OR COALESCE(ssh_private_key, '') <> ''
+            OR COALESCE(ssh_passphrase, '') <> ''
+          THEN 1
+          ELSE 0
+        END
+      `);
+      changed = true;
+    }
   } catch (err) {
     console.error("Failed to ensure connections schema:", err);
   }
@@ -318,9 +368,9 @@ function migrateConnectionsIfNeeded(dbInstance) {
   });
   const stmt = dbInstance.prepare(`
     INSERT OR REPLACE INTO connections
-      (name, type, host, port, user, password, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (name, type, host, port, user, password, remember_secrets, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const item of byName.values()) {
     const stored = toStoredConnectionEntry(item);
@@ -336,6 +386,7 @@ function migrateConnectionsIfNeeded(dbInstance) {
       item.port || "",
       item.user || "",
       stored.password || "",
+      stored.remember_secrets || 0,
       item.database || "",
       readOnly,
       sshEnabled,
@@ -357,7 +408,7 @@ function migrateConnectionsIfNeeded(dbInstance) {
 function migrateSecretFieldsIfNeeded(dbInstance) {
   if (!safeStorage.isEncryptionAvailable()) return;
   const res = dbInstance.exec(
-    "SELECT name, password, ssh_password, ssh_private_key, ssh_passphrase FROM connections",
+    "SELECT name, password, remember_secrets, ssh_password, ssh_private_key, ssh_passphrase FROM connections",
   );
   const rows = rowsFromExec(res);
   if (!rows.length) return;
@@ -370,6 +421,15 @@ function migrateSecretFieldsIfNeeded(dbInstance) {
     WHERE name = ?
   `);
   rows.forEach((row) => {
+    const rememberSecrets = shouldRememberSecrets(row);
+    if (!rememberSecrets) {
+      const hasAnySecret =
+        !!(row.password || row.ssh_password || row.ssh_private_key || row.ssh_passphrase);
+      if (!hasAnySecret) return;
+      stmt.run(["", "", "", "", now, row.name]);
+      changed = true;
+      return;
+    }
     const password = encodeSecret(row.password || "");
     const sshPassword = encodeSecret(row.ssh_password || "");
     const sshPrivateKey = encodeSecret(row.ssh_private_key || "");
@@ -510,7 +570,7 @@ function closeTunnel(tunnel) {
 async function listConnections() {
   const dbInstance = await initDb();
   const res = dbInstance.exec(
-    "SELECT name, type, host, port, user, password, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY name",
+    "SELECT name, type, host, port, user, password, remember_secrets, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY name",
   );
   return rowsFromExec(res).map((entry) => toPublicConnectionEntry(entry));
 }
@@ -526,15 +586,16 @@ async function saveConnection(entry) {
   const now = Date.now();
   const stmt = dbInstance.prepare(`
     INSERT INTO connections
-      (name, type, host, port, user, password, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (name, type, host, port, user, password, remember_secrets, database, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       type = excluded.type,
       host = excluded.host,
       port = excluded.port,
       user = excluded.user,
       password = excluded.password,
+      remember_secrets = excluded.remember_secrets,
       database = excluded.database,
       read_only = excluded.read_only,
       ssh_enabled = excluded.ssh_enabled,
@@ -554,6 +615,7 @@ async function saveConnection(entry) {
     entry.port || "",
     entry.user || "",
     stored.password || "",
+    stored.remember_secrets || 0,
     entry.database || "",
     readOnly ? 1 : 0,
     sshEnabled ? 1 : 0,

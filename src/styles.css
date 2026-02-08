@@ -1099,6 +1099,45 @@ body.theme-light .welcome-screen .onboard {
   grid-column: span 2;
 }
 
+.save-settings {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.save-settings-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 11px !important;
+  color: var(--text) !important;
+}
+
+.save-settings-option input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.save-settings .field-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+#credentialModal .row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+#credentialModal .actions.end {
+  margin-top: 2px;
+}
+
 /* ====
 actions & buttons
 ==== */

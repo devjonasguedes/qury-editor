@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   main: {
     build: {
+      sourcemap: false,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main.js')
@@ -16,6 +17,7 @@ export default defineConfig({
   },
   preload: {
     build: {
+      sourcemap: false,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload.js')
@@ -27,6 +29,7 @@ export default defineConfig({
     root: '.',
     base: './',
     build: {
+      sourcemap: false,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'index.html')

@@ -563,9 +563,16 @@
                 </div>
               </div>
 
-              <div class="field span-2 save-only">
-                <label>Name to save</label>
+              <div class="field span-2 save-only save-settings">
+                <label>Save connection</label>
                 <input id="saveName" placeholder="e.g. Production" />
+                <label class="save-settings-option">
+                  <input id="rememberPassword" type="checkbox" />
+                  Save password and SSH secrets
+                </label>
+                <div class="field-hint">
+                  Uses your system secure storage and may ask for login password.
+                </div>
               </div>
 
               <div class="actions">
@@ -576,6 +583,57 @@
                 <button id="cancelEditBtn" class="secondary hidden">
                   Cancel
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="credentialModal" class="modal hidden">
+        <div id="credentialModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card small">
+          <div class="connect-panel">
+            <div class="connect-header">
+              <div>
+                <div id="credentialModalTitle" class="connect-title">
+                  Enter password to connect
+                </div>
+                <div id="credentialModalSubtitle" class="connect-subtitle">
+                  Password is not saved.
+                </div>
+              </div>
+              <button id="credentialCloseBtn" class="icon-btn" title="Close">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="row">
+              <div class="field span-2">
+                <label>Database password</label>
+                <input id="credentialDbPassword" type="password" />
+              </div>
+
+              <div id="credentialSshFields" class="ssh-fields hidden">
+                <div class="field">
+                  <label>SSH Password</label>
+                  <input id="credentialSshPassword" type="password" />
+                </div>
+                <div class="field span-2">
+                  <label>SSH Private Key</label>
+                  <textarea
+                    id="credentialSshPrivateKey"
+                    rows="4"
+                    placeholder="-----BEGIN PRIVATE KEY-----"
+                  ></textarea>
+                </div>
+                <div class="field">
+                  <label>SSH Passphrase</label>
+                  <input id="credentialSshPassphrase" type="password" />
+                </div>
+              </div>
+
+              <div class="actions end">
+                <button id="credentialCancelBtn" class="secondary">Cancel</button>
+                <button id="credentialConfirmBtn">Connect</button>
               </div>
             </div>
           </div>

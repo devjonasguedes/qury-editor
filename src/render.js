@@ -41,6 +41,7 @@ export function initHome({ api }) {
   const password = byId('password');
   const database = byId('database');
   const saveName = byId('saveName');
+  const rememberPassword = byId('rememberPassword');
   const readOnly = byId('readOnly');
   const tabDirectBtn = byId('tabDirectBtn');
   const tabSshBtn = byId('tabSshBtn');
@@ -71,6 +72,18 @@ export function initHome({ api }) {
   const connectModalBackdrop = byId('connectModalBackdrop');
   const connectModalTitle = byId('connectModalTitle');
   const connectModalSubtitle = byId('connectModalSubtitle');
+  const credentialModal = byId('credentialModal');
+  const credentialModalBackdrop = byId('credentialModalBackdrop');
+  const credentialModalTitle = byId('credentialModalTitle');
+  const credentialModalSubtitle = byId('credentialModalSubtitle');
+  const credentialDbPassword = byId('credentialDbPassword');
+  const credentialSshFields = byId('credentialSshFields');
+  const credentialSshPassword = byId('credentialSshPassword');
+  const credentialSshPrivateKey = byId('credentialSshPrivateKey');
+  const credentialSshPassphrase = byId('credentialSshPassphrase');
+  const credentialCloseBtn = byId('credentialCloseBtn');
+  const credentialCancelBtn = byId('credentialCancelBtn');
+  const credentialConfirmBtn = byId('credentialConfirmBtn');
   const themeToggle = byId('themeToggle');
   const themeMenu = byId('themeMenu');
   const sidebarTreeBtn = byId('sidebarTreeBtn');
@@ -180,6 +193,7 @@ export function initHome({ api }) {
   const DEFAULT_EDITOR_FONT_SIZE = 14;
   const MIN_EDITOR_FONT_SIZE = 12;
   const MAX_EDITOR_FONT_SIZE = 16;
+  let credentialPromptResolver = null;
 
   const safeApi = api || {};
 
@@ -337,6 +351,79 @@ export function initHome({ api }) {
     if (sshFields) sshFields.classList.toggle('hidden', !isSsh);
   };
 
+  const entryRemembersSecrets = (entry) => {
+    if (!entry) return false;
+    if (entry.rememberSecrets !== undefined) return !!entry.rememberSecrets;
+    if (entry.remember_secrets !== undefined) return Number(entry.remember_secrets) === 1;
+    if (entry.save_secrets !== undefined) return Number(entry.save_secrets) === 1;
+    return false;
+  };
+
+  const closeCredentialPrompt = (result = null) => {
+    if (credentialModal) credentialModal.classList.add('hidden');
+    const resolver = credentialPromptResolver;
+    credentialPromptResolver = null;
+    if (resolver) resolver(result);
+  };
+
+  const promptConnectionSecrets = (entry) => {
+    if (!credentialModal) return Promise.resolve(null);
+    if (credentialPromptResolver) closeCredentialPrompt(null);
+    const isSsh = isEntrySsh(entry);
+    if (credentialModalTitle) {
+      credentialModalTitle.textContent = `Enter password to connect`;
+    }
+    if (credentialModalSubtitle) {
+      const target = entry && (entry.name || entry.host) ? (entry.name || entry.host) : 'connection';
+      credentialModalSubtitle.textContent = `${target} • password is not saved`;
+    }
+    if (credentialDbPassword) credentialDbPassword.value = '';
+    if (credentialSshPassword) credentialSshPassword.value = '';
+    if (credentialSshPrivateKey) credentialSshPrivateKey.value = '';
+    if (credentialSshPassphrase) credentialSshPassphrase.value = '';
+    if (credentialSshFields) credentialSshFields.classList.toggle('hidden', !isSsh);
+    credentialModal.classList.remove('hidden');
+    if (credentialDbPassword) credentialDbPassword.focus();
+    return new Promise((resolve) => {
+      credentialPromptResolver = resolve;
+    });
+  };
+
+  const resolveConnectEntry = async (entry) => {
+    if (!entry || !entry.name || !safeApi.listSavedConnections) return entry;
+    try {
+      const list = await safeApi.listSavedConnections();
+      if (!Array.isArray(list)) return entry;
+      const match = list.find((item) => item && item.name === entry.name);
+      return match || entry;
+    } catch (_) {
+      return entry;
+    }
+  };
+
+  const buildConnectionConfigFromEntry = async (entry) => {
+    if (!entry) return null;
+    const config = configFromEntry(entry);
+    const ssh = getEntrySshConfig(entry);
+    const hasRuntimeSecrets = !!(
+      (entry.password && String(entry.password).length) ||
+      (ssh.password && String(ssh.password).length) ||
+      (ssh.privateKey && String(ssh.privateKey).length) ||
+      (ssh.passphrase && String(ssh.passphrase).length)
+    );
+    if (hasRuntimeSecrets) return config;
+    if (entryRemembersSecrets(entry)) return config;
+    const secrets = await promptConnectionSecrets(entry);
+    if (!secrets) return null;
+    config.password = secrets.password || '';
+    if (config.ssh && config.ssh.enabled) {
+      config.ssh.password = secrets.sshPassword || '';
+      config.ssh.privateKey = secrets.sshPrivateKey || '';
+      config.ssh.passphrase = secrets.sshPassphrase || '';
+    }
+    return config;
+  };
+
   const resetConnectionForm = () => {
     if (dbType) dbType.value = 'mysql';
     if (host) host.value = 'localhost';
@@ -345,6 +432,7 @@ export function initHome({ api }) {
     if (password) password.value = '';
     if (database) database.value = '';
     if (saveName) saveName.value = '';
+    if (rememberPassword) rememberPassword.checked = false;
     if (readOnly) readOnly.checked = false;
     setConnectTab('direct');
     if (sshHost) sshHost.value = '';
@@ -383,6 +471,7 @@ export function initHome({ api }) {
       saveName.value = '';
       setEditMode(false);
     }
+    if (mode === 'quick' && rememberPassword) rememberPassword.checked = false;
     setConnectMode(mode);
     connectModal.classList.remove('hidden');
   };
@@ -529,6 +618,7 @@ export function initHome({ api }) {
     if (password) password.value = entry.password || '';
     if (database) database.value = entry.database || '';
     if (saveName) saveName.value = entry.name || '';
+    if (rememberPassword) rememberPassword.checked = entryRemembersSecrets(entry);
     if (readOnly) readOnly.checked = isEntryReadOnly(entry);
     const ssh = getEntrySshConfig(entry);
     setConnectTab(ssh.enabled ? 'ssh' : 'direct');
@@ -1565,19 +1655,28 @@ export function initHome({ api }) {
   };
 
   const activateConnection = async (entry, previousKey = null) => {
+    const resolvedEntry = await resolveConnectEntry(entry);
+    const config = await buildConnectionConfigFromEntry(resolvedEntry);
+    if (!config) {
+      if (tabConnectionsView && previousKey) tabConnectionsView.setActive(previousKey);
+      return false;
+    }
     const key = getTabKey(entry);
     if (previousKey) saveTabsForKey(previousKey);
     setScreen(true);
     if (tabConnectionsView) tabConnectionsView.setActive(key);
     if (treeView && typeof treeView.clear === 'function') treeView.clear();
 
-    const res = await connectWithLoading(configFromEntry(entry));
+    const res = await connectWithLoading(config);
     if (!res.ok) {
       await safeApi.showError(res.error || 'Failed to connect.');
       if (treeView && typeof treeView.clear === 'function') treeView.clear();
       if (tabConnectionsView) tabConnectionsView.clearActive();
       setScreen(false);
       return false;
+    }
+    if (entry && resolvedEntry && entry !== resolvedEntry) {
+      Object.assign(entry, resolvedEntry);
     }
     await refreshDatabases();
     await syncActiveDatabaseAndTree(entry, key);
@@ -1657,6 +1756,29 @@ export function initHome({ api }) {
     }
   };
 
+  const connectEntryFromList = async (entry) => {
+    if (!entry) return false;
+    const resolvedEntry = await resolveConnectEntry(entry);
+    if (await tryActivateExistingConnection(resolvedEntry)) return true;
+    const config = await buildConnectionConfigFromEntry(resolvedEntry);
+    if (!config) return false;
+    const res = await connectWithLoading(config);
+    if (!res.ok) {
+      await safeApi.showError(res.error || 'Failed to connect.');
+      return false;
+    }
+    recordRecentConnection(resolvedEntry);
+    saveTabsForActive();
+    upsertConnectionTab(resolvedEntry);
+    await refreshDatabases();
+    await syncActiveDatabaseAndTree(resolvedEntry, getTabKey(resolvedEntry));
+    resetConnectionScopedUi();
+    loadTabsForKey(getTabKey(resolvedEntry));
+    setScreen(true);
+    closeConnectModal();
+    return true;
+  };
+
   const readRecentConnections = () => {
     const parsed = readJson(RECENT_KEY, []);
     return Array.isArray(parsed) ? parsed : [];
@@ -1670,6 +1792,7 @@ export function initHome({ api }) {
     if (!entry) return;
     const list = readRecentConnections();
     const key = makeRecentKey(entry);
+    const ssh = getEntrySshConfig(entry);
     const next = list.filter((item) => makeRecentKey(item) !== key);
     next.unshift({
       name: entry.name || '',
@@ -1677,10 +1800,17 @@ export function initHome({ api }) {
       host: entry.host || 'localhost',
       port: entry.port || '',
       user: entry.user || '',
-      password: entry.password || '',
+      password: '',
       database: entry.database || '',
+      rememberSecrets: entryRemembersSecrets(entry),
       readOnly: isEntryReadOnly(entry),
-      ssh: getEntrySshConfig(entry),
+      ssh: ssh && ssh.enabled ? {
+        enabled: true,
+        host: ssh.host || '',
+        port: ssh.port || '',
+        user: ssh.user || '',
+        localPort: ssh.localPort || ''
+      } : { enabled: false },
       lastUsed: Date.now()
     });
     writeRecentConnections(next.slice(0, 8));
@@ -1745,22 +1875,7 @@ export function initHome({ api }) {
 
       info.addEventListener('click', async () => {
         if (isConnecting) return;
-        if (await tryActivateExistingConnection(entry)) return;
-        const res = await connectWithLoading(configFromEntry(entry));
-
-        if (!res.ok) {
-          await safeApi.showError(res.error || 'Failed to connect.');
-          return;
-        }
-        recordRecentConnection(entry);
-        saveTabsForActive();
-        upsertConnectionTab(entry);
-        await refreshDatabases();
-        await syncActiveDatabaseAndTree(entry, getTabKey(entry));
-        resetConnectionScopedUi();
-        loadTabsForKey(getTabKey(entry));
-        setScreen(true);
-        closeConnectModal();
+        await connectEntryFromList(entry);
       });
 
       recentList.appendChild(item);
@@ -1818,22 +1933,7 @@ export function initHome({ api }) {
 
       info.addEventListener('click', async () => {
         if (isConnecting) return;
-        if (await tryActivateExistingConnection(entry)) return;
-        const res = await connectWithLoading(configFromEntry(entry));
-
-        if (!res.ok) {
-          await safeApi.showError(res.error || 'Failed to connect.');
-          return;
-        }
-        recordRecentConnection(entry);
-        saveTabsForActive();
-        upsertConnectionTab(entry);
-        await refreshDatabases();
-        await syncActiveDatabaseAndTree(entry, getTabKey(entry));
-        resetConnectionScopedUi();
-        loadTabsForKey(getTabKey(entry));
-        setScreen(true);
-        closeConnectModal();
+        await connectEntryFromList(entry);
       });
 
       editBtn.addEventListener('click', () => {
@@ -1898,6 +1998,7 @@ export function initHome({ api }) {
       user: user ? user.value || '' : '',
       password: password ? password.value || '' : '',
       database: database ? database.value || '' : '',
+      rememberSecrets: rememberPassword ? rememberPassword.checked : false,
       readOnly: readOnly ? readOnly.checked : false,
       ssh: buildSshConfig()
     };
@@ -1977,6 +2078,38 @@ export function initHome({ api }) {
 
   if (connectModalBackdrop) {
     connectModalBackdrop.addEventListener('click', () => closeConnectModal());
+  }
+
+  if (credentialCloseBtn) {
+    credentialCloseBtn.addEventListener('click', () => closeCredentialPrompt(null));
+  }
+
+  if (credentialCancelBtn) {
+    credentialCancelBtn.addEventListener('click', () => closeCredentialPrompt(null));
+  }
+
+  if (credentialModalBackdrop) {
+    credentialModalBackdrop.addEventListener('click', () => closeCredentialPrompt(null));
+  }
+
+  if (credentialConfirmBtn) {
+    credentialConfirmBtn.addEventListener('click', () => {
+      closeCredentialPrompt({
+        password: credentialDbPassword ? credentialDbPassword.value || '' : '',
+        sshPassword: credentialSshPassword ? credentialSshPassword.value || '' : '',
+        sshPrivateKey: credentialSshPrivateKey ? credentialSshPrivateKey.value || '' : '',
+        sshPassphrase: credentialSshPassphrase ? credentialSshPassphrase.value || '' : ''
+      });
+    });
+  }
+
+  if (credentialDbPassword) {
+    credentialDbPassword.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      if (!credentialModal || credentialModal.classList.contains('hidden')) return;
+      event.preventDefault();
+      if (credentialConfirmBtn) credentialConfirmBtn.click();
+    });
   }
 
   if (queryOutputBtn) {

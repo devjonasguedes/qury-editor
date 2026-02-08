@@ -5,6 +5,7 @@ export function createResultsRenderer({
   exportCsvBtn,
   exportJsonBtn,
   getActiveTab,
+  onOpenForeignKey,
   onSort,
   showError,
   onToast,
@@ -46,7 +47,12 @@ export function createResultsRenderer({
     selectedRow = null;
   }
 
-  function buildTable(rows, totalRows) {
+  const getColumnMeta = (columnKeyMeta, columnName) => {
+    if (!columnKeyMeta || typeof columnKeyMeta !== 'object') return null;
+    return columnKeyMeta[String(columnName || '').toLowerCase()] || null;
+  };
+
+  function buildTable(rows, totalRows, columnKeyMeta = null) {
     clearSelection();
     resultsTable.innerHTML = '';
     resultsTable.className = '';
@@ -65,21 +71,50 @@ export function createResultsRenderer({
     const columns = Object.keys(limitedRows[0]);
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
+    const normalizedKeyMeta = columnKeyMeta && typeof columnKeyMeta === 'object' ? columnKeyMeta : null;
     columns.forEach((col) => {
       const th = document.createElement('th');
       th.title = `Order by ${col}`;
       const content = document.createElement('span');
       content.className = 'results-header-content';
 
+      const labelWrap = document.createElement('span');
+      labelWrap.className = 'results-header-label-wrap';
+
+      const meta = normalizedKeyMeta ? normalizedKeyMeta[String(col).toLowerCase()] : null;
+      if (meta && (meta.pk || meta.fk)) {
+        const keyIcons = document.createElement('span');
+        keyIcons.className = 'results-header-key-icons';
+
+        if (meta.pk) {
+          const pkIcon = document.createElement('i');
+          pkIcon.className = 'bi bi-key-fill results-header-key-icon is-pk';
+          pkIcon.setAttribute('aria-hidden', 'true');
+          pkIcon.title = 'Primary key';
+          keyIcons.appendChild(pkIcon);
+        }
+
+        if (meta.fk) {
+          const fkIcon = document.createElement('i');
+          fkIcon.className = 'bi bi-key-fill results-header-key-icon is-fk';
+          fkIcon.setAttribute('aria-hidden', 'true');
+          fkIcon.title = 'Foreign key';
+          keyIcons.appendChild(fkIcon);
+        }
+
+        labelWrap.appendChild(keyIcons);
+      }
+
       const label = document.createElement('span');
       label.className = 'results-header-label';
       label.textContent = col;
+      labelWrap.appendChild(label);
 
       const icon = document.createElement('i');
       icon.className = 'bi bi-arrow-down-up results-header-sort-icon';
       icon.setAttribute('aria-hidden', 'true');
 
-      content.appendChild(label);
+      content.appendChild(labelWrap);
       content.appendChild(icon);
       th.appendChild(content);
       th.addEventListener('click', () => {
@@ -96,10 +131,38 @@ export function createResultsRenderer({
       columns.forEach((col, colIndex) => {
         const td = document.createElement('td');
         const value = row[col];
-        td.textContent = value === null || value === undefined ? '' : String(value);
-        td.title = td.textContent;
+        const text = value === null || value === undefined ? '' : String(value);
+        const content = document.createElement('span');
+        content.className = 'results-cell-value';
+        content.textContent = text;
+        td.appendChild(content);
+        td.title = text;
         td.dataset.col = col;
         td.dataset.colIndex = String(colIndex);
+
+        const colMeta = getColumnMeta(normalizedKeyMeta, col);
+        const fkRefs = colMeta && Array.isArray(colMeta.fkRefs) ? colMeta.fkRefs : [];
+        if (fkRefs.length > 0 && typeof onOpenForeignKey === 'function') {
+          td.classList.add('has-fk-action');
+          const openFkBtn = document.createElement('button');
+          openFkBtn.type = 'button';
+          openFkBtn.className = 'results-fk-open-btn';
+          openFkBtn.title = 'Open foreign key row';
+          openFkBtn.setAttribute('aria-label', `Open foreign key row for ${col}`);
+          openFkBtn.innerHTML = '<i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>';
+          openFkBtn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await onOpenForeignKey({
+              column: col,
+              value,
+              row,
+              fkRefs
+            });
+          });
+          td.appendChild(openFkBtn);
+        }
+
         tr.appendChild(td);
       });
       tr.dataset.rowIndex = String(rowIndex);

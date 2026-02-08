@@ -396,6 +396,8 @@ export function initHome({ api }) {
   let lastSort = null;
   let resultsByTabId = new Map();
   let objectContextByTabId = new Map();
+  let columnKeyMetaByTableKey = new Map();
+  let columnKeyMetaRequestSeq = 0;
   let outputByTabId = new Map();
   let currentOutput = null;
   let historyManager = null;
@@ -2323,14 +2325,124 @@ export function initHome({ api }) {
     objectContextByTabId.delete(tabId);
   };
 
+  const normalizeColumnName = (value) => String(value || '').trim().toLowerCase();
+
+  const buildColumnKeyMeta = (tableInfo) => {
+    const meta = {};
+    const mark = (columnName, kind, fkRef = null) => {
+      const key = normalizeColumnName(columnName);
+      if (!key) return;
+      if (!meta[key]) meta[key] = { pk: false, fk: false, fkRefs: [] };
+      if (kind === 'pk') meta[key].pk = true;
+      if (kind === 'fk') {
+        meta[key].fk = true;
+        if (fkRef) {
+          const refKey = [
+            String(fkRef.refSchema || '').toLowerCase(),
+            String(fkRef.refTable || '').toLowerCase(),
+            Array.isArray(fkRef.fromColumns) ? fkRef.fromColumns.map((name) => normalizeColumnName(name)).join(',') : '',
+            Array.isArray(fkRef.toColumns) ? fkRef.toColumns.map((name) => normalizeColumnName(name)).join(',') : ''
+          ].join('|');
+          const alreadyMarked = meta[key].fkRefs.some((entry) => {
+            const entryKey = [
+              String(entry.refSchema || '').toLowerCase(),
+              String(entry.refTable || '').toLowerCase(),
+              Array.isArray(entry.fromColumns) ? entry.fromColumns.map((name) => normalizeColumnName(name)).join(',') : '',
+              Array.isArray(entry.toColumns) ? entry.toColumns.map((name) => normalizeColumnName(name)).join(',') : ''
+            ].join('|');
+            return entryKey === refKey;
+          });
+          if (!alreadyMarked) meta[key].fkRefs.push(fkRef);
+        }
+      }
+    };
+
+    const indexes = tableInfo && Array.isArray(tableInfo.indexes) ? tableInfo.indexes : [];
+    indexes.forEach((index) => {
+      if (!index || !index.primary) return;
+      const columns = Array.isArray(index.columns) ? index.columns : [];
+      columns.forEach((columnName) => mark(columnName, 'pk'));
+    });
+
+    const constraints = tableInfo && Array.isArray(tableInfo.constraints) ? tableInfo.constraints : [];
+    constraints.forEach((constraint) => {
+      const type = String(
+        (constraint && (constraint.type || constraint.constraint_type)) || ''
+      ).toUpperCase();
+      if (!type.includes('FOREIGN')) return;
+      const columns = constraint && Array.isArray(constraint.columns) ? constraint.columns : [];
+      const ref = (constraint && (constraint.ref || constraint.reference)) || {};
+      const refTable = String(ref.table || '').trim();
+      const refSchema = String(ref.schema || '').trim();
+      const refColumns = Array.isArray(ref.columns) ? ref.columns : [];
+      const fkRef = refTable
+        ? {
+            name: String((constraint && constraint.name) || ''),
+            fromColumns: columns.map((columnName) => String(columnName || '')),
+            toColumns: refColumns.map((columnName) => String(columnName || '')),
+            refSchema,
+            refTable
+          }
+        : null;
+      columns.forEach((columnName) => mark(columnName, 'fk', fkRef));
+    });
+
+    return meta;
+  };
+
+  const buildColumnMetaCacheKey = (context) => {
+    if (!context || !context.table) return '';
+    const scope = String(getCurrentHistoryKey() || '__default__');
+    const schema = String(context.schema || '').toLowerCase();
+    const table = String(context.table || '').toLowerCase();
+    return `${scope}::${schema}.${table}`;
+  };
+
+  const loadColumnKeyMeta = async (context) => {
+    if (!context || !context.table) return null;
+    if (typeof safeApi.listTableInfo !== 'function') return null;
+    const cacheKey = buildColumnMetaCacheKey(context);
+    if (!cacheKey) return null;
+    if (columnKeyMetaByTableKey.has(cacheKey)) {
+      return columnKeyMetaByTableKey.get(cacheKey);
+    }
+
+    try {
+      const res = await safeApi.listTableInfo({
+        schema: String(context.schema || ''),
+        table: String(context.table || '')
+      });
+      if (!res || !res.ok) return null;
+      const meta = buildColumnKeyMeta(res);
+      columnKeyMetaByTableKey.set(cacheKey, meta);
+      return meta;
+    } catch (_) {
+      return null;
+    }
+  };
+
   const applyResultsPanelState = ({ snapshot = null, objectContext = null, preferredObjectTab = 'data' } = {}) => {
     const hasSnapshot = !!(snapshot && Array.isArray(snapshot.rows));
     const normalizedContext = normalizeObjectContext(objectContext);
     const nextObjectTab = hasSnapshot ? 'data' : (preferredObjectTab === 'columns' ? 'columns' : 'data');
+    const requestSeq = ++columnKeyMetaRequestSeq;
 
     if (tableView) {
       if (hasSnapshot) tableView.setResults(snapshot);
       else tableView.clearUi();
+    }
+
+    if (hasSnapshot && normalizedContext && tableView) {
+      void (async () => {
+        const columnKeyMeta = await loadColumnKeyMeta(normalizedContext);
+        if (!columnKeyMeta) return;
+        if (requestSeq !== columnKeyMetaRequestSeq) return;
+        if (!tableView) return;
+        tableView.setResults({
+          ...snapshot,
+          columnKeyMeta
+        });
+      })();
     }
 
     if (tableObjectTabsView) {
@@ -3171,6 +3283,66 @@ export function initHome({ api }) {
 
   const buildSelectAllSql = (schema, table) => `SELECT * FROM ${buildQualifiedTableRef(schema, table)};`;
 
+  const getRowValueForColumn = (row, columnName) => {
+    if (!row || typeof row !== 'object') return undefined;
+    if (Object.prototype.hasOwnProperty.call(row, columnName)) return row[columnName];
+    const target = normalizeColumnName(columnName);
+    if (!target) return undefined;
+    for (const key of Object.keys(row)) {
+      if (normalizeColumnName(key) === target) return row[key];
+    }
+    return undefined;
+  };
+
+  const toSqlLiteral = (value) => {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'number') {
+      if (Number.isFinite(value)) return String(value);
+      return `'${String(value).replace(/'/g, "''")}'`;
+    }
+    if (typeof value === 'bigint') return String(value);
+    if (typeof value === 'boolean') {
+      const active = getActiveConnection();
+      const type = active && active.type ? active.type : 'mysql';
+      if (type === 'postgres' || type === 'postgresql') return value ? 'TRUE' : 'FALSE';
+      return value ? '1' : '0';
+    }
+    if (value instanceof Date) {
+      return `'${value.toISOString().replace(/'/g, "''")}'`;
+    }
+    if (typeof value === 'object') {
+      return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
+    }
+    return `'${String(value).replace(/'/g, "''")}'`;
+  };
+
+  const buildForeignKeyLookupSql = (fkRef, row, defaultSchema = '') => {
+    if (!fkRef || !fkRef.refTable) return '';
+    const fromColumns = Array.isArray(fkRef.fromColumns) ? fkRef.fromColumns.filter(Boolean) : [];
+    const toColumnsRaw = Array.isArray(fkRef.toColumns) ? fkRef.toColumns.filter(Boolean) : [];
+    if (fromColumns.length === 0) return '';
+    const toColumns = toColumnsRaw.length === fromColumns.length
+      ? toColumnsRaw
+      : fromColumns;
+
+    const conditions = [];
+    for (let idx = 0; idx < fromColumns.length; idx += 1) {
+      const sourceColumn = fromColumns[idx];
+      const targetColumn = toColumns[idx];
+      if (!targetColumn) return '';
+      const sourceValue = getRowValueForColumn(row, sourceColumn);
+      if (sourceValue === undefined) return '';
+      if (sourceValue === null) {
+        conditions.push(`${quoteIdentifier(targetColumn)} IS NULL`);
+      } else {
+        conditions.push(`${quoteIdentifier(targetColumn)} = ${toSqlLiteral(sourceValue)}`);
+      }
+    }
+    if (conditions.length === 0) return '';
+    const targetSchema = String(fkRef.refSchema || defaultSchema || '').trim();
+    return `SELECT * FROM ${buildQualifiedTableRef(targetSchema, fkRef.refTable)} WHERE ${conditions.join(' AND ')};`;
+  };
+
   const openTableFromNavigator = async (schema, name, sql = '', options = {}) => {
     const table = String(name || '').trim();
     if (!table) return;
@@ -3387,6 +3559,8 @@ export function initHome({ api }) {
   const resetConnectionScopedUi = () => {
     resultsByTabId = new Map();
     objectContextByTabId = new Map();
+    columnKeyMetaByTableKey = new Map();
+    columnKeyMetaRequestSeq += 1;
     outputByTabId = new Map();
     setOutputDisplay(null);
     if (tableObjectTabsView) {
@@ -4671,6 +4845,30 @@ export function initHome({ api }) {
     await runSql(orderSql);
   };
 
+  const openForeignKeyLookup = async ({ column, row, fkRefs } = {}) => {
+    const refs = Array.isArray(fkRefs) ? fkRefs : [];
+    if (refs.length === 0) return;
+    const normalizedColumn = normalizeColumnName(column);
+    const selectedRef = refs.find((ref) => {
+      const fromColumns = Array.isArray(ref.fromColumns) ? ref.fromColumns : [];
+      return fromColumns.some((name) => normalizeColumnName(name) === normalizedColumn);
+    }) || refs[0];
+
+    if (!selectedRef || !selectedRef.refTable) return;
+
+    const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    const context = activeTab && activeTab.id ? getObjectContextForTab(activeTab.id) : null;
+    const sourceSchema = context ? context.schema : '';
+    const querySql = buildForeignKeyLookupSql(selectedRef, row, sourceSchema);
+    if (!querySql) {
+      await safeApi.showError('Unable to build query for this foreign key.');
+      return;
+    }
+
+    const targetSchema = String(selectedRef.refSchema || sourceSchema || '').trim();
+    await openTableFromNavigator(targetSchema, selectedRef.refTable, querySql, { execute: true });
+  };
+
   tableView = createTableView({
     resultsTable,
     resultsEmptyState,
@@ -4681,7 +4879,8 @@ export function initHome({ api }) {
     exportJsonBtn,
     onShowError: safeApi.showError,
     onToast: (message) => showToast(message),
-    onSort: rerunSortedQuery
+    onSort: rerunSortedQuery,
+    onOpenForeignKey: openForeignKeyLookup
   });
   tableObjectTabsView = createTableObjectTabs({
     container: tableObjectTabs,

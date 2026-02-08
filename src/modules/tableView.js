@@ -10,9 +10,17 @@ export function createTableView({
   exportJsonBtn,
   onShowError,
   onToast,
-  onSort
+  onSort,
+  onOpenForeignKey
 }) {
-  let activeResults = { rows: [], baseSql: '', sourceSql: '', totalRows: 0, truncated: false };
+  let activeResults = {
+    rows: [],
+    baseSql: '',
+    sourceSql: '',
+    totalRows: 0,
+    truncated: false,
+    columnKeyMeta: null
+  };
 
   const setEmptyStateVisible = (visible) => {
     if (resultsEmptyState) resultsEmptyState.classList.toggle('hidden', !visible);
@@ -26,6 +34,7 @@ export function createTableView({
     exportCsvBtn,
     exportJsonBtn,
     getActiveTab: () => ({ rows: activeResults.rows }),
+    onOpenForeignKey,
     onSort: (column) => {
       if (onSort) onSort(column, activeResults);
     },
@@ -34,16 +43,24 @@ export function createTableView({
     maxRows: 2000
   });
 
-  const setResults = ({ rows = [], totalRows = 0, truncated = false, baseSql = '', sourceSql = '' } = {}) => {
+  const setResults = ({
+    rows = [],
+    totalRows = 0,
+    truncated = false,
+    baseSql = '',
+    sourceSql = '',
+    columnKeyMeta = null
+  } = {}) => {
     activeResults = {
       rows: Array.isArray(rows) ? rows : [],
       totalRows: Number.isFinite(totalRows) ? totalRows : (rows ? rows.length : 0),
       truncated: !!truncated,
       baseSql: baseSql || '',
-      sourceSql: sourceSql || ''
+      sourceSql: sourceSql || '',
+      columnKeyMeta: columnKeyMeta && typeof columnKeyMeta === 'object' ? columnKeyMeta : null
     };
     if (resultsRenderer) {
-      resultsRenderer.buildTable(activeResults.rows, activeResults.totalRows);
+      resultsRenderer.buildTable(activeResults.rows, activeResults.totalRows, activeResults.columnKeyMeta);
       resultsRenderer.updateSelectionActions();
     }
     setEmptyStateVisible(false);
@@ -51,7 +68,14 @@ export function createTableView({
   };
 
   const clear = () => {
-    activeResults = { rows: [], baseSql: '', sourceSql: '', totalRows: 0, truncated: false };
+    activeResults = {
+      rows: [],
+      baseSql: '',
+      sourceSql: '',
+      totalRows: 0,
+      truncated: false,
+      columnKeyMeta: null
+    };
     if (resultsRenderer) {
       resultsRenderer.clearSelection();
       resultsRenderer.updateSelectionActions();

@@ -413,6 +413,20 @@ export function createTreeView({
     runSearch(filter);
   };
 
+  const clear = () => {
+    cancelObjectSearch();
+    tableCache = [];
+    routineCache = [];
+    objectSearchCache = new Map();
+    objectSearchPending = new Map();
+    render('', {
+      tableRows: [],
+      routineRows: [],
+      skipNameFilter: true,
+      highlightText: ''
+    });
+  };
+
   const bindSearch = () => {
     if (tableSearch) {
       tableSearch.addEventListener('input', () => {
@@ -449,6 +463,7 @@ export function createTreeView({
   return {
     refresh,
     render,
-    setActiveSchema
+    setActiveSchema,
+    clear
   };
 }

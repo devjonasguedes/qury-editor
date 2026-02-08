@@ -1326,6 +1326,53 @@ export function initHome({ api }) {
     return parts.map((p) => (p.startsWith('`') ? p : `\`${p.replace(/`/g, '``')}\``)).join('.');
   };
 
+  const quoteDbIdentifier = (value, type) => {
+    const raw = String(value || '');
+    if (!raw) return raw;
+    const parts = raw.split('.');
+    if (type === 'postgres' || type === 'postgresql') {
+      return parts.map((part) => `"${part.replace(/"/g, '""')}"`).join('.');
+    }
+    return parts.map((part) => `\`${part.replace(/`/g, '``')}\``).join('.');
+  };
+
+  const buildQualifiedTableRef = (schema, table) => {
+    const active = getActiveConnection();
+    const type = active && active.type ? active.type : 'mysql';
+    if (!schema) return quoteDbIdentifier(table, type);
+    return `${quoteDbIdentifier(schema, type)}.${quoteDbIdentifier(table, type)}`;
+  };
+
+  const buildSelectAllSql = (schema, table) => `SELECT * FROM ${buildQualifiedTableRef(schema, table)};`;
+
+  const openTableFromNavigator = async (schema, name, sql = '', options = {}) => {
+    const table = String(name || '').trim();
+    if (!table) return;
+    const querySql = String(sql || '').trim() || buildSelectAllSql(schema, table);
+    let openedTab = null;
+    if (tabTablesView) {
+      openedTab = tabTablesView.createWithQuery(table, querySql);
+    }
+    if (openedTab && openedTab.id) {
+      setObjectContextForTab(openedTab.id, { schema, table });
+    }
+    const preferredObjectTab =
+      options && options.execute === false && options.openObjectTab === 'columns'
+        ? 'columns'
+        : 'data';
+    applyResultsPanelState({
+      snapshot: null,
+      objectContext: { schema, table },
+      preferredObjectTab
+    });
+    setEditorVisible(true);
+    if (codeEditor) codeEditor.focus();
+    lastSort = null;
+    if (options && options.execute) {
+      await runSql(querySql);
+    }
+  };
+
   const updateToggleEditorButtonState = (visible) => {
     if (!toggleEditorBtn) return;
     const nextVisible = !!visible;
@@ -1459,31 +1506,83 @@ export function initHome({ api }) {
     setGlobalLoading(false);
   };
 
+  const resetConnectionScopedUi = () => {
+    resultsByTabId = new Map();
+    objectContextByTabId = new Map();
+    outputByTabId = new Map();
+    setOutputDisplay(null);
+    if (tableObjectTabsView) {
+      tableObjectTabsView.resetScopeCache();
+    }
+    applyResultsPanelState({ snapshot: null, objectContext: null });
+  };
+
+  const syncActiveDatabaseAndTree = async (entry, key) => {
+    const selectedDb = dbSelect ? String(dbSelect.value || '') : '';
+    if (selectedDb) {
+      if (treeView) treeView.setActiveSchema(selectedDb);
+      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(selectedDb);
+      if (entry) entry.database = selectedDb;
+      if (entry && tabConnectionsView && key) {
+        tabConnectionsView.upsert(key, entry);
+      }
+    } else {
+      const fallbackDb = entry && entry.database ? String(entry.database) : '';
+      if (treeView) treeView.setActiveSchema(fallbackDb);
+      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(fallbackDb);
+    }
+    const tables = treeView ? await treeView.refresh() : null;
+    if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+    return tables;
+  };
+
+  const changeDatabase = async (name) => {
+    const targetDb = String(name || '').trim();
+    if (!targetDb) return;
+    setGlobalLoading(true, 'Switching database...');
+    try {
+      const res = await safeApi.useDatabase(targetDb);
+      if (!res || !res.ok) {
+        await safeApi.showError((res && res.error) || 'Failed to select database.');
+        return;
+      }
+      const active = getActiveConnection();
+      if (active) {
+        const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+        active.database = targetDb;
+        if (tabConnectionsView && key) {
+          tabConnectionsView.upsert(key, active);
+          renderConnectionTabs();
+        }
+      }
+      if (treeView) treeView.setActiveSchema(targetDb);
+      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(targetDb);
+      const tables = treeView ? await treeView.refresh() : null;
+      if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
   const activateConnection = async (entry, previousKey = null) => {
     const key = getTabKey(entry);
     if (previousKey) saveTabsForKey(previousKey);
     setScreen(true);
     if (tabConnectionsView) tabConnectionsView.setActive(key);
+    if (treeView && typeof treeView.clear === 'function') treeView.clear();
 
     const res = await connectWithLoading(configFromEntry(entry));
     if (!res.ok) {
       await safeApi.showError(res.error || 'Failed to connect.');
+      if (treeView && typeof treeView.clear === 'function') treeView.clear();
+      if (tabConnectionsView) tabConnectionsView.clearActive();
+      setScreen(false);
       return false;
     }
-    if (treeView) treeView.setActiveSchema(entry.database || '');
-    if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
     await refreshDatabases();
-    const tables = treeView ? await treeView.refresh() : null;
-    if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
-    resultsByTabId = new Map();
-    objectContextByTabId = new Map();
-    outputByTabId = new Map();
-    setOutputDisplay(null);
+    await syncActiveDatabaseAndTree(entry, key);
+    resetConnectionScopedUi();
     if (tabTablesView) loadTabsForKey(key);
-    if (tableObjectTabsView) {
-      tableObjectTabsView.resetScopeCache();
-    }
-    applyResultsPanelState({ snapshot: null, objectContext: null });
     return true;
   };
 
@@ -1656,11 +1755,9 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         saveTabsForActive();
         upsertConnectionTab(entry);
-        if (treeView) treeView.setActiveSchema(entry.database || '');
-        if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
-        const tables = treeView ? await treeView.refresh() : null;
-        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+        await syncActiveDatabaseAndTree(entry, getTabKey(entry));
+        resetConnectionScopedUi();
         loadTabsForKey(getTabKey(entry));
         setScreen(true);
         closeConnectModal();
@@ -1731,11 +1828,9 @@ export function initHome({ api }) {
         recordRecentConnection(entry);
         saveTabsForActive();
         upsertConnectionTab(entry);
-        if (treeView) treeView.setActiveSchema(entry.database || '');
-        if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(entry.database || '');
         await refreshDatabases();
-        const tables = treeView ? await treeView.refresh() : null;
-        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+        await syncActiveDatabaseAndTree(entry, getTabKey(entry));
+        resetConnectionScopedUi();
         loadTabsForKey(getTabKey(entry));
         setScreen(true);
         closeConnectModal();
@@ -1781,11 +1876,9 @@ export function initHome({ api }) {
     recordRecentConnection(config);
     saveTabsForActive();
     upsertConnectionTab(config);
-    if (treeView) treeView.setActiveSchema(config.database || '');
-    if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(config.database || '');
     await refreshDatabases();
-    const tables = treeView ? await treeView.refresh() : null;
-    if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+    await syncActiveDatabaseAndTree(config, getTabKey(config));
+    resetConnectionScopedUi();
     loadTabsForKey(getTabKey(config));
     setScreen(true);
     closeConnectModal();
@@ -2158,27 +2251,7 @@ export function initHome({ api }) {
     dbSelect.addEventListener('change', async () => {
       const name = dbSelect.value;
       if (!name) return;
-      setGlobalLoading(true, 'Switching database...');
-      const res = await safeApi.useDatabase(name);
-      if (!res || !res.ok) {
-        await safeApi.showError((res && res.error) || 'Failed to select database.');
-        setGlobalLoading(false);
-        return;
-      }
-      const active = getActiveConnection();
-      if (active) {
-        const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
-        active.database = name;
-        if (tabConnectionsView && key) {
-          tabConnectionsView.upsert(key, active);
-          renderConnectionTabs();
-        }
-      }
-      if (treeView) treeView.setActiveSchema(name);
-      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(name);
-      const tables = treeView ? await treeView.refresh() : null;
-      if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
-      setGlobalLoading(false);
+      await changeDatabase(name);
     });
   }
 
@@ -2210,30 +2283,7 @@ export function initHome({ api }) {
     tableSearchClear,
     getActiveConnectionKey: getCurrentHistoryKey,
     getActiveConnection,
-    onOpenTable: async (schema, name, sql, options = {}) => {
-      let openedTab = null;
-      if (tabTablesView) {
-        openedTab = tabTablesView.createWithQuery(name, sql);
-      }
-      if (openedTab && openedTab.id) {
-        setObjectContextForTab(openedTab.id, { schema, table: name });
-      }
-      const preferredObjectTab =
-        options && options.execute === false && options.openObjectTab === 'columns'
-          ? 'columns'
-          : 'data';
-      applyResultsPanelState({
-        snapshot: null,
-        objectContext: { schema, table: name },
-        preferredObjectTab
-      });
-      setEditorVisible(true);
-      if (codeEditor) codeEditor.focus();
-      lastSort = null;
-      if (options && options.execute) {
-        await runSql(sql);
-      }
-    },
+    onOpenTable: openTableFromNavigator,
     onOpenView: async (schema, name) => {
       await openViewDefinition(schema, name);
     },

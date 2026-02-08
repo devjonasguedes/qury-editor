@@ -63,6 +63,12 @@ global
   --code-active-line-gutter: rgba(255, 255, 255, 0.06);
   --code-hint-bg: var(--surface-1);
   --code-hint-active: var(--selection-strong);
+  --code-hint-border: var(--border-strong);
+  --code-hint-hover: rgba(255, 255, 255, 0.08);
+  --code-hint-muted: var(--text-muted);
+  --code-hint-match: #79c0ff;
+  --code-hint-icon-bg: rgba(121, 192, 255, 0.14);
+  --code-hint-icon-border: rgba(121, 192, 255, 0.4);
   --editor-font-size: 14px;
   --table-header-bg: var(--surface-3);
   --shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
@@ -135,6 +141,12 @@ body.theme-light {
   --code-active-line-gutter: rgba(15, 23, 42, 0.06);
   --code-hint-bg: #ffffff;
   --code-hint-active: #e6f0ff;
+  --code-hint-border: var(--border);
+  --code-hint-hover: rgba(15, 23, 42, 0.06);
+  --code-hint-muted: #64748b;
+  --code-hint-match: #0f62fe;
+  --code-hint-icon-bg: rgba(15, 98, 254, 0.12);
+  --code-hint-icon-border: rgba(15, 98, 254, 0.28);
   --table-header-bg: #f1f3f5;
   --shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
   --danger: #dc2626;
@@ -2382,26 +2394,94 @@ body.theme-light .tree-action {
 
 .cm-tooltip-autocomplete {
   background: var(--code-hint-bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--code-hint-border);
+  border-radius: 8px;
+  padding: 6px;
   box-shadow: var(--shadow);
-  color: var(--text-soft);
+  color: var(--text);
   font-size: 12px;
+  min-width: 240px;
+  overflow: hidden;
   z-index: 9999;
 }
 
 .cm-tooltip-autocomplete ul {
   list-style: none;
-  margin: 4px 0;
+  margin: 0;
   padding: 0;
+  max-height: min(300px, 40vh);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .cm-tooltip-autocomplete li {
-  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 1px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  line-height: 1.35;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.cm-tooltip-autocomplete li:hover {
+  background: var(--code-hint-hover);
 }
 
 .cm-tooltip-autocomplete li[aria-selected] {
   background: var(--code-hint-active);
   color: var(--selected-text);
+}
+
+.cm-tooltip-autocomplete .cm-completionLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-tooltip-autocomplete .cm-completionMatchedText {
+  color: var(--code-hint-match);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cm-tooltip-autocomplete li[aria-selected] .cm-completionMatchedText {
+  color: inherit;
+}
+
+.cm-tooltip-autocomplete .cm-completionDetail {
+  color: var(--code-hint-muted);
+  font-size: 11px;
+  margin-left: 8px;
+  font-style: normal;
+}
+
+.cm-tooltip-autocomplete li[aria-selected] .cm-completionDetail {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.cm-tooltip-autocomplete .cm-completionIcon {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid var(--code-hint-icon-border);
+  background: var(--code-hint-icon-bg);
+  margin-right: 0;
+  opacity: 1;
+}
+
+.cm-tooltip-autocomplete ul::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cm-tooltip-autocomplete ul::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 999px;
+}
+
+.cm-tooltip-autocomplete ul::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
 }
 
 .cm-editor .cm-keyword {

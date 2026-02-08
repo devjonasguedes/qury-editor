@@ -34,6 +34,12 @@ export function createDbConnection(api) {
     disconnect: () => safeApi.disconnect(),
     testConnection: (config) => safeApi.testConnection(config),
     runQuery: (payload) => safeApi.runQuery(payload),
+    setProgressBar: (value) => {
+      if (api && typeof api.setProgressBar === 'function') {
+        return api.setProgressBar(value);
+      }
+      return Promise.resolve({ ok: false, error: 'API unavailable.' });
+    },
     listTables: () => safeApi.listTables(),
     listColumns: (payload) => safeApi.listColumns(payload),
     listTableInfo: (payload) => safeApi.listTableInfo(payload),
@@ -45,6 +51,18 @@ export function createDbConnection(api) {
     listSavedConnections: () => safeApi.listSavedConnections(),
     saveConnection: (entry) => safeApi.saveConnection(entry),
     deleteConnection: (name) => safeApi.deleteConnection(name),
+    getNativeTheme: () => {
+      if (api && typeof api.getNativeTheme === 'function') {
+        return api.getNativeTheme();
+      }
+      return Promise.resolve({ ok: false, error: 'API unavailable.' });
+    },
+    onNativeThemeUpdated: (handler) => {
+      if (api && typeof api.onNativeThemeUpdated === 'function') {
+        return api.onNativeThemeUpdated(handler);
+      }
+      return () => {};
+    },
     showError: (message) => safeApi.showError(message)
   };
 }

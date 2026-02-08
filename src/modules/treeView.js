@@ -10,7 +10,6 @@ export function createTreeView({
   getActiveConnection,
   onOpenTable,
   onOpenView,
-  onOpenTableDefinition,
   onToast
 }) {
   let tableCache = [];
@@ -224,12 +223,6 @@ export function createTreeView({
     await runOpenTable(schema, name);
   };
 
-  const runOpenTableDefinition = async (schema, name) => {
-    if (onOpenTableDefinition) {
-      await onOpenTableDefinition(schema, name);
-    }
-  };
-
   const runOpenRoutine = async (schema, name, routineType, options = {}) => {
     if (onOpenTable) {
       const conn = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
@@ -258,7 +251,6 @@ export function createTreeView({
       activeSchema,
       onOpenTable: runOpenTable,
       onOpenView: runOpenView,
-      onOpenTableDefinition: runOpenTableDefinition,
       onOpenRoutine: runOpenRoutine,
       listColumns: api.listColumns,
       listTableInfo: api.listTableInfo,

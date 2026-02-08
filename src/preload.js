@@ -17,5 +17,15 @@ contextBridge.exposeInMainWorld('api', {
   testConnection: (config) => ipcRenderer.invoke('db:testConnection', config),
   runQuery: (payload) => ipcRenderer.invoke('db:runQuery', payload),
   cancelQuery: () => ipcRenderer.invoke('db:cancelQuery'),
+  setProgressBar: (value) => ipcRenderer.invoke('app:setProgressBar', value),
+  getNativeTheme: () => ipcRenderer.invoke('system:getNativeTheme'),
+  onNativeThemeUpdated: (handler) => {
+    if (typeof handler !== 'function') return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('system:theme-updated', listener);
+    return () => {
+      ipcRenderer.removeListener('system:theme-updated', listener);
+    };
+  },
   showError: (message) => ipcRenderer.invoke('dialog:error', message)
 });

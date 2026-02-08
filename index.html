@@ -22,9 +22,46 @@
         </div>
         <div class="status-area">
           <span id="connectSpinner" class="spinner hidden"></span>
-          <button id="themeToggle" class="icon-btn" title="Toggle theme">
-            <i class="bi bi-sun"></i>
-          </button>
+          <div class="theme-control" id="themeControl">
+            <button
+              id="themeToggle"
+              class="icon-btn"
+              title="Tema"
+              aria-haspopup="menu"
+              aria-expanded="false"
+            >
+              <i class="bi bi-circle-half"></i>
+            </button>
+            <div id="themeMenu" class="theme-menu hidden" role="menu" aria-label="Tema">
+              <button
+                type="button"
+                class="theme-menu-item"
+                data-theme-mode="light"
+                role="menuitemradio"
+                aria-checked="false"
+              >
+                Claro
+              </button>
+              <button
+                type="button"
+                class="theme-menu-item"
+                data-theme-mode="dark"
+                role="menuitemradio"
+                aria-checked="false"
+              >
+                Escuro
+              </button>
+              <button
+                type="button"
+                class="theme-menu-item"
+                data-theme-mode="system"
+                role="menuitemradio"
+                aria-checked="false"
+              >
+                Sistema
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -308,6 +345,7 @@
           </div>
           <div id="editorResizer" class="editor-resizer hidden"></div>
           <div class="results" id="resultsPanel">
+            <div id="tableObjectTabs" class="object-tabs hidden"></div>
             <div class="results-toolbar hidden" id="tableActionsBar">
               <div class="table-filter">
                 <div class="table-filter-input-wrap">
@@ -378,7 +416,15 @@
                 </button>
               </div>
             </div>
-            <div class="results-table">
+            <div id="objectDetailsPanel" class="object-details hidden"></div>
+            <div class="results-table" id="resultsTableWrap">
+              <div id="resultsEmptyState" class="results-empty-state">
+                <div class="results-empty-icon"><i class="bi bi-table"></i></div>
+                <div class="results-empty-title">No results yet</div>
+                <div class="results-empty-subtitle">
+                  Run a query or open a table and execute it to see data here.
+                </div>
+              </div>
               <table id="resultsTable"></table>
             </div>
             <div class="results-footer">

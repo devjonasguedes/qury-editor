@@ -404,7 +404,7 @@ function renderTableDetails(container, columns, tableInfo, depth) {
   });
 }
 
-function createTableNode(schema, name, depth, onOpenTable, onOpenView, onOpenTableDefinition, listColumns, listTableInfo, onShowError, isView, highlightText, options = {}) {
+function createTableNode(schema, name, depth, onOpenTable, onOpenView, listColumns, listTableInfo, onShowError, isView, highlightText, options = {}) {
   const { expanded = false, onToggle, onCopyName, onCopyQualified, key } = options;
   const item = document.createElement('div');
   item.className = 'tree-item tree-leaf tree-routine';
@@ -460,18 +460,6 @@ function createTableNode(schema, name, depth, onOpenTable, onOpenView, onOpenTab
     });
   }
 
-  let tableDefBtn = null;
-  if (!isView) {
-    tableDefBtn = document.createElement('button');
-    tableDefBtn.className = 'icon-btn tree-action';
-    tableDefBtn.title = 'Open table definition';
-    tableDefBtn.innerHTML = '<i class="bi bi-code-slash"></i>';
-    tableDefBtn.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      if (onOpenTableDefinition) await onOpenTableDefinition(schema, name);
-    });
-  }
-
   const copyNameBtn = document.createElement('button');
   copyNameBtn.className = 'icon-btn tree-action';
   copyNameBtn.title = 'Copy name';
@@ -492,7 +480,6 @@ function createTableNode(schema, name, depth, onOpenTable, onOpenView, onOpenTab
 
   actions.appendChild(openBtn);
   if (viewDefBtn) actions.appendChild(viewDefBtn);
-  if (tableDefBtn) actions.appendChild(tableDefBtn);
   actions.appendChild(copyNameBtn);
   actions.appendChild(copyQualifiedBtn);
 
@@ -533,7 +520,12 @@ function createTableNode(schema, name, depth, onOpenTable, onOpenView, onOpenTab
   item.addEventListener('dblclick', async (event) => {
     if (event.target.closest('.tree-actions')) return;
     if (event.target.closest('.tree-caret')) return;
-    if (onOpenTable) await onOpenTable(schema, name, { execute: false });
+    if (onOpenTable) {
+      await onOpenTable(schema, name, {
+        execute: false,
+        openObjectTab: 'columns'
+      });
+    }
   });
 
   if (expanded) {
@@ -640,7 +632,6 @@ export function renderTableTree({
   activeSchema,
   onOpenTable,
   onOpenView,
-  onOpenTableDefinition,
   onOpenRoutine,
   listColumns,
   listTableInfo,
@@ -747,7 +738,6 @@ export function renderTableTree({
             2,
             onOpenTable,
             onOpenView,
-            onOpenTableDefinition,
             listColumns,
             listTableInfo,
             onShowError,

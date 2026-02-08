@@ -2,6 +2,7 @@ import { createResultsRenderer } from './resultsRenderer.js';
 
 export function createTableView({
   resultsTable,
+  resultsEmptyState,
   tableActionsBar,
   copyCellBtn,
   copyRowBtn,
@@ -12,6 +13,11 @@ export function createTableView({
   onSort
 }) {
   let activeResults = { rows: [], baseSql: '', sourceSql: '', totalRows: 0, truncated: false };
+
+  const setEmptyStateVisible = (visible) => {
+    if (resultsEmptyState) resultsEmptyState.classList.toggle('hidden', !visible);
+    if (resultsTable) resultsTable.classList.toggle('hidden', !!visible);
+  };
 
   const resultsRenderer = createResultsRenderer({
     resultsTable,
@@ -40,6 +46,7 @@ export function createTableView({
       resultsRenderer.buildTable(activeResults.rows, activeResults.totalRows);
       resultsRenderer.updateSelectionActions();
     }
+    setEmptyStateVisible(false);
     if (tableActionsBar) tableActionsBar.classList.remove('hidden');
   };
 
@@ -50,17 +57,19 @@ export function createTableView({
       resultsRenderer.updateSelectionActions();
     }
     if (resultsTable) {
-      resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
+      resultsTable.innerHTML = '';
       resultsTable.className = '';
     }
+    setEmptyStateVisible(true);
   };
 
   const clearUi = () => {
     if (tableActionsBar) tableActionsBar.classList.add('hidden');
     if (resultsTable) {
-      resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
+      resultsTable.innerHTML = '';
       resultsTable.className = '';
     }
+    setEmptyStateVisible(true);
   };
 
   const getActive = () => activeResults;

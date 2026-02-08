@@ -14,6 +14,7 @@ import { createTabConnections } from './modules/tabConnections.js';
 import { createTabTables } from './modules/tabTables.js';
 import { createCodeEditor } from './modules/codeEditor.js';
 import { createTableView } from './modules/tableView.js';
+import { createTableObjectTabs } from './modules/tableObjectTabs.js';
 import { createQueryHistory } from './modules/queryHistory.js';
 import { createSnippetsManager } from './modules/snippets.js';
 import { createSqlAutocomplete } from './modules/sqlAutocomplete.js';
@@ -21,10 +22,14 @@ import { firstDmlKeyword, insertWhere, isDangerousStatement, splitStatements, st
 
 const RECENT_KEY = 'sqlEditor.recentConnections';
 const THEME_KEY = 'sqlEditor.theme';
+const THEME_MODE_SYSTEM = 'system';
+const THEME_MODE_LIGHT = 'light';
+const THEME_MODE_DARK = 'dark';
 const SIDEBAR_KEY = 'sqlEditor.sidebarWidth';
 const EDITOR_HEIGHT_KEY = 'sqlEditor.editorHeight';
 const EDITOR_FONT_SIZE_KEY = 'sqlEditor.editorFontSize';
 const EDITOR_COLLAPSED_KEY_PREFIX = 'sqlEditor.editorCollapsed';
+const QUERY_PROGRESS_SHOW_DELAY_MS = 5000;
 
 export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
@@ -67,6 +72,7 @@ export function initHome({ api }) {
   const connectModalTitle = byId('connectModalTitle');
   const connectModalSubtitle = byId('connectModalSubtitle');
   const themeToggle = byId('themeToggle');
+  const themeMenu = byId('themeMenu');
   const sidebarTreeBtn = byId('sidebarTreeBtn');
   const sidebarHistoryBtn = byId('sidebarHistoryBtn');
   const sidebarSnippetsBtn = byId('sidebarSnippetsBtn');
@@ -97,6 +103,10 @@ export function initHome({ api }) {
   const mainLayout = document.querySelector('.main');
   const workspace = document.querySelector('.workspace');
   const resultsPanel = byId('resultsPanel');
+  const tableObjectTabs = byId('tableObjectTabs');
+  const objectDetailsPanel = byId('objectDetailsPanel');
+  const resultsTableWrap = byId('resultsTableWrap');
+  const resultsEmptyState = byId('resultsEmptyState');
   const resultsTable = byId('resultsTable');
   const queryStatus = byId('queryStatus');
   const queryOutputBtn = byId('queryOutputBtn');
@@ -152,13 +162,21 @@ export function initHome({ api }) {
   let snippetEditor = null;
   let definitionEditor = null;
   let tableView = null;
+  let tableObjectTabsView = null;
   let lastSort = null;
   let resultsByTabId = new Map();
+  let objectContextByTabId = new Map();
   let outputByTabId = new Map();
   let currentOutput = null;
   let historyManager = null;
   let snippetsManager = null;
   let sqlAutocomplete = null;
+  let queryProgressTimer = null;
+  let queryProgressRevealTimer = null;
+  let queryProgressStartedAt = 0;
+  let removeNativeThemeListener = null;
+  let currentThemeMode = THEME_MODE_SYSTEM;
+  let systemPrefersDark = true;
   const DEFAULT_EDITOR_FONT_SIZE = 14;
   const MIN_EDITOR_FONT_SIZE = 12;
   const MAX_EDITOR_FONT_SIZE = 16;
@@ -210,16 +228,35 @@ export function initHome({ api }) {
     }
   };
 
-  const applyTheme = (theme) => {
-    const next = theme === 'light' ? 'light' : 'dark';
-    document.body.classList.toggle('theme-light', next === 'light');
-    localStorage.setItem(THEME_KEY, next);
-    if (themeToggle) {
-      themeToggle.innerHTML =
-        next === 'light' ? '<i class=\"bi bi-moon\"></i>' : '<i class=\"bi bi-sun\"></i>';
-      themeToggle.title =
-        next === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
+  const normalizeThemeMode = (value) => {
+    const mode = String(value || '').toLowerCase();
+    if (mode === THEME_MODE_LIGHT || mode === THEME_MODE_DARK || mode === THEME_MODE_SYSTEM) {
+      return mode;
     }
+    return THEME_MODE_SYSTEM;
+  };
+
+  const resolveThemeFromMode = (mode) => {
+    if (mode === THEME_MODE_LIGHT) return THEME_MODE_LIGHT;
+    if (mode === THEME_MODE_DARK) return THEME_MODE_DARK;
+    return systemPrefersDark ? THEME_MODE_DARK : THEME_MODE_LIGHT;
+  };
+
+  const themeModeLabel = (mode) => {
+    if (mode === THEME_MODE_LIGHT) return 'Claro';
+    if (mode === THEME_MODE_DARK) return 'Escuro';
+    return 'Sistema';
+  };
+
+  const themeModeIcon = (mode) => {
+    if (mode === THEME_MODE_LIGHT) return 'bi-sun';
+    if (mode === THEME_MODE_DARK) return 'bi-moon-stars';
+    return 'bi-circle-half';
+  };
+
+  const applyTheme = (theme) => {
+    const next = theme === THEME_MODE_LIGHT ? THEME_MODE_LIGHT : THEME_MODE_DARK;
+    document.body.classList.toggle('theme-light', next === 'light');
     if (codeEditor && typeof codeEditor.setTheme === 'function') {
       codeEditor.setTheme();
       codeEditor.refresh();
@@ -230,9 +267,61 @@ export function initHome({ api }) {
     }
   };
 
-  const toggleTheme = () => {
-    const current = localStorage.getItem(THEME_KEY) || 'dark';
-    applyTheme(current === 'light' ? 'dark' : 'light');
+  const updateThemeUi = () => {
+    if (themeToggle) {
+      themeToggle.innerHTML = `<i class="bi ${themeModeIcon(currentThemeMode)}"></i>`;
+      themeToggle.title = `Tema: ${themeModeLabel(currentThemeMode)}`;
+      themeToggle.setAttribute('aria-label', `Tema: ${themeModeLabel(currentThemeMode)}`);
+    }
+    if (themeMenu) {
+      const items = themeMenu.querySelectorAll('[data-theme-mode]');
+      items.forEach((item) => {
+        const selected = item.getAttribute('data-theme-mode') === currentThemeMode;
+        item.classList.toggle('active', selected);
+        item.setAttribute('aria-checked', selected ? 'true' : 'false');
+      });
+    }
+  };
+
+  const setThemeMode = (mode, { persist = true } = {}) => {
+    currentThemeMode = normalizeThemeMode(mode);
+    if (persist) {
+      localStorage.setItem(THEME_KEY, currentThemeMode);
+    }
+    applyTheme(resolveThemeFromMode(currentThemeMode));
+    updateThemeUi();
+  };
+
+  const setThemeMenuOpen = (open) => {
+    if (!themeMenu || !themeToggle) return;
+    themeMenu.classList.toggle('hidden', !open);
+    themeToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+
+  const applySystemThemeSnapshot = (payload) => {
+    if (!payload || typeof payload.shouldUseDarkColors !== 'boolean') return;
+    systemPrefersDark = !!payload.shouldUseDarkColors;
+    if (currentThemeMode === THEME_MODE_SYSTEM) {
+      applyTheme(resolveThemeFromMode(THEME_MODE_SYSTEM));
+      updateThemeUi();
+    }
+  };
+
+  const loadThemeMode = async () => {
+    currentThemeMode = normalizeThemeMode(localStorage.getItem(THEME_KEY));
+    if (!safeApi.getNativeTheme) {
+      setThemeMode(currentThemeMode, { persist: false });
+      return;
+    }
+    try {
+      const res = await safeApi.getNativeTheme();
+      if (res && res.ok && typeof res.shouldUseDarkColors === 'boolean') {
+        systemPrefersDark = !!res.shouldUseDarkColors;
+      }
+    } catch (_) {
+      // Keep default when system theme cannot be resolved.
+    }
+    setThemeMode(currentThemeMode, { persist: false });
   };
 
 
@@ -317,6 +406,11 @@ export function initHome({ api }) {
     if (resultsPanel) resultsPanel.classList.toggle('hidden', !connected);
     if (!connected) closeConnectModal();
     if (!connected) setOutputDisplay(null);
+    if (!connected) stopQueryProgress();
+    if (!connected) {
+      objectContextByTabId = new Map();
+      applyResultsPanelState({ snapshot: null, objectContext: null });
+    }
     if (homeBtn) {
       homeBtn.classList.toggle(
         'hidden',
@@ -823,15 +917,73 @@ export function initHome({ api }) {
     setOutputDisplay(payload);
   };
 
+  const normalizeObjectContext = (context) => {
+    if (!context || !context.table) return null;
+    return {
+      schema: String(context.schema || ''),
+      table: String(context.table || '')
+    };
+  };
+
+  const getObjectContextForTab = (tabId) => {
+    if (!tabId) return null;
+    return normalizeObjectContext(objectContextByTabId.get(tabId));
+  };
+
+  const setObjectContextForTab = (tabId, context) => {
+    if (!tabId) return;
+    const normalized = normalizeObjectContext(context);
+    if (normalized) {
+      objectContextByTabId.set(tabId, normalized);
+      return;
+    }
+    objectContextByTabId.delete(tabId);
+  };
+
+  const applyResultsPanelState = ({ snapshot = null, objectContext = null, preferredObjectTab = 'data' } = {}) => {
+    const hasSnapshot = !!(snapshot && Array.isArray(snapshot.rows));
+    const normalizedContext = normalizeObjectContext(objectContext);
+    const nextObjectTab = hasSnapshot ? 'data' : (preferredObjectTab === 'columns' ? 'columns' : 'data');
+
+    if (tableView) {
+      if (hasSnapshot) tableView.setResults(snapshot);
+      else tableView.clearUi();
+    }
+
+    if (tableObjectTabsView) {
+      if (normalizedContext) {
+        tableObjectTabsView.openTable({
+          schema: normalizedContext.schema,
+          table: normalizedContext.table,
+          active: nextObjectTab
+        });
+      } else {
+        tableObjectTabsView.clear();
+      }
+      if (nextObjectTab === 'data') {
+        tableObjectTabsView.activateData();
+      }
+      tableObjectTabsView.setDataToolbarVisible(hasSnapshot);
+    }
+  };
+
   const renderResults = (rows, totalRows, truncated, baseSql = '', sourceSql = '') => {
-    if (!tableView) return;
-    tableView.setResults({ rows, totalRows, truncated, baseSql, sourceSql });
+    const snapshot = { rows, totalRows, truncated, baseSql, sourceSql };
+    let context = null;
     if (tabTablesView) {
       const tab = tabTablesView.getActiveTab();
       if (tab && tab.id) {
-        resultsByTabId.set(tab.id, { rows, totalRows, truncated, baseSql, sourceSql });
+        resultsByTabId.set(tab.id, snapshot);
+        const inferred = inferObjectContextFromSql(sourceSql || baseSql);
+        if (inferred) {
+          setObjectContextForTab(tab.id, inferred);
+          context = inferred;
+        } else {
+          context = getObjectContextForTab(tab.id);
+        }
       }
     }
+    applyResultsPanelState({ snapshot, objectContext: context });
   };
 
   const normalizeSql = (sql) => String(sql || '').trim().replace(/;$/, '').trim();
@@ -858,14 +1010,65 @@ export function initHome({ api }) {
     return Number.isFinite(ms) ? ms : 0;
   };
 
+  const setProgressBar = (value) => {
+    if (!safeApi.setProgressBar) return;
+    void safeApi.setProgressBar(value);
+  };
+
+  const stopQueryProgress = () => {
+    if (queryProgressRevealTimer) {
+      clearTimeout(queryProgressRevealTimer);
+      queryProgressRevealTimer = null;
+    }
+    if (queryProgressTimer) {
+      clearInterval(queryProgressTimer);
+      queryProgressTimer = null;
+    }
+    queryProgressStartedAt = 0;
+    setProgressBar(-1);
+  };
+
+  const startQueryProgress = (timeoutMs) => {
+    stopQueryProgress();
+    queryProgressStartedAt = Date.now();
+    const safeTimeout = Number(timeoutMs);
+    const hasTimeout = Number.isFinite(safeTimeout) && safeTimeout > 0;
+    const tick = () => {
+      if (!queryProgressStartedAt) return;
+      if (!hasTimeout) {
+        setProgressBar(2);
+        return;
+      }
+      const elapsed = Date.now() - queryProgressStartedAt;
+      const progress = Math.min(elapsed / safeTimeout, 0.99);
+      setProgressBar(progress);
+    };
+    queryProgressRevealTimer = setTimeout(() => {
+      queryProgressRevealTimer = null;
+      if (!queryProgressStartedAt) return;
+      tick();
+      if (hasTimeout) {
+        queryProgressTimer = setInterval(tick, 180);
+      }
+    }, QUERY_PROGRESS_SHOW_DELAY_MS);
+  };
+
   const runSql = async (rawSql, sourceSqlOverride = '') => {
     const executionSql = normalizeSql(rawSql);
     if (!executionSql) return;
     setResultsVisible(true);
+    if (tabTablesView) {
+      const tab = tabTablesView.getActiveTab();
+      const tabId = tab && tab.id ? tab.id : '';
+      const snapshot = tabId ? resultsByTabId.get(tabId) || null : null;
+      const objectContext = tabId ? getObjectContextForTab(tabId) : null;
+      applyResultsPanelState({ snapshot, objectContext });
+    }
     const sourceSql = sourceSqlOverride ? normalizeSql(sourceSqlOverride) : executionSql;
     const statements = splitStatements(executionSql);
     const total = statements.length || 1;
     if (total === 0) return;
+    const timeoutMs = getTimeoutMs() || 0;
 
     let lastResult = null;
     let lastExecutedStmt = '';
@@ -873,87 +1076,85 @@ export function initHome({ api }) {
     if (runBtn) runBtn.disabled = true;
     if (runSelectionBtn) runSelectionBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
-
-    for (let i = 0; i < statements.length; i += 1) {
-      const stmt = normalizeSql(statements[i]);
-      if (!stmt) continue;
-      lastExecutedStmt = stmt;
-      if (isDangerousStatement(stmt)) {
-        const keyword = firstDmlKeyword(stmt);
-        const actionLabel = keyword ? keyword.toUpperCase() : 'QUERY';
-        const confirmed = confirm(`Confirm ${actionLabel} without WHERE?`);
-        if (!confirmed) {
-          setQueryStatus({ state: 'error', message: 'Canceled by user' });
-          if (runBtn) runBtn.disabled = false;
-          if (runSelectionBtn) runSelectionBtn.disabled = false;
-          if (stopBtn) stopBtn.disabled = true;
+    startQueryProgress(timeoutMs);
+    try {
+      for (let i = 0; i < statements.length; i += 1) {
+        const stmt = normalizeSql(statements[i]);
+        if (!stmt) continue;
+        lastExecutedStmt = stmt;
+        if (isDangerousStatement(stmt)) {
+          const keyword = firstDmlKeyword(stmt);
+          const actionLabel = keyword ? keyword.toUpperCase() : 'QUERY';
+          const confirmed = confirm(`Confirm ${actionLabel} without WHERE?`);
+          if (!confirmed) {
+            setQueryStatus({ state: 'error', message: 'Canceled by user' });
+            return;
+          }
+        }
+        const sql = applyLimitIfSelect(stmt);
+        const startedAt = Date.now();
+        setQueryStatus({ state: 'running', message: `Running ${i + 1}/${total}...` });
+        const res = await safeApi.runQuery({ sql, timeoutMs: timeoutMs || undefined });
+        if (!res || !res.ok) {
+          await safeApi.showError((res && res.error) || 'Failed to run query.');
+          setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Error' });
+          if (tabTablesView) {
+            const tab = tabTablesView.getActiveTab();
+            if (tab && tab.id) {
+              appendOutputEntry(tab.id, buildOutputEntry({
+                sql: stmt,
+                ok: false,
+                error: res && res.error ? res.error : 'Error',
+                duration: Date.now() - startedAt
+              }));
+              updateOutputForActiveTab();
+            }
+          }
           return;
         }
-      }
-      const sql = applyLimitIfSelect(stmt);
-      const startedAt = Date.now();
-      setQueryStatus({ state: 'running', message: `Running ${i + 1}/${total}...` });
-      const res = await safeApi.runQuery({ sql, timeoutMs: getTimeoutMs() || undefined });
-      if (!res || !res.ok) {
-        await safeApi.showError((res && res.error) || 'Failed to run query.');
-        setQueryStatus({ state: 'error', message: res && res.error ? res.error : 'Error' });
+        lastResult = { rows: res.rows || [], totalRows: res.totalRows, truncated: res.truncated, stmt };
+        if (historyManager) historyManager.recordHistory(stmt);
         if (tabTablesView) {
           const tab = tabTablesView.getActiveTab();
           if (tab && tab.id) {
             appendOutputEntry(tab.id, buildOutputEntry({
               sql: stmt,
-              ok: false,
-              error: res && res.error ? res.error : 'Error',
+              ok: true,
+              totalRows: res.totalRows || 0,
+              truncated: !!res.truncated,
+              affectedRows: Number.isFinite(res.affectedRows) ? res.affectedRows : undefined,
+              changedRows: Number.isFinite(res.changedRows) ? res.changedRows : undefined,
               duration: Date.now() - startedAt
             }));
             updateOutputForActiveTab();
           }
         }
-        if (runBtn) runBtn.disabled = false;
-        if (runSelectionBtn) runSelectionBtn.disabled = false;
-        if (stopBtn) stopBtn.disabled = true;
-        return;
       }
-      lastResult = { rows: res.rows || [], totalRows: res.totalRows, truncated: res.truncated, stmt };
-      if (historyManager) historyManager.recordHistory(stmt);
-      if (tabTablesView) {
-        const tab = tabTablesView.getActiveTab();
-        if (tab && tab.id) {
-          appendOutputEntry(tab.id, buildOutputEntry({
-            sql: stmt,
-            ok: true,
-            totalRows: res.totalRows || 0,
-            truncated: !!res.truncated,
-            affectedRows: Number.isFinite(res.affectedRows) ? res.affectedRows : undefined,
-            changedRows: Number.isFinite(res.changedRows) ? res.changedRows : undefined,
-            duration: Date.now() - startedAt
-          }));
-          updateOutputForActiveTab();
-        }
-      }
-    }
 
-    if (lastResult) {
-      const sourceStatements = splitStatements(sourceSql);
-      const lastSourceStmt = normalizeSql(
-        sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
-      );
-      renderResults(
-        lastResult.rows || [],
-        lastResult.totalRows,
-        lastResult.truncated,
-        lastExecutedStmt || lastResult.stmt,
-        lastSourceStmt || lastExecutedStmt || lastResult.stmt
-      );
-      setQueryStatus({
-        state: 'success',
-        message: `Rows: ${lastResult.totalRows || 0}`,
-        duration: Date.now() - overallStart
-      });
+      if (lastResult) {
+        const sourceStatements = splitStatements(sourceSql);
+        const lastSourceStmt = normalizeSql(
+          sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
+        );
+        renderResults(
+          lastResult.rows || [],
+          lastResult.totalRows,
+          lastResult.truncated,
+          lastExecutedStmt || lastResult.stmt,
+          lastSourceStmt || lastExecutedStmt || lastResult.stmt
+        );
+        setQueryStatus({
+          state: 'success',
+          message: `Rows: ${lastResult.totalRows || 0}`,
+          duration: Date.now() - overallStart
+        });
+      }
+    } finally {
+      stopQueryProgress();
+      if (runBtn) runBtn.disabled = false;
+      if (runSelectionBtn) runSelectionBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = true;
     }
-    if (runBtn) runBtn.disabled = false;
-    if (runSelectionBtn) runSelectionBtn.disabled = false;
-    if (stopBtn) stopBtn.disabled = true;
   };
 
   const updateRunAvailability = () => {
@@ -1005,6 +1206,76 @@ export function initHome({ api }) {
     }
     if (!fromRef || /[\s,()]/.test(fromRef)) return '';
     return fromRef;
+  };
+
+  const extractSingleFromTableRef = (rawSql) => {
+    const clean = normalizeSql(stripLeadingComments(rawSql));
+    if (!clean) return '';
+    const match = clean.match(/^select\s+[\s\S]+?\s+from\s+(.+)$/i);
+    if (!match || !match[1]) return '';
+    let fromRef = match[1].trim();
+    const clauseMatch = fromRef.match(
+      /\s+(where|order\s+by|limit|offset|group\s+by|having|inner\s+join|left\s+join|right\s+join|full\s+join|cross\s+join|join|union)\b/i
+    );
+    if (clauseMatch && Number.isFinite(clauseMatch.index)) {
+      fromRef = fromRef.slice(0, clauseMatch.index).trim();
+    }
+    const aliasMatch = fromRef.match(/^([^\s]+)\s+/);
+    if (aliasMatch && aliasMatch[1]) {
+      fromRef = aliasMatch[1].trim();
+    }
+    if (!fromRef || /[,()]/.test(fromRef)) return '';
+    return fromRef;
+  };
+
+  const parseTableReference = (rawRef) => {
+    const text = String(rawRef || '').trim();
+    if (!text) return null;
+    const parts = [];
+    let token = '';
+    let quote = '';
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (quote) {
+        if (ch === quote) {
+          if (i + 1 < text.length && text[i + 1] === quote) {
+            token += quote;
+            i += 1;
+            continue;
+          }
+          quote = '';
+          continue;
+        }
+        token += ch;
+        continue;
+      }
+      if (ch === '`' || ch === '"') {
+        quote = ch;
+        continue;
+      }
+      if (ch === '.') {
+        parts.push(token.trim());
+        token = '';
+        continue;
+      }
+      token += ch;
+    }
+    if (quote) return null;
+    parts.push(token.trim());
+    const cleanParts = parts.filter((part) => part !== '');
+    if (cleanParts.length === 1) {
+      return { schema: '', table: cleanParts[0] };
+    }
+    if (cleanParts.length === 2) {
+      return { schema: cleanParts[0], table: cleanParts[1] };
+    }
+    return null;
+  };
+
+  const inferObjectContextFromSql = (rawSql) => {
+    const tableRef = extractSingleFromTableRef(rawSql);
+    if (!tableRef) return null;
+    return parseTableReference(tableRef);
   };
 
   const buildTableCountSql = (rawSql) => {
@@ -1188,39 +1459,6 @@ export function initHome({ api }) {
     setGlobalLoading(false);
   };
 
-  const openTableDefinition = async (schema, name) => {
-    if (!name) return;
-    if (!safeApi.getTableDefinition) {
-      await safeApi.showError('Table definitions not supported.');
-      return;
-    }
-    setGlobalLoading(true, 'Loading table...');
-    let res = null;
-    try {
-      res = await safeApi.getTableDefinition({ schema, table: name });
-    } catch (err) {
-      const message = err && err.message ? err.message : 'Failed to load table definition.';
-      await safeApi.showError(message);
-      setGlobalLoading(false);
-      return;
-    }
-    if (!res || !res.ok) {
-      await safeApi.showError((res && res.error) || 'Failed to load table definition.');
-      setGlobalLoading(false);
-      return;
-    }
-    const sql = res.sql || res.definition || '';
-    if (!sql || !sql.trim()) {
-      await safeApi.showError('Table definition is empty.');
-      setGlobalLoading(false);
-      return;
-    }
-    const title = 'Table definition';
-    const subtitle = schema ? `${schema}.${name}` : name;
-    openDefinitionModal({ title, subtitle, sql });
-    setGlobalLoading(false);
-  };
-
   const activateConnection = async (entry, previousKey = null) => {
     const key = getTabKey(entry);
     if (previousKey) saveTabsForKey(previousKey);
@@ -1237,11 +1475,15 @@ export function initHome({ api }) {
     await refreshDatabases();
     const tables = treeView ? await treeView.refresh() : null;
     if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
-    if (tabTablesView) loadTabsForKey(key);
     resultsByTabId = new Map();
+    objectContextByTabId = new Map();
     outputByTabId = new Map();
     setOutputDisplay(null);
-    if (tableView) tableView.clearUi();
+    if (tabTablesView) loadTabsForKey(key);
+    if (tableObjectTabsView) {
+      tableObjectTabsView.resetScopeCache();
+    }
+    applyResultsPanelState({ snapshot: null, objectContext: null });
     return true;
   };
 
@@ -1737,8 +1979,42 @@ export function initHome({ api }) {
   }
 
   if (themeToggle) {
-    themeToggle.addEventListener('click', () => toggleTheme());
+    themeToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const isOpen = themeMenu ? !themeMenu.classList.contains('hidden') : false;
+      setThemeMenuOpen(!isOpen);
+    });
   }
+  if (themeMenu) {
+    themeMenu.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-theme-mode]');
+      if (!item) return;
+      const mode = item.getAttribute('data-theme-mode');
+      setThemeMode(mode);
+      setThemeMenuOpen(false);
+    });
+  }
+  document.addEventListener('click', (event) => {
+    if (!themeMenu || themeMenu.classList.contains('hidden')) return;
+    if (event.target && event.target.closest('#themeControl')) return;
+    setThemeMenuOpen(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      setThemeMenuOpen(false);
+    }
+  });
+  if (typeof safeApi.onNativeThemeUpdated === 'function') {
+    removeNativeThemeListener = safeApi.onNativeThemeUpdated((payload) => {
+      applySystemThemeSnapshot(payload);
+    });
+  }
+  window.addEventListener('beforeunload', () => {
+    if (typeof removeNativeThemeListener === 'function') {
+      removeNativeThemeListener();
+      removeNativeThemeListener = null;
+    }
+  });
 
   if (sidebarTreeBtn) {
     sidebarTreeBtn.addEventListener('click', () => setSidebarView('tree'));
@@ -1788,6 +2064,7 @@ export function initHome({ api }) {
 
   if (stopBtn) {
     stopBtn.addEventListener('click', async () => {
+      stopQueryProgress();
       const res = await safeApi.cancelQuery();
       if (!res || !res.ok) {
         await safeApi.showError((res && res.error) || 'Unable to cancel.');
@@ -1918,7 +2195,7 @@ export function initHome({ api }) {
 
   setScreen(false);
   updateToggleEditorButtonState(true);
-  applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  void loadThemeMode();
   loadEditorFontSize();
   loadSidebarWidth();
   loadEditorHeight();
@@ -1933,8 +2210,23 @@ export function initHome({ api }) {
     tableSearchClear,
     getActiveConnectionKey: getCurrentHistoryKey,
     getActiveConnection,
-    onOpenTable: async (_schema, name, sql, options = {}) => {
-      if (tabTablesView) tabTablesView.createWithQuery(name, sql);
+    onOpenTable: async (schema, name, sql, options = {}) => {
+      let openedTab = null;
+      if (tabTablesView) {
+        openedTab = tabTablesView.createWithQuery(name, sql);
+      }
+      if (openedTab && openedTab.id) {
+        setObjectContextForTab(openedTab.id, { schema, table: name });
+      }
+      const preferredObjectTab =
+        options && options.execute === false && options.openObjectTab === 'columns'
+          ? 'columns'
+          : 'data';
+      applyResultsPanelState({
+        snapshot: null,
+        objectContext: { schema, table: name },
+        preferredObjectTab
+      });
       setEditorVisible(true);
       if (codeEditor) codeEditor.focus();
       lastSort = null;
@@ -1944,9 +2236,6 @@ export function initHome({ api }) {
     },
     onOpenView: async (schema, name) => {
       await openViewDefinition(schema, name);
-    },
-    onOpenTableDefinition: async (schema, name) => {
-      await openTableDefinition(schema, name);
     },
     onToast: (message) => showToast(message)
   });
@@ -2012,12 +2301,14 @@ export function initHome({ api }) {
         for (const id of outputByTabId.keys()) {
           if (!ids.has(id)) outputByTabId.delete(id);
         }
+        for (const id of objectContextByTabId.keys()) {
+          if (!ids.has(id)) objectContextByTabId.delete(id);
+        }
       }
     },
     onActiveChange: (id) => {
-      if (!tableView) return;
       if (!id) {
-        tableView.clearUi();
+        applyResultsPanelState({ snapshot: null, objectContext: null });
         setOutputDisplay(null);
         return;
       }
@@ -2029,12 +2320,9 @@ export function initHome({ api }) {
       } else {
         setEditorVisible(true, { persist: false });
       }
-      const snapshot = resultsByTabId.get(id);
-      if (snapshot && Array.isArray(snapshot.rows)) {
-        tableView.setResults(snapshot);
-      } else {
-        tableView.clearUi();
-      }
+      const snapshot = resultsByTabId.get(id) || null;
+      const objectContext = getObjectContextForTab(id);
+      applyResultsPanelState({ snapshot, objectContext });
       updateRunAvailability();
       updateOutputForActiveTab();
     }
@@ -2154,6 +2442,7 @@ export function initHome({ api }) {
 
   tableView = createTableView({
     resultsTable,
+    resultsEmptyState,
     tableActionsBar,
     copyCellBtn,
     copyRowBtn,
@@ -2162,6 +2451,19 @@ export function initHome({ api }) {
     onShowError: safeApi.showError,
     onToast: (message) => showToast(message),
     onSort: rerunSortedQuery
+  });
+  tableObjectTabsView = createTableObjectTabs({
+    container: tableObjectTabs,
+    detailsContainer: objectDetailsPanel,
+    resultsToolbar: tableActionsBar,
+    resultsTableWrap,
+    getScopeKey: getCurrentHistoryKey,
+    listColumns: (payload) => safeApi.listColumns(payload),
+    listTableInfo: (payload) => safeApi.listTableInfo(payload),
+    getTableDefinition: (payload) => safeApi.getTableDefinition(payload),
+    listTables: () => safeApi.listTables(),
+    onShowError: safeApi.showError,
+    onToast: (message) => showToast(message)
   });
   tabConnectionsView = createTabConnections({
     container: tabConnections,

@@ -65,8 +65,8 @@ hdiutil create \
 
 echo "Creating zip artifact (DMG inside)..."
 ditto -c -k --sequesterRsrc --keepParent "$DMG_PATH" "$DIST_ROOT/qury-mac.zip"
+rm -f "$DMG_PATH"
 
 echo "Done."
 echo "App bundle: $APP_BUNDLE"
-echo "DMG file: $DMG_PATH"
 echo "Zip file: $DIST_ROOT/qury-mac.zip"

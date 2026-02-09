@@ -43,6 +43,7 @@ module.exports = async function afterAllArtifactBuild(context) {
     const macZip = path.join(outDir, "qury-mac.zip");
     await zipSingleFile(dmgPath, macZip, "qury-mac.dmg");
     console.log(`Created ${macZip}`);
+    fs.rmSync(dmgPath, { force: true });
   }
 
   const winUnpacked = context.appOutDir && fs.existsSync(context.appOutDir)

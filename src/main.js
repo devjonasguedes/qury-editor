@@ -1878,6 +1878,7 @@ function createWindow() {
     );
   }
   const initialBounds = getInitialWindowBounds();
+  const isMac = process.platform === "darwin";
   const windowOptions = {
     title: "Qury Editor",
     width: initialBounds.width,
@@ -1894,6 +1895,16 @@ function createWindow() {
       sandbox: true,
     },
   };
+  if (isMac) {
+    windowOptions.titleBarStyle = "hiddenInset";
+  } else {
+    windowOptions.frame = false;
+    windowOptions.titleBarOverlay = {
+      color: "#0f172a",
+      symbolColor: "#e2e8f0",
+      height: 44,
+    };
+  }
   if (Number.isFinite(initialBounds.x) && Number.isFinite(initialBounds.y)) {
     windowOptions.x = initialBounds.x;
     windowOptions.y = initialBounds.y;

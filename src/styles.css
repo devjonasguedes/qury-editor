@@ -238,11 +238,22 @@ topbar
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 24px;
+  padding: 0 16px 0 90px;
+  min-height: 44px;
   background: var(--surface-2);
   color: var(--text);
   border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  -webkit-app-region: drag;
+}
+
+.topbar button,
+.topbar input,
+.topbar select,
+.topbar .theme-control,
+.topbar .theme-menu,
+.topbar .conn-tabs {
+  -webkit-app-region: no-drag;
 }
 
 .brand-area {

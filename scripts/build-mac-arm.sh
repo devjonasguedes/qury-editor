@@ -54,9 +54,19 @@ rsync -a "$ROOT_DIR/node_modules/" "$APP_RESOURCES/node_modules/"
 
 node -e "const fs=require('fs'); const pkg=require('./package.json'); const out={name:pkg.name,version:pkg.version,main:'out/main/index.js',private:true,dependencies:pkg.dependencies}; fs.writeFileSync(process.argv[1], JSON.stringify(out,null,2)+'\n');" "$APP_RESOURCES/package.json"
 
-echo "Creating zip artifact..."
-ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$DIST_ROOT/$APP_NAME-mac-arm64.zip"
+echo "Creating DMG artifact..."
+DMG_PATH="$DIST_ROOT/qury-mac.dmg"
+hdiutil create \
+  -volname "$APP_NAME" \
+  -srcfolder "$APP_BUNDLE" \
+  -ov \
+  -format UDZO \
+  "$DMG_PATH"
+
+echo "Creating zip artifact (DMG inside)..."
+ditto -c -k --sequesterRsrc --keepParent "$DMG_PATH" "$DIST_ROOT/qury-mac.zip"
 
 echo "Done."
 echo "App bundle: $APP_BUNDLE"
-echo "Zip file: $DIST_ROOT/$APP_NAME-mac-arm64.zip"
+echo "DMG file: $DMG_PATH"
+echo "Zip file: $DIST_ROOT/qury-mac.zip"

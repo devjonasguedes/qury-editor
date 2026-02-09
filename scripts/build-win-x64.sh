@@ -5,8 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 APP_NAME="Qury Editor"
+ZIP_ROOT_NAME="qury-windows"
 DIST_ROOT="$ROOT_DIR/dist/win32-x64"
-ELECTRON_UNPACK_DIR="$DIST_ROOT/$APP_NAME-win32-x64"
+ELECTRON_UNPACK_DIR="$DIST_ROOT/$ZIP_ROOT_NAME"
 APP_RESOURCES="$ELECTRON_UNPACK_DIR/resources/app"
 
 echo "Building app source..."
@@ -59,8 +60,8 @@ npm install \
   --prefix "$APP_RESOURCES"
 
 echo "Creating zip artifact..."
-ditto -c -k --sequesterRsrc --keepParent "$ELECTRON_UNPACK_DIR" "$DIST_ROOT/$APP_NAME-win32-x64.zip"
+ditto -c -k --sequesterRsrc --keepParent "$ELECTRON_UNPACK_DIR" "$DIST_ROOT/$ZIP_ROOT_NAME.zip"
 
 echo "Done."
 echo "Windows app folder: $ELECTRON_UNPACK_DIR"
-echo "Zip file: $DIST_ROOT/$APP_NAME-win32-x64.zip"
+echo "Zip file: $DIST_ROOT/$ZIP_ROOT_NAME.zip"

@@ -15,7 +15,7 @@
     "build": "electron-vite build",
     "build:app": "npm run build && node scripts/copy-main-drivers.cjs",
     "dist": "npm run build:app && npx electron-builder",
-    "build:mac:arm64": "npm run build:app && npx electron-builder --mac zip --arm64 --publish never",
+    "build:mac:arm64": "npm run build:app && npx electron-builder --mac dmg --arm64 --publish never",
     "build:win:x64": "npm run build:app && npx electron-builder --win zip --x64 --publish never",
     "build:linux:deb": "npm run build:app && npx electron-builder --linux deb --x64 --publish never",
     "build:linux:deb:arm64": "npm run build:app && npx electron-builder --linux deb --arm64 --publish never"
@@ -37,6 +37,7 @@
     "ssh2": "^1.16.0"
   },
   "devDependencies": {
+    "archiver": "^7.0.1",
     "electron": "^29.4.0",
     "electron-vite": "^5.0.0",
     "vite": "^7.3.1"
@@ -46,6 +47,7 @@
     "productName": "Qury Editor",
     "npmRebuild": false,
     "afterPack": "scripts/after-pack.cjs",
+    "afterAllArtifactBuild": "scripts/after-all-artifacts.cjs",
     "icon": "public/icon.png",
     "asar": true,
     "directories": {
@@ -64,13 +66,13 @@
       "icon": "public/icon.icns",
       "target": [
         {
-          "target": "zip",
+          "target": "dmg",
           "arch": [
             "arm64"
           ]
         }
       ],
-      "artifactName": "qury-mac.zip"
+      "artifactName": "qury-mac.dmg"
     },
     "win": {
       "icon": "public/icon.ico",

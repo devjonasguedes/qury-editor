@@ -15,10 +15,10 @@
     "build": "electron-vite build",
     "build:app": "npm run build && node scripts/copy-main-drivers.cjs",
     "dist": "npm run build:app && npx electron-builder",
-    "build:mac:arm64": "npm run build:app && npx electron-builder --mac zip --arm64 --publish never && node scripts/copy-release-to-landing.cjs mac-arm64",
-    "build:win:x64": "npm run build:app && npx electron-builder --win zip --x64 --publish never && node scripts/copy-release-to-landing.cjs win-x64",
-    "build:linux:deb": "npm run build:app && npx electron-builder --linux deb --x64 --publish never && node scripts/copy-release-to-landing.cjs linux-x64",
-    "build:linux:deb:arm64": "npm run build:app && npx electron-builder --linux deb --arm64 --publish never && node scripts/copy-release-to-landing.cjs linux-arm64"
+    "build:mac:arm64": "npm run build:app && npx electron-builder --mac zip --arm64 --publish never",
+    "build:win:x64": "npm run build:app && npx electron-builder --win zip --x64 --publish never",
+    "build:linux:deb": "npm run build:app && npx electron-builder --linux deb --x64 --publish never",
+    "build:linux:deb:arm64": "npm run build:app && npx electron-builder --linux deb --arm64 --publish never"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.7",

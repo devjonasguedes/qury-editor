@@ -61,7 +61,7 @@
       "main": "out/main/index.js"
     },
     "mac": {
-      "icon": "public/icon.png",
+      "icon": "public/icon.icns",
       "target": [
         {
           "target": "zip",
@@ -73,7 +73,7 @@
       "artifactName": "${productName}-mac-${arch}.${ext}"
     },
     "win": {
-      "icon": "public/icon.png",
+      "icon": "public/icon.ico",
       "target": [
         {
           "target": "zip",
@@ -85,7 +85,7 @@
       "artifactName": "${productName}-win-${arch}.${ext}"
     },
     "linux": {
-      "icon": "public/icon.png",
+      "icon": "public/icons",
       "maintainer": "Jonas Guedes <jonaskof@gmail.com>",
       "target": [
         {

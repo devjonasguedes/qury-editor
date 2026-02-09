@@ -73,6 +73,12 @@ export function buildConnectionBaseKey(entry) {
   ].join('|');
 }
 
+export function getConnectionScopeKey(entry) {
+  if (!entry) return null;
+  if (entry.id) return String(entry.id);
+  return buildConnectionBaseKey(entry);
+}
+
 export function normalizeKeyToBase(key) {
   if (!key) return null;
   const parts = String(key).split('|');

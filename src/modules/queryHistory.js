@@ -1,34 +1,3 @@
-const HISTORY_KEY = 'sqlEditor.queryHistory';
-
-const safeJsonParse = (raw, fallback) => {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw);
-  } catch (_) {
-    return fallback;
-  }
-};
-
-const readJson = (key, fallback) => {
-  if (!key) return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    return safeJsonParse(raw, fallback);
-  } catch (_) {
-    return fallback;
-  }
-};
-
-const writeJson = (key, value) => {
-  if (!key) return false;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-    return true;
-  } catch (_) {
-    return false;
-  }
-};
-
 export function createQueryHistory({
   historyList,
   getCurrentHistoryKey,
@@ -36,41 +5,31 @@ export function createQueryHistory({
   isTableTab,
   isTableEditor,
   createNewQueryTab,
-  setQueryValue
+  setQueryValue,
+  listHistory,
+  recordHistory,
+  showError
 }) {
-  const buildKey = () => {
-    const scope = typeof getCurrentHistoryKey === 'function' ? getCurrentHistoryKey() : null;
-    if (!scope) return null;
-    return `${HISTORY_KEY}:${scope}`;
+  const resolveScope = () => {
+    if (typeof getCurrentHistoryKey !== 'function') return null;
+    return getCurrentHistoryKey();
   };
 
-  const readHistory = () => {
-    const key = buildKey();
-    return Array.isArray(readJson(key, [])) ? readJson(key, []) : [];
+  const fetchHistory = async () => {
+    const scope = resolveScope();
+    if (!scope || typeof listHistory !== 'function') return [];
+    try {
+      const entries = await listHistory({ connectionId: scope, limit: 50 });
+      return Array.isArray(entries) ? entries : [];
+    } catch (_) {
+      if (showError) await showError('Failed to load history.');
+      return [];
+    }
   };
 
-  const writeHistory = (list) => {
-    const key = buildKey();
-    if (!key) return;
-    writeJson(key, list);
-  };
-
-  const recordHistory = (sqlText) => {
-    const key = buildKey();
-    if (!key) return;
-    const text = String(sqlText || '').trim();
-    if (!text) return;
-    const list = readHistory();
-    const normalized = text.replace(/\s+/g, ' ');
-    const next = list.filter((item) => item && item.sql !== normalized);
-    next.unshift({ sql: normalized, ts: Date.now() });
-    writeHistory(next.slice(0, 50));
-    renderHistoryList();
-  };
-
-  const renderHistoryList = () => {
+  const renderHistoryList = async () => {
     if (!historyList) return;
-    if (!buildKey()) {
+    if (!resolveScope()) {
       historyList.innerHTML = '';
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
@@ -78,7 +37,7 @@ export function createQueryHistory({
       historyList.appendChild(empty);
       return;
     }
-    const list = readHistory();
+    const list = await fetchHistory();
     historyList.innerHTML = '';
     if (!list || list.length === 0) {
       const empty = document.createElement('div');
@@ -120,8 +79,22 @@ export function createQueryHistory({
     });
   };
 
+  const recordHistoryEntry = async (sqlText) => {
+    const scope = resolveScope();
+    if (!scope || typeof recordHistory !== 'function') return;
+    const text = String(sqlText || '').trim();
+    if (!text) return;
+    const normalized = text.replace(/\s+/g, ' ');
+    try {
+      await recordHistory({ connectionId: scope, sql: normalized, ts: Date.now() });
+      await renderHistoryList();
+    } catch (_) {
+      if (showError) await showError('Failed to save history.');
+    }
+  };
+
   return {
-    recordHistory,
+    recordHistory: recordHistoryEntry,
     renderHistoryList
   };
 }

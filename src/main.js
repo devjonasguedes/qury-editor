@@ -120,6 +120,13 @@ const DDL_ADMIN_BLOCKED_KEYWORDS = new Set([
   "analyze",
 ]);
 let policyRules = null;
+const DEFAULT_HISTORY_LIMIT = 50;
+const DEFAULT_SNIPPETS_LIMIT = 100;
+
+function generateId(prefix) {
+  const safePrefix = String(prefix || "id");
+  return `${safePrefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 function encodeSecret(value) {
   const text = value == null ? "" : String(value);
@@ -331,6 +338,7 @@ async function initDb() {
       }
       instance.run(`
         CREATE TABLE IF NOT EXISTS connections (
+          id TEXT,
           name TEXT PRIMARY KEY,
           type TEXT NOT NULL,
           host TEXT,
@@ -354,8 +362,43 @@ async function initDb() {
           updated_at INTEGER
         )
       `);
+      instance.run(`
+        CREATE TABLE IF NOT EXISTS snippets (
+          id TEXT PRIMARY KEY,
+          connection_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          sql TEXT NOT NULL,
+          created_at INTEGER,
+          updated_at INTEGER
+        )
+      `);
+      instance.run(`
+        CREATE UNIQUE INDEX IF NOT EXISTS snippets_connection_name
+          ON snippets (connection_id, name)
+      `);
+      instance.run(`
+        CREATE INDEX IF NOT EXISTS snippets_connection_updated
+          ON snippets (connection_id, updated_at)
+      `);
+      instance.run(`
+        CREATE TABLE IF NOT EXISTS query_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          connection_id TEXT NOT NULL,
+          sql TEXT NOT NULL,
+          ts INTEGER
+        )
+      `);
+      instance.run(`
+        CREATE UNIQUE INDEX IF NOT EXISTS query_history_connection_sql
+          ON query_history (connection_id, sql)
+      `);
+      instance.run(`
+        CREATE INDEX IF NOT EXISTS query_history_connection_ts
+          ON query_history (connection_id, ts)
+      `);
       ensureConnectionsSchema(instance);
       migrateConnectionsIfNeeded(instance);
+      migrateConnectionIdsIfNeeded(instance);
       migrateSecretFieldsIfNeeded(instance);
       return instance;
     });
@@ -370,6 +413,10 @@ function ensureConnectionsSchema(dbInstance) {
     const res = dbInstance.exec("PRAGMA table_info(connections)");
     const cols =
       res && res[0] && res[0].values ? res[0].values.map((row) => row[1]) : [];
+    if (!cols.includes("id")) {
+      dbInstance.run("ALTER TABLE connections ADD COLUMN id TEXT");
+      changed = true;
+    }
     if (!cols.includes("read_only")) {
       dbInstance.run(
         "ALTER TABLE connections ADD COLUMN read_only INTEGER DEFAULT 0",
@@ -487,9 +534,9 @@ function migrateConnectionsIfNeeded(dbInstance) {
   });
   const stmt = dbInstance.prepare(`
     INSERT OR REPLACE INTO connections
-      (name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (id, name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const item of byName.values()) {
     const stored = toStoredConnectionEntry(item);
@@ -500,6 +547,7 @@ function migrateConnectionsIfNeeded(dbInstance) {
         ? 1
         : 0;
     stmt.run([
+      generateId('conn'),
       item.name,
       item.type,
       item.host || "",
@@ -601,6 +649,38 @@ function persistDb(dbInstance) {
   const data = dbInstance.export();
   fs.mkdirSync(path.dirname(connectionsDb()), { recursive: true });
   fs.writeFileSync(connectionsDb(), Buffer.from(data));
+}
+
+function getConnectionIdByName(dbInstance, name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return '';
+  const stmt = dbInstance.prepare("SELECT id FROM connections WHERE name = ?");
+  stmt.bind([trimmed]);
+  let id = '';
+  if (stmt.step()) {
+    const row = stmt.getAsObject();
+    id = row && row.id ? String(row.id) : '';
+  }
+  stmt.free();
+  return id;
+}
+
+function migrateConnectionIdsIfNeeded(dbInstance) {
+  const res = dbInstance.exec("SELECT name, id FROM connections");
+  const rows = rowsFromExec(res);
+  if (!rows.length) return;
+  const now = Date.now();
+  let changed = false;
+  const stmt = dbInstance.prepare("UPDATE connections SET id = ?, updated_at = ? WHERE name = ?");
+  rows.forEach((row) => {
+    const currentId = row && row.id ? String(row.id) : '';
+    const name = row && row.name ? String(row.name) : '';
+    if (!name || currentId) return;
+    stmt.run([generateId('conn'), now, name]);
+    changed = true;
+  });
+  stmt.free();
+  if (changed) persistDb(dbInstance);
 }
 
 function normalizeConnectionType(value) {
@@ -1209,7 +1289,7 @@ function toConnectionMetadata(entry) {
 
 function getConnectionMetadata(dbInstance) {
   const res = dbInstance.exec(
-    "SELECT name, type, host, port, user, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
+    "SELECT id, name, type, host, port, user, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
   );
   return rowsFromExec(res);
 }
@@ -1229,6 +1309,10 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
   if (!entry || !entry.name) {
     throw new Error("Connection name is required.");
   }
+  const resolvedId =
+    (entry && entry.id ? String(entry.id) : '') ||
+    getConnectionIdByName(dbInstance, entry.name) ||
+    generateId('conn');
   const stored = toStoredConnectionEntry(entry);
   const policyMode = getEntryPolicyMode(entry);
   const readOnly = !!(entry && (entry.read_only || entry.readOnly));
@@ -1238,10 +1322,11 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
   );
   const stmt = dbInstance.prepare(`
     INSERT INTO connections
-      (name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (id, name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
+      id = excluded.id,
       type = excluded.type,
       host = excluded.host,
       port = excluded.port,
@@ -1266,6 +1351,7 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
       updated_at = excluded.updated_at
   `);
   stmt.run([
+    resolvedId,
     entry.name,
     normalizeConnectionType(entry.type),
     entry.host || "",
@@ -1380,7 +1466,7 @@ function closeTunnel(tunnel) {
 async function listConnections() {
   const dbInstance = await initDb();
   const res = dbInstance.exec(
-    "SELECT name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
+    "SELECT id, name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
   );
   return rowsFromExec(res).map((entry) => toPublicConnectionEntry(entry));
 }
@@ -1397,6 +1483,10 @@ async function saveConnection(entry) {
   const nextName = String(nextEntry.name || "").trim();
   const now = Date.now();
   nextEntry.last_connected_at = now;
+  if (!nextEntry.id) {
+    const existingId = getConnectionIdByName(dbInstance, originalName || nextName);
+    nextEntry.id = existingId || generateId('conn');
+  }
 
   dbInstance.run("BEGIN");
   try {
@@ -1604,6 +1694,150 @@ async function deleteConnection(name) {
   return listConnections();
 }
 
+async function listSnippets(payload) {
+  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
+  if (!connectionId) return [];
+  const limit = payload && Number.isFinite(Number(payload.limit))
+    ? Math.max(1, Math.floor(Number(payload.limit)))
+    : DEFAULT_SNIPPETS_LIMIT;
+  const dbInstance = await initDb();
+  const stmt = dbInstance.prepare(
+    "SELECT id, name, sql, updated_at FROM snippets WHERE connection_id = ? ORDER BY updated_at DESC LIMIT ?",
+  );
+  stmt.bind([connectionId, limit]);
+  const rows = [];
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    sql: row.sql,
+    ts: row.updated_at || 0,
+  }));
+}
+
+function getSnippetIdByName(dbInstance, connectionId, name) {
+  const stmt = dbInstance.prepare(
+    "SELECT id FROM snippets WHERE connection_id = ? AND name = ?",
+  );
+  stmt.bind([connectionId, name]);
+  let id = '';
+  if (stmt.step()) {
+    const row = stmt.getAsObject();
+    id = row && row.id ? String(row.id) : '';
+  }
+  stmt.free();
+  return id;
+}
+
+async function saveSnippet(payload) {
+  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
+  const name = payload && payload.name ? String(payload.name).trim() : '';
+  const sql = payload && payload.sql ? String(payload.sql) : '';
+  if (!connectionId || !name || !sql.trim()) {
+    return { ok: false, error: 'Invalid snippet payload.' };
+  }
+  const dbInstance = await initDb();
+  const existingId = getSnippetIdByName(dbInstance, connectionId, name);
+  const nextId = existingId || (payload && payload.id ? String(payload.id) : '') || generateId('snip');
+  const now = Date.now();
+
+  dbInstance.run("BEGIN");
+  try {
+    const stmt = dbInstance.prepare(`
+      INSERT INTO snippets
+        (id, connection_id, name, sql, created_at, updated_at)
+      VALUES
+        (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(connection_id, name) DO UPDATE SET
+        sql = excluded.sql,
+        updated_at = excluded.updated_at
+    `);
+    stmt.run([nextId, connectionId, name, sql, now, now]);
+    stmt.free();
+
+    const cleanup = dbInstance.prepare(
+      "DELETE FROM snippets WHERE connection_id = ? AND id NOT IN (SELECT id FROM snippets WHERE connection_id = ? ORDER BY updated_at DESC LIMIT ?)",
+    );
+    cleanup.run([connectionId, connectionId, DEFAULT_SNIPPETS_LIMIT]);
+    cleanup.free();
+
+    dbInstance.run("COMMIT");
+  } catch (err) {
+    try {
+      dbInstance.run("ROLLBACK");
+    } catch (_) {}
+    return { ok: false, error: err && err.message ? err.message : 'Failed to save snippet.' };
+  }
+  persistDb(dbInstance);
+  return { ok: true, id: nextId };
+}
+
+async function deleteSnippet(payload) {
+  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
+  if (!connectionId) return { ok: false, error: 'Missing connectionId.' };
+  const id = payload && payload.id ? String(payload.id) : '';
+  const name = payload && payload.name ? String(payload.name) : '';
+  const dbInstance = await initDb();
+  let stmt = null;
+  if (id) {
+    stmt = dbInstance.prepare("DELETE FROM snippets WHERE connection_id = ? AND id = ?");
+    stmt.run([connectionId, id]);
+  } else if (name) {
+    stmt = dbInstance.prepare("DELETE FROM snippets WHERE connection_id = ? AND name = ?");
+    stmt.run([connectionId, name]);
+  }
+  if (stmt) stmt.free();
+  persistDb(dbInstance);
+  return { ok: true };
+}
+
+async function listHistory(payload) {
+  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
+  if (!connectionId) return [];
+  const limit = payload && Number.isFinite(Number(payload.limit))
+    ? Math.max(1, Math.floor(Number(payload.limit)))
+    : DEFAULT_HISTORY_LIMIT;
+  const dbInstance = await initDb();
+  const stmt = dbInstance.prepare(
+    "SELECT sql, ts FROM query_history WHERE connection_id = ? ORDER BY ts DESC LIMIT ?",
+  );
+  stmt.bind([connectionId, limit]);
+  const rows = [];
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return rows.map((row) => ({ sql: row.sql, ts: row.ts || 0 }));
+}
+
+async function recordHistory(payload) {
+  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
+  const sql = payload && payload.sql ? String(payload.sql).trim() : '';
+  if (!connectionId || !sql) return { ok: false, error: 'Invalid history payload.' };
+  const ts = payload && payload.ts ? Number(payload.ts) : Date.now();
+  const dbInstance = await initDb();
+  const stmt = dbInstance.prepare(`
+    INSERT INTO query_history (connection_id, sql, ts)
+    VALUES (?, ?, ?)
+    ON CONFLICT(connection_id, sql) DO UPDATE SET
+      ts = excluded.ts
+  `);
+  stmt.run([connectionId, sql, ts]);
+  stmt.free();
+
+  const cleanup = dbInstance.prepare(
+    "DELETE FROM query_history WHERE connection_id = ? AND sql NOT IN (SELECT sql FROM query_history WHERE connection_id = ? ORDER BY ts DESC LIMIT ?)",
+  );
+  cleanup.run([connectionId, connectionId, DEFAULT_HISTORY_LIMIT]);
+  cleanup.free();
+
+  persistDb(dbInstance);
+  return { ok: true };
+}
+
 async function disconnect() {
   try {
     if (currentDriver) {
@@ -1772,6 +2006,26 @@ ipcMain.handle("connections:save", async (_evt, entry) => {
 
 ipcMain.handle("connections:delete", async (_evt, name) => {
   return deleteConnection(name);
+});
+
+ipcMain.handle("history:list", async (_evt, payload) => {
+  return listHistory(payload);
+});
+
+ipcMain.handle("history:record", async (_evt, payload) => {
+  return recordHistory(payload);
+});
+
+ipcMain.handle("snippets:list", async (_evt, payload) => {
+  return listSnippets(payload);
+});
+
+ipcMain.handle("snippets:save", async (_evt, payload) => {
+  return saveSnippet(payload);
+});
+
+ipcMain.handle("snippets:delete", async (_evt, payload) => {
+  return deleteSnippet(payload);
 });
 
 ipcMain.handle("connections:touch", async (_evt, name) => {

@@ -1,5 +1,5 @@
 export function createDbConnection(api) {
-  const SAFE_EMPTY_LIST_METHODS = new Set(['listSavedConnections']);
+  const SAFE_EMPTY_LIST_METHODS = new Set(['listSavedConnections', 'listHistory', 'listSnippets']);
 
   const showErrorFallback = async (message) => {
     console.error('API unavailable:', message);
@@ -54,6 +54,11 @@ export function createDbConnection(api) {
     exportSavedConnections: () => safeApi.exportSavedConnections(),
     importSavedConnections: () => safeApi.importSavedConnections(),
     deleteConnection: (name) => safeApi.deleteConnection(name),
+    listHistory: (payload) => safeApi.listHistory(payload),
+    recordHistory: (payload) => safeApi.recordHistory(payload),
+    listSnippets: (payload) => safeApi.listSnippets(payload),
+    saveSnippet: (payload) => safeApi.saveSnippet(payload),
+    deleteSnippet: (payload) => safeApi.deleteSnippet(payload),
     getPolicySettings: () => safeApi.getPolicySettings(),
     savePolicySettings: (payload) => safeApi.savePolicySettings(payload),
     getNativeTheme: () => {

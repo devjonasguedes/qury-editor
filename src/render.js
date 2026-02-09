@@ -1,7 +1,7 @@
 import { format as formatSql } from 'sql-formatter';
 
 import {
-  buildConnectionBaseKey,
+  getConnectionScopeKey,
   connectionTitle,
   getEntrySshConfig,
   getEntryPolicyMode,
@@ -1794,8 +1794,8 @@ export function initHome({ api }) {
     if (sidebarTreeBtn) sidebarTreeBtn.classList.toggle('active', next === 'tree');
     if (sidebarHistoryBtn) sidebarHistoryBtn.classList.toggle('active', next === 'history');
     if (sidebarSnippetsBtn) sidebarSnippetsBtn.classList.toggle('active', next === 'snippets');
-    if (next === 'history' && historyManager) historyManager.renderHistoryList();
-    if (next === 'snippets' && snippetsManager) snippetsManager.renderSnippetsList();
+    if (next === 'history' && historyManager) void historyManager.renderHistoryList();
+    if (next === 'snippets' && snippetsManager) void snippetsManager.renderSnippetsList();
   };
 
   const renderConnectionTabs = () => {
@@ -1827,7 +1827,7 @@ export function initHome({ api }) {
     ssh: getEntrySshConfig(entry)
   });
 
-  const getTabKey = (entry) => buildConnectionBaseKey(entry);
+  const getTabKey = (entry) => getConnectionScopeKey(entry);
 
   const getActiveConnection = () => {
     if (!tabConnectionsView) return null;
@@ -3048,7 +3048,7 @@ export function initHome({ api }) {
           stmt: displayStmt,
           pagination
         };
-        if (historyManager) historyManager.recordHistory(displayStmt);
+        if (historyManager) await historyManager.recordHistory(displayStmt);
         if (tabTablesView) {
           const tab = tabTablesView.getActiveTab();
           if (tab && tab.id) {
@@ -4939,7 +4939,10 @@ export function initHome({ api }) {
     setQueryValue: (sql) => {
       if (codeEditor) codeEditor.setValue(sql || '');
       if (tabTablesView) tabTablesView.syncActiveTabContent();
-    }
+    },
+    listHistory: (payload) => safeApi.listHistory(payload),
+    recordHistory: (payload) => safeApi.recordHistory(payload),
+    showError: safeApi.showError
   });
   snippetsManager = createSnippetsManager({
     snippetsList,
@@ -4980,6 +4983,9 @@ export function initHome({ api }) {
       lastSort = null;
       await runSql(text);
     },
+    listSnippets: (payload) => safeApi.listSnippets(payload),
+    saveSnippet: (payload) => safeApi.saveSnippet(payload),
+    deleteSnippet: (payload) => safeApi.deleteSnippet(payload),
     showError: safeApi.showError
   });
   const buildOrderBy = (sql, column, direction) => {

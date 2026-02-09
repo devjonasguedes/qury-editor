@@ -1,7 +1,3 @@
-import { createScopedStorage } from './storage.js';
-
-const SNIPPETS_KEY = 'sqlEditor.snippets';
-
 export function createSnippetsManager({
   snippetsList,
   addSnippetBtn,
@@ -18,19 +14,34 @@ export function createSnippetsManager({
   setQueryValue,
   createNewQueryTab,
   runSnippet,
+  listSnippets,
+  saveSnippet,
+  deleteSnippet,
   showError
 }) {
   let pendingSnippetSql = '';
   let editingSnippetId = null;
 
-  const snippetsStore = createScopedStorage(SNIPPETS_KEY, getCurrentHistoryKey);
+  const resolveScope = () => {
+    if (typeof getCurrentHistoryKey !== 'function') return null;
+    return getCurrentHistoryKey();
+  };
 
-  const readSnippets = () => snippetsStore.readList([]);
-  const writeSnippets = (list) => snippetsStore.writeList(list);
+  const readSnippets = async () => {
+    const scope = resolveScope();
+    if (!scope || typeof listSnippets !== 'function') return [];
+    try {
+      const list = await listSnippets({ connectionId: scope, limit: 100 });
+      return Array.isArray(list) ? list : [];
+    } catch (_) {
+      if (showError) await showError('Failed to load snippets.');
+      return [];
+    }
+  };
 
-  const renderSnippetsList = () => {
+  const renderSnippetsList = async () => {
     if (!snippetsList) return;
-    if (!getCurrentHistoryKey()) {
+    if (!resolveScope()) {
       snippetsList.innerHTML = '';
       const empty = document.createElement('div');
       empty.className = 'tree-empty';
@@ -38,7 +49,7 @@ export function createSnippetsManager({
       snippetsList.appendChild(empty);
       return;
     }
-    const list = readSnippets();
+    const list = await readSnippets();
     snippetsList.innerHTML = '';
     if (!list || list.length === 0) {
       const empty = document.createElement('div');
@@ -112,13 +123,10 @@ export function createSnippetsManager({
         event.stopPropagation();
         const confirmed = confirm(`Remove snippet "${entry.name || 'Snippet'}"?`);
         if (!confirmed) return;
-        const next = list.filter((item) => {
-          if (!item) return false;
-          if (entry.id) return item.id !== entry.id;
-          return !(item.name === entry.name && item.sql === entry.sql);
-        });
-        writeSnippets(next);
-        renderSnippetsList();
+        const scope = resolveScope();
+        if (!scope || typeof deleteSnippet !== 'function') return;
+        await deleteSnippet({ connectionId: scope, id: entry.id, name: entry.name || '' });
+        await renderSnippetsList();
       });
 
       item.appendChild(info);
@@ -156,7 +164,8 @@ export function createSnippetsManager({
   };
 
   const saveSnippetFromModal = async () => {
-    if (!getCurrentHistoryKey()) return;
+    const scope = resolveScope();
+    if (!scope) return;
     const name = snippetNameInput ? snippetNameInput.value.trim() : '';
     if (!name) {
       if (showError) await showError('Enter a name for the snippet.');
@@ -170,55 +179,40 @@ export function createSnippetsManager({
       if (showError) await showError('Snippet has no query.');
       return;
     }
-    const list = readSnippets();
+    if (typeof saveSnippet !== 'function') return;
+
+    const list = await readSnippets();
     const existingIndex = list.findIndex((item) => item && item.name === name);
     const isEditing = !!editingSnippetId;
     const editingIndex = isEditing
       ? list.findIndex((item) => item && item.id === editingSnippetId)
       : -1;
+
     if (isEditing && editingIndex >= 0) {
       const existing = list[editingIndex];
-      list.splice(editingIndex, 1);
-      const updated = {
-        id: existing.id,
-        name,
-        sql,
-        ts: Date.now()
-      };
       if (existingIndex >= 0 && existingIndex !== editingIndex) {
         const overwrite = confirm(`A snippet named "${name}" already exists. Replace it?`);
-        if (!overwrite) {
-          list.splice(editingIndex, 0, existing);
-          return;
-        }
-        list.splice(existingIndex, 1);
+        if (!overwrite) return;
       }
-      list.unshift(updated);
-      writeSnippets(list.slice(0, 100));
-      renderSnippetsList();
+      await saveSnippet({ connectionId: scope, id: existing.id, name, sql });
+      await renderSnippetsList();
       closeSnippetModal();
       return;
     }
+
     if (existingIndex >= 0) {
       const overwrite = confirm(`A snippet named "${name}" already exists. Replace it?`);
       if (!overwrite) return;
-      list.splice(existingIndex, 1);
     }
-    list.unshift({
-      id: `snip-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name,
-      sql,
-      ts: Date.now()
-    });
-    writeSnippets(list.slice(0, 100));
-    renderSnippetsList();
+    await saveSnippet({ connectionId: scope, id: editingSnippetId, name, sql });
+    await renderSnippetsList();
     closeSnippetModal();
   };
 
   const bindEvents = () => {
     if (addSnippetBtn) {
       addSnippetBtn.addEventListener('click', async () => {
-        if (!getCurrentHistoryKey()) {
+        if (!resolveScope()) {
           if (showError) await showError('Connect to save snippets.');
           return;
         }
@@ -228,7 +222,7 @@ export function createSnippetsManager({
 
     if (snippetSaveBtn) {
       snippetSaveBtn.addEventListener('click', () => {
-        saveSnippetFromModal();
+        void saveSnippetFromModal();
       });
     }
 
@@ -254,7 +248,7 @@ export function createSnippetsManager({
       snippetNameInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          saveSnippetFromModal();
+          void saveSnippetFromModal();
         }
         if (event.key === 'Escape') {
           event.preventDefault();

@@ -1879,6 +1879,8 @@ function createWindow() {
   }
   const initialBounds = getInitialWindowBounds();
   const isMac = process.platform === "darwin";
+  const isWindows = process.platform === "win32";
+  const isLinux = process.platform === "linux";
   const windowOptions = {
     title: "Qury Editor",
     width: initialBounds.width,
@@ -1897,6 +1899,8 @@ function createWindow() {
   };
   if (isMac) {
     windowOptions.titleBarStyle = "hiddenInset";
+  } else if (isWindows || isLinux) {
+    windowOptions.frame = true;
   } else {
     windowOptions.frame = false;
     windowOptions.titleBarOverlay = {

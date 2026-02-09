@@ -13,15 +13,15 @@ jobs:
         include:
           - os: macos-latest
             script: build:mac:arm64
-            artifact: qury-mac.zip
+            artifact: qury-mac
             artifactPath: dist/release/qury-mac.zip
           - os: windows-latest
             script: build:win:x64
-            artifact: qury-windows.zip
+            artifact: qury-windows
             artifactPath: dist/release/qury-windows.zip
           - os: ubuntu-latest
             script: build:linux:deb
-            artifact: qury-linux.deb
+            artifact: qury-linux
             artifactPath: dist/release/qury-linux.deb
     runs-on: ${{ matrix.os }}
 

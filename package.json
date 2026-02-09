@@ -1,6 +1,6 @@
 {
   "name": "qury-editor",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Desktop SQL editor built with Electron.",
   "author": {
     "name": "Jonas Guedes",
@@ -70,7 +70,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-mac-${arch}.${ext}"
+      "artifactName": "qury-mac.zip"
     },
     "win": {
       "icon": "public/icon.ico",
@@ -82,7 +82,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-win-${arch}.${ext}"
+      "artifactName": "qury-windows.zip"
     },
     "linux": {
       "icon": "public/icons",
@@ -96,7 +96,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-linux-${arch}.${ext}"
+      "artifactName": "qury-linux.deb"
     }
   }
 }

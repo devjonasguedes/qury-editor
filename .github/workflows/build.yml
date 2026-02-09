@@ -14,12 +14,15 @@ jobs:
           - os: macos-latest
             script: build:mac:arm64
             artifact: mac-arm64
+            artifactPath: dist/release/*.zip
           - os: windows-latest
             script: build:win:x64
             artifact: win-x64
+            artifactPath: dist/release/*.zip
           - os: ubuntu-latest
             script: build:linux:deb
             artifact: linux-x64
+            artifactPath: dist/release/*.deb
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -44,4 +47,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qury-editor-${{ matrix.artifact }}
-          path: public/landing-page/*
+          path: ${{ matrix.artifactPath }}

@@ -1474,6 +1474,43 @@ body.theme-light .saved-policy-option input:checked + span {
   align-items: start;
 }
 
+#connectModal .sqlite-fields {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#connectModal .sqlite-mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+#connectModal .sqlite-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+#connectModal .sqlite-mode-option input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+#connectModal .sqlite-path-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#connectModal .sqlite-path-input input {
+  flex: 1;
+}
+
 #connectModal .connection-url-field {
   grid-column: 1 / -1;
 }

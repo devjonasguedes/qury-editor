@@ -195,6 +195,11 @@ export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
 
   const dbType = byId('dbType');
+  const sqliteFields = byId('sqliteFields');
+  const sqliteModeCreate = byId('sqliteModeCreate');
+  const sqliteModeExisting = byId('sqliteModeExisting');
+  const sqlitePath = byId('sqlitePath');
+  const sqliteBrowseBtn = byId('sqliteBrowseBtn');
   const connectionUrl = byId('connectionUrl');
   const host = byId('host');
   const port = byId('port');
@@ -1476,6 +1481,7 @@ export function initHome({ api }) {
   const buildConnectionConfigFromEntry = async (entry) => {
     if (!entry) return null;
     const config = configFromEntry(entry);
+    if (String(config.type || '').toLowerCase() === 'sqlite') return config;
     const ssh = getEntrySshConfig(entry);
     const hasRuntimeSecrets = !!(
       (entry.password && String(entry.password).length) ||
@@ -1539,6 +1545,7 @@ export function initHome({ api }) {
       ...(config || {}),
       ssh: { ...((config && config.ssh) || {}) }
     };
+    if (String(next.type || '').toLowerCase() === 'sqlite') return next;
     if (hasRuntimeSecretsInConfig(next)) return next;
     if (!isEditingConnection) return next;
     const sourceEntry = await resolveSaveValidationEntry(next.name);
@@ -1559,6 +1566,9 @@ export function initHome({ api }) {
     if (dbType) dbType.value = 'mysql';
     updateConnectionUrlPlaceholder('mysql');
     if (connectionUrl) connectionUrl.value = '';
+    if (sqliteModeCreate) sqliteModeCreate.checked = true;
+    if (sqliteModeExisting) sqliteModeExisting.checked = false;
+    if (sqlitePath) sqlitePath.value = '';
     if (host) host.value = 'localhost';
     if (port) port.value = '';
     if (user) user.value = '';
@@ -1577,6 +1587,7 @@ export function initHome({ api }) {
     if (sshPrivateKey) sshPrivateKey.value = '';
     if (sshPassphrase) sshPassphrase.value = '';
     if (sshLocalPort) sshLocalPort.value = '';
+    syncConnectionTypeFields();
   };
 
   const normalizeTypeForForm = (value) => {
@@ -1584,14 +1595,45 @@ export function initHome({ api }) {
     if (!type) return 'mysql';
     if (type === 'postgresql') return 'postgres';
     if (type === 'maria' || type === 'maria-db') return 'mariadb';
-    if (type === 'postgres' || type === 'mysql' || type === 'mariadb') return type;
+    if (type === 'sqlite3') return 'sqlite';
+    if (type === 'postgres' || type === 'mysql' || type === 'mariadb' || type === 'sqlite') return type;
     return 'mysql';
+  };
+
+  const getSelectedDbType = () => normalizeTypeForForm(dbType ? dbType.value : 'mysql');
+  const isSqliteSelected = () => getSelectedDbType() === 'sqlite';
+  const resolveSqliteMode = () => (sqliteModeExisting && sqliteModeExisting.checked ? 'existing' : 'create');
+
+  const getFieldContainer = (input) => (input ? input.closest('.field') : null);
+  const hostField = getFieldContainer(host);
+  const portField = getFieldContainer(port);
+  const userField = getFieldContainer(user);
+  const passwordField = getFieldContainer(password);
+  const databaseField = getFieldContainer(database);
+  const connectionUrlField = getFieldContainer(connectionUrl);
+  const rememberSecretsField = rememberPassword ? rememberPassword.closest('.save-settings-option') : null;
+
+  const syncConnectionTypeFields = () => {
+    const sqlite = isSqliteSelected();
+    if (sqliteFields) sqliteFields.classList.toggle('hidden', !sqlite);
+    if (hostField) hostField.classList.toggle('hidden', sqlite);
+    if (portField) portField.classList.toggle('hidden', sqlite);
+    if (userField) userField.classList.toggle('hidden', sqlite);
+    if (passwordField) passwordField.classList.toggle('hidden', sqlite);
+    if (databaseField) databaseField.classList.toggle('hidden', sqlite);
+    if (connectionUrlField) connectionUrlField.classList.toggle('hidden', sqlite);
+    if (tabSshBtn) tabSshBtn.classList.toggle('hidden', sqlite);
+    if (rememberSecretsField) rememberSecretsField.classList.toggle('hidden', sqlite);
+    if (sqlite && tabSshBtn && tabSshBtn.classList.contains('active')) {
+      setConnectTab('direct');
+    }
   };
 
   const resolveConnectionUrlPlaceholder = (typeValue) => {
     const type = normalizeTypeForForm(typeValue);
     if (type === 'postgres') return 'postgresql://user:password@localhost:5432/database';
     if (type === 'mariadb') return 'mariadb://user:password@localhost:3306/database';
+    if (type === 'sqlite') return 'sqlite:///path/to/database.sqlite';
     return 'mysql://user:password@localhost:3306/database';
   };
 
@@ -1605,6 +1647,8 @@ export function initHome({ api }) {
     if (scheme === 'postgres' || scheme === 'postgresql') return 'postgres';
     if (scheme === 'mysql') return 'mysql';
     if (scheme === 'mariadb' || scheme === 'maria' || scheme === 'maria-db') return 'mariadb';
+    if (scheme === 'sqlite') return 'sqlite';
+    if (scheme === 'sqlite3') return 'sqlite';
     return '';
   };
 
@@ -1628,9 +1672,24 @@ export function initHome({ api }) {
       throw new Error('Invalid connection URL.');
     }
     const type = normalizeTypeFromUrlScheme(parsed.protocol);
-    if (!type) throw new Error('Unsupported URL scheme. Use postgresql://, mysql:// or mariadb://');
-    if (!parsed.hostname) throw new Error('Connection URL must include host.');
+    if (!type) throw new Error('Unsupported URL scheme. Use postgresql://, mysql://, mariadb:// or sqlite://');
+    if (type !== 'sqlite' && !parsed.hostname) throw new Error('Connection URL must include host.');
     const pathname = String(parsed.pathname || '').replace(/^\/+/, '');
+    if (type === 'sqlite') {
+      const hostPart = decodeUrlPart(parsed.hostname || '');
+      const pathPart = decodeUrlPart(parsed.pathname || '');
+      let filePath = pathPart;
+      if (!filePath && hostPart) filePath = hostPart;
+      if (hostPart && filePath && !filePath.startsWith('/')) {
+        filePath = `${hostPart}/${filePath}`;
+      }
+      filePath = filePath.replace(/^\/+/, '/');
+      if (!filePath) throw new Error('SQLite URL must include a file path.');
+      return {
+        type,
+        filePath
+      };
+    }
     return {
       type,
       host: parsed.hostname,
@@ -1648,22 +1707,31 @@ export function initHome({ api }) {
 
   const buildConnectionFromForm = ({ includeSaveFields = false } = {}) => {
     const lockedType = getLockedEditType();
+    const selectedType = lockedType || getSelectedDbType();
+    const sqliteSelected = selectedType === 'sqlite';
+    const sqliteFilePath = sqlitePath ? String(sqlitePath.value || '').trim() : '';
     const base = {
-      type: lockedType || normalizeTypeForForm(dbType ? dbType.value : 'mysql'),
-      host: host ? host.value || 'localhost' : 'localhost',
-      port: port ? String(port.value || '').trim() : '',
-      user: user ? user.value || '' : '',
-      password: password ? password.value || '' : '',
-      database: database ? database.value || '' : '',
+      type: selectedType,
+      filePath: sqliteSelected ? sqliteFilePath : '',
+      sqliteMode: sqliteSelected ? resolveSqliteMode() : undefined,
+      host: sqliteSelected ? '' : (host ? host.value || 'localhost' : 'localhost'),
+      port: sqliteSelected ? '' : (port ? String(port.value || '').trim() : ''),
+      user: sqliteSelected ? '' : (user ? user.value || '' : ''),
+      password: sqliteSelected ? '' : (password ? password.value || '' : ''),
+      database: sqliteSelected ? '' : (database ? database.value || '' : ''),
       sessionTimezone: getSessionTimezoneSetting(),
       ...getConnectionTimeoutSettings(),
       readOnly: readOnly ? readOnly.checked : false,
       policyMode: policyMode ? policyMode.value || 'dev' : 'dev',
-      ssh: buildSshConfig()
+      ssh: sqliteSelected ? { enabled: false } : buildSshConfig()
     };
     if (includeSaveFields) {
       base.name = saveName ? saveName.value.trim() : '';
       base.rememberSecrets = rememberPassword ? rememberPassword.checked : false;
+    }
+
+    if (sqliteSelected && !base.filePath) {
+      throw new Error('Select a SQLite database file.');
     }
 
     const urlValue = connectionUrl ? String(connectionUrl.value || '').trim() : '';
@@ -1681,6 +1749,22 @@ export function initHome({ api }) {
       ...parsed,
       connectionUrl: urlValue
     };
+  };
+
+  const chooseSqlitePath = async () => {
+    if (!safeApi.openSqliteFile || !safeApi.saveSqliteFile) {
+      await safeApi.showError('SQLite file picker not available.');
+      return;
+    }
+    const mode = resolveSqliteMode();
+    const res = mode === 'existing' ? await safeApi.openSqliteFile() : await safeApi.saveSqliteFile();
+    if (!res || !res.ok) {
+      if (!res || !res.canceled) {
+        await safeApi.showError((res && res.error) || 'Failed to choose SQLite file.');
+      }
+      return;
+    }
+    if (sqlitePath) sqlitePath.value = res.path || '';
   };
 
   const normalizeConnectSettingsTab = (tab) => {
@@ -1725,10 +1809,13 @@ export function initHome({ api }) {
       connectModalSubtitle.textContent =
         activeConnectMode === 'quick'
           ? 'Connect without saving.'
-          : 'Fill in the details to connect.';
+          : 'Fill in the details to connect and save.';
     }
     if (connectBtn) {
-      connectBtn.textContent = activeConnectMode === 'quick' ? 'Quick connect' : 'Connect';
+      connectBtn.textContent = activeConnectMode === 'quick' ? 'Quick connect' : 'Connect & save';
+    }
+    if (saveBtn) {
+      saveBtn.classList.add('hidden');
     }
     setConnectSettingsTab(activeConnectSettingsTab || 'connection');
   };
@@ -1746,6 +1833,7 @@ export function initHome({ api }) {
     if (mode === 'quick' && rememberPassword) rememberPassword.checked = false;
     setConnectMode(mode);
     setConnectSettingsTab('connection');
+    syncConnectionTypeFields();
     connectModal.classList.remove('hidden');
   };
 
@@ -1813,19 +1901,26 @@ export function initHome({ api }) {
     renderConnectionTabs();
   };
 
-  const configFromEntry = (entry) => ({
-    type: entry.type,
-    host: entry.host || 'localhost',
-    port: entry.port || undefined,
-    user: entry.user || '',
-    password: entry.password || '',
-    database: entry.database || '',
-    sessionTimezone: getSessionTimezoneSetting(),
-    ...getConnectionTimeoutSettings(),
-    readOnly: isEntryReadOnly(entry),
-    policyMode: getEntryPolicyMode(entry),
-    ssh: getEntrySshConfig(entry)
-  });
+  const configFromEntry = (entry) => {
+    const type = normalizeTypeForForm(entry && entry.type ? entry.type : 'mysql');
+    const isSqlite = type === 'sqlite';
+    const filePath = entry && (entry.filePath || entry.file_path || entry.path) ? (entry.filePath || entry.file_path || entry.path) : '';
+    return {
+      type,
+      filePath: isSqlite ? filePath : '',
+      sqliteMode: isSqlite ? 'existing' : undefined,
+      host: isSqlite ? '' : (entry.host || 'localhost'),
+      port: isSqlite ? undefined : (entry.port || undefined),
+      user: isSqlite ? '' : (entry.user || ''),
+      password: isSqlite ? '' : (entry.password || ''),
+      database: isSqlite ? '' : (entry.database || ''),
+      sessionTimezone: getSessionTimezoneSetting(),
+      ...getConnectionTimeoutSettings(),
+      readOnly: isEntryReadOnly(entry),
+      policyMode: getEntryPolicyMode(entry),
+      ssh: isSqlite ? { enabled: false } : getEntrySshConfig(entry)
+    };
+  };
 
   const getTabKey = (entry) => getConnectionScopeKey(entry);
 
@@ -1891,6 +1986,10 @@ export function initHome({ api }) {
     if (dbType) dbType.value = normalizeTypeForForm(entry.type);
     updateConnectionUrlPlaceholder(dbType ? dbType.value : '');
     if (connectionUrl) connectionUrl.value = entry.connectionUrl || entry.connection_url || entry.url || '';
+    const filePath = entry.filePath || entry.file_path || entry.path || '';
+    if (sqlitePath) sqlitePath.value = filePath;
+    if (sqliteModeExisting) sqliteModeExisting.checked = !!filePath;
+    if (sqliteModeCreate) sqliteModeCreate.checked = !filePath;
     if (host) host.value = entry.host || '';
     if (port) port.value = entry.port || '';
     if (user) user.value = entry.user || '';
@@ -1909,6 +2008,7 @@ export function initHome({ api }) {
     if (sshPrivateKey) sshPrivateKey.value = ssh.privateKey || '';
     if (sshPassphrase) sshPassphrase.value = ssh.passphrase || '';
     if (sshLocalPort) sshLocalPort.value = ssh.localPort || '';
+    syncConnectionTypeFields();
   };
 
   const loadSidebarWidth = () => {
@@ -2640,6 +2740,12 @@ export function initHome({ api }) {
     return { kind: 'write', action: String(effectiveWrite.token || '').toUpperCase() };
   };
 
+  const shouldRefreshSchema = (statementSql) => {
+    const clean = normalizeSql(stripLeadingComments(statementSql));
+    if (!clean) return false; 
+    return /^(create\s+table|create\s+view|create\s+index|alter|drop|delete)\b/i.test(clean);
+  };
+
   const normalizeSql = (sql) => String(sql || '').trim().replace(/;$/, '').trim();
 
   const resolveServerPageSize = (value) => {
@@ -2896,6 +3002,7 @@ export function initHome({ api }) {
     let lastErrorMessage = '';
     let hasOutputErrorEntry = false;
     let lastPagination = null;
+    let needsSchemaRefresh = false;
 
     for (let i = 0; i < statements.length; i += 1) {
       const stmt = normalizeSql(statements[i]);
@@ -3020,6 +3127,9 @@ export function initHome({ api }) {
           }
           continue;
         }
+        if (shouldRefreshSchema(stmt)) {
+          needsSchemaRefresh = true;
+        }
         let outputRows = res.rows || [];
         let outputTotalRows = res.totalRows;
         let outputTruncated = !!res.truncated;
@@ -3115,6 +3225,10 @@ export function initHome({ api }) {
             : `Rows: ${lastResult.totalRows || 0}`,
           duration: Date.now() - overallStart
         });
+      }
+      if (needsSchemaRefresh && treeView) {
+        const tables = await treeView.refresh();
+        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
       }
       return executedStatements > 0;
     } finally {
@@ -3934,10 +4048,13 @@ export function initHome({ api }) {
       meta.className = 'saved-meta';
       const metaMain = document.createElement('span');
       metaMain.className = 'saved-meta-main';
-      const typeLabel = String(entry.type || '').trim().toUpperCase();
+      const rawType = String(entry.type || '').trim().toLowerCase();
+      const typeLabel = rawType.toUpperCase();
+      const sqlitePath = entry.filePath || entry.file_path || entry.path || '';
       const hostLabel = entry.port ? `${entry.host}:${entry.port}` : `${entry.host}`;
-      const segments = [typeLabel, hostLabel];
-      if (entry.database) segments.push(String(entry.database));
+      const baseLabel = rawType === 'sqlite' ? (sqlitePath || 'Local file') : hostLabel;
+      const segments = [typeLabel, baseLabel];
+      if (rawType !== 'sqlite' && entry.database) segments.push(String(entry.database));
       metaMain.textContent = segments.filter(Boolean).join(' • ');
 
       const badges = document.createElement('div');
@@ -4008,9 +4125,15 @@ export function initHome({ api }) {
   };
 
   const connectFromForm = async () => {
+    const shouldSave = activeConnectMode !== 'quick';
+    if (shouldSave && (!saveName || !saveName.value.trim())) {
+      await safeApi.showError('Enter a name to save.');
+      return;
+    }
+
     let config = null;
     try {
-      config = buildConnectionFromForm();
+      config = buildConnectionFromForm({ includeSaveFields: shouldSave });
     } catch (err) {
       await safeApi.showError(err && err.message ? err.message : 'Invalid connection URL.');
       return;
@@ -4020,12 +4143,33 @@ export function initHome({ api }) {
       port: config.port || undefined
     };
 
+    if (shouldSave) {
+      const entryForValidation = await ensureValidationSecretsIfNeeded(config);
+      if (!entryForValidation) return;
+      config = entryForValidation;
+    }
+
     if (await tryActivateExistingConnection(config)) return;
 
     const res = await connectWithLoading(config);
     if (!res.ok) {
       await safeApi.showError(res.error || 'Failed to connect.');
       return;
+    }
+
+    if (shouldSave) {
+      const originalName = editingConnectionSeed && editingConnectionSeed.name
+        ? String(editingConnectionSeed.name).trim()
+        : (saveName && saveName.dataset && saveName.dataset.originalName
+          ? String(saveName.dataset.originalName).trim()
+          : '');
+      const payload =
+        isEditingConnection && originalName
+          ? { ...config, originalName }
+          : config;
+      await safeApi.saveConnection(payload);
+      setEditMode(false);
+      await renderSavedList();
     }
     saveTabsForActive();
     upsertConnectionTab(config);
@@ -4056,6 +4200,8 @@ export function initHome({ api }) {
 
     const res = await testConnectionWithLoading({
       type: entryForValidation.type,
+      filePath: entryForValidation.filePath || entryForValidation.file_path || entryForValidation.path || '',
+      sqliteMode: entryForValidation.sqliteMode || entryForValidation.sqlite_mode,
       host: entryForValidation.host,
       port: entryForValidation.port || undefined,
       user: entryForValidation.user,
@@ -4395,6 +4541,24 @@ export function initHome({ api }) {
 
   if (testBtn) {
     testBtn.addEventListener('click', () => testConnection());
+  }
+
+  if (sqliteBrowseBtn) {
+    sqliteBrowseBtn.addEventListener('click', () => {
+      void chooseSqlitePath();
+    });
+  }
+
+  if (sqliteModeCreate) {
+    sqliteModeCreate.addEventListener('change', () => {
+      if (sqliteModeCreate.checked && sqlitePath) sqlitePath.value = '';
+    });
+  }
+
+  if (sqliteModeExisting) {
+    sqliteModeExisting.addEventListener('change', () => {
+      if (sqliteModeExisting.checked && sqlitePath) sqlitePath.value = '';
+    });
   }
 
   if (clearFormBtn) {
@@ -4780,6 +4944,7 @@ export function initHome({ api }) {
   if (dbType) {
     dbType.addEventListener('change', () => {
       updateConnectionUrlPlaceholder(dbType.value);
+      syncConnectionTypeFields();
     });
   }
 
@@ -4797,6 +4962,7 @@ export function initHome({ api }) {
   setScreen(false);
   setConnectSettingsTab('connection');
   updateConnectionUrlPlaceholder(dbType ? dbType.value : 'mysql');
+  syncConnectionTypeFields();
   setSettingsTab('general');
   initSessionTimezoneSettings();
   applyErrorHandlingToSettingsInputs(readStoredErrorHandlingSettings());

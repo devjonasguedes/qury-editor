@@ -13,7 +13,7 @@
   <body>
     <div id="app">
       <header class="topbar">
-        <div class="brand-area">
+        <div class="brand-area"> 
           <div class="brand">Qury Editor</div>
           <button id="homeBtn" class="icon-btn mini hidden" title="Back to home">
             <i class="bi bi-house"></i>
@@ -23,11 +23,11 @@
         <div class="status-area">
           <span id="connectSpinner" class="spinner hidden"></span>
           <div class="theme-control" id="themeControl">
-            <button
+            <button 
               id="themeToggle"
               class="icon-btn"
               title="Theme"
-              aria-haspopup="menu"
+              aria-haspopup="menu"  
               aria-expanded="false"
             >
               <i class="bi bi-circle-half"></i>
@@ -583,7 +583,40 @@
                       <option value="mysql">MySQL</option>
                       <option value="mariadb">MariaDB</option>
                       <option value="postgres">PostgreSQL</option>
+                      <option value="sqlite">SQLite</option>
                     </select>
+                  </div>
+
+                  <div id="sqliteFields" class="field span-2 sqlite-fields hidden">
+                    <label>SQLite database</label>
+                    <div class="sqlite-mode-options">
+                      <label class="sqlite-mode-option">
+                        <input
+                          id="sqliteModeCreate"
+                          name="sqliteMode"
+                          type="radio"
+                          value="create"
+                          checked
+                        />
+                        Create new
+                      </label>
+                      <label class="sqlite-mode-option">
+                        <input
+                          id="sqliteModeExisting"
+                          name="sqliteMode"
+                          type="radio"
+                          value="existing"
+                        />
+                        Use existing
+                      </label>
+                    </div>
+                    <div class="sqlite-path-input">
+                      <input id="sqlitePath" placeholder="Select a database file..." readonly />
+                      <button id="sqliteBrowseBtn" type="button" class="secondary">Browse</button>
+                    </div>
+                    <div class="field-hint">
+                      SQLite uses a local file. Choose where to create or select an existing database.
+                    </div>
                   </div>
 
                   <div class="field">

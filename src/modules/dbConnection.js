@@ -73,6 +73,8 @@ export function createDbConnection(api) {
       }
       return () => {};
     },
-    showError: (message) => safeApi.showError(message)
+    showError: (message) => safeApi.showError(message),
+    openSqliteFile: () => safeApi.openSqliteFile(),
+    saveSqliteFile: () => safeApi.saveSqliteFile()
   };
 }

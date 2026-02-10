@@ -39,12 +39,18 @@ export function buildConnectionKey(entry) {
   if (!entry) return null;
   const ssh = getEntrySshConfig(entry);
   const policyMode = getEntryPolicyMode(entry);
+  const type = String(entry.type || '').toLowerCase();
+  const filePath = entry.file_path || entry.filePath || entry.path || '';
+  const hostValue = type === 'sqlite' ? filePath : (entry.host || '');
+  const portValue = type === 'sqlite' ? '' : (entry.port || '');
+  const userValue = type === 'sqlite' ? '' : (entry.user || '');
+  const databaseValue = type === 'sqlite' ? '' : (entry.database || '');
   return [
     entry.type || '',
-    entry.host || '',
-    entry.port || '',
-    entry.user || '',
-    entry.database || '',
+    hostValue,
+    portValue,
+    userValue,
+    databaseValue,
     isEntryReadOnly(entry) ? 'ro' : 'rw',
     policyMode,
     ssh.enabled ? 'ssh' : 'direct',
@@ -58,11 +64,16 @@ export function buildConnectionBaseKey(entry) {
   if (!entry) return null;
   const ssh = getEntrySshConfig(entry);
   const policyMode = getEntryPolicyMode(entry);
+  const type = String(entry.type || '').toLowerCase();
+  const filePath = entry.file_path || entry.filePath || entry.path || '';
+  const hostValue = type === 'sqlite' ? filePath : (entry.host || '');
+  const portValue = type === 'sqlite' ? '' : (entry.port || '');
+  const userValue = type === 'sqlite' ? '' : (entry.user || '');
   return [
     entry.type || '',
-    entry.host || '',
-    entry.port || '',
-    entry.user || '',
+    hostValue,
+    portValue,
+    userValue,
     '',
     isEntryReadOnly(entry) ? 'ro' : 'rw',
     policyMode,
@@ -90,6 +101,12 @@ export function normalizeKeyToBase(key) {
 export function connectionTitle(entry) {
   if (!entry) return 'Connection';
   if (entry.name) return entry.name;
+  const filePath = entry.file_path || entry.filePath || entry.path || '';
+  if (filePath) {
+    const normalized = String(filePath).replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : filePath;
+  }
   if (entry.database) return entry.database;
   if (entry.host) return entry.host;
   return 'Connection';

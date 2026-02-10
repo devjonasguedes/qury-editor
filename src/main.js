@@ -166,7 +166,8 @@ function mapSecrets(entry, mapper) {
 function shouldRememberSecrets(entry) {
   if (!entry || typeof entry !== "object") return false;
   if (entry.rememberSecrets !== undefined) return !!entry.rememberSecrets;
-  if (entry.remember_secrets !== undefined) return Number(entry.remember_secrets) === 1;
+  if (entry.remember_secrets !== undefined)
+    return Number(entry.remember_secrets) === 1;
   if (entry.save_secrets !== undefined) return Number(entry.save_secrets) === 1;
   const ssh = entry.ssh || {};
   return !!(
@@ -341,6 +342,7 @@ async function initDb() {
           id TEXT,
           name TEXT PRIMARY KEY,
           type TEXT NOT NULL,
+          file_path TEXT,
           host TEXT,
           port TEXT,
           user TEXT,
@@ -421,6 +423,10 @@ function ensureConnectionsSchema(dbInstance) {
       dbInstance.run(
         "ALTER TABLE connections ADD COLUMN read_only INTEGER DEFAULT 0",
       );
+      changed = true;
+    }
+    if (!cols.includes("file_path")) {
+      dbInstance.run("ALTER TABLE connections ADD COLUMN file_path TEXT");
       changed = true;
     }
     if (!cols.includes("policy_mode")) {
@@ -534,9 +540,9 @@ function migrateConnectionsIfNeeded(dbInstance) {
   });
   const stmt = dbInstance.prepare(`
     INSERT OR REPLACE INTO connections
-      (id, name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (id, name, type, file_path, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const item of byName.values()) {
     const stored = toStoredConnectionEntry(item);
@@ -547,9 +553,10 @@ function migrateConnectionsIfNeeded(dbInstance) {
         ? 1
         : 0;
     stmt.run([
-      generateId('conn'),
+      generateId("conn"),
       item.name,
       item.type,
+      item.file_path || item.filePath || item.path || "",
       item.host || "",
       item.port || "",
       item.user || "",
@@ -593,8 +600,12 @@ function migrateSecretFieldsIfNeeded(dbInstance) {
   rows.forEach((row) => {
     const rememberSecrets = shouldRememberSecrets(row);
     if (!rememberSecrets) {
-      const hasAnySecret =
-        !!(row.password || row.ssh_password || row.ssh_private_key || row.ssh_passphrase);
+      const hasAnySecret = !!(
+        row.password ||
+        row.ssh_password ||
+        row.ssh_private_key ||
+        row.ssh_passphrase
+      );
       if (!hasAnySecret) return;
       stmt.run(["", "", "", "", now, row.name]);
       changed = true;
@@ -652,14 +663,14 @@ function persistDb(dbInstance) {
 }
 
 function getConnectionIdByName(dbInstance, name) {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) return '';
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return "";
   const stmt = dbInstance.prepare("SELECT id FROM connections WHERE name = ?");
   stmt.bind([trimmed]);
-  let id = '';
+  let id = "";
   if (stmt.step()) {
     const row = stmt.getAsObject();
-    id = row && row.id ? String(row.id) : '';
+    id = row && row.id ? String(row.id) : "";
   }
   stmt.free();
   return id;
@@ -671,12 +682,14 @@ function migrateConnectionIdsIfNeeded(dbInstance) {
   if (!rows.length) return;
   const now = Date.now();
   let changed = false;
-  const stmt = dbInstance.prepare("UPDATE connections SET id = ?, updated_at = ? WHERE name = ?");
+  const stmt = dbInstance.prepare(
+    "UPDATE connections SET id = ?, updated_at = ? WHERE name = ?",
+  );
   rows.forEach((row) => {
-    const currentId = row && row.id ? String(row.id) : '';
-    const name = row && row.name ? String(row.name) : '';
+    const currentId = row && row.id ? String(row.id) : "";
+    const name = row && row.name ? String(row.name) : "";
     if (!name || currentId) return;
-    stmt.run([generateId('conn'), now, name]);
+    stmt.run([generateId("conn"), now, name]);
     changed = true;
   });
   stmt.free();
@@ -684,16 +697,26 @@ function migrateConnectionIdsIfNeeded(dbInstance) {
 }
 
 function normalizeConnectionType(value) {
-  const text = String(value || "").trim().toLowerCase();
+  const text = String(value || "")
+    .trim()
+    .toLowerCase();
   if (text === "postgres") return "postgresql";
   if (text === "maria" || text === "maria-db") return "mariadb";
-  if (text === "postgresql" || text === "mysql" || text === "mariadb")
+  if (text === "sqlite3") return "sqlite";
+  if (
+    text === "postgresql" ||
+    text === "mysql" ||
+    text === "mariadb" ||
+    text === "sqlite"
+  )
     return text;
   return text || "mysql";
 }
 
 function normalizePolicyMode(value) {
-  const mode = String(value || "").trim().toLowerCase();
+  const mode = String(value || "")
+    .trim()
+    .toLowerCase();
   if (mode === POLICY_MODE_STAGING || mode === POLICY_MODE_PROD) return mode;
   return POLICY_MODE_DEV;
 }
@@ -705,7 +728,8 @@ function clonePolicyRules(input) {
       ...(source[POLICY_MODE_DEV] || DEFAULT_POLICY_RULES[POLICY_MODE_DEV]),
     },
     [POLICY_MODE_STAGING]: {
-      ...(source[POLICY_MODE_STAGING] || DEFAULT_POLICY_RULES[POLICY_MODE_STAGING]),
+      ...(source[POLICY_MODE_STAGING] ||
+        DEFAULT_POLICY_RULES[POLICY_MODE_STAGING]),
     },
     [POLICY_MODE_PROD]: {
       ...(source[POLICY_MODE_PROD] || DEFAULT_POLICY_RULES[POLICY_MODE_PROD]),
@@ -783,7 +807,11 @@ function writePolicyRules(nextRules) {
     environments: normalizePolicyRules(nextRules),
   };
   fs.mkdirSync(path.dirname(policySettingsFile()), { recursive: true });
-  fs.writeFileSync(policySettingsFile(), JSON.stringify(payload, null, 2), "utf8");
+  fs.writeFileSync(
+    policySettingsFile(),
+    JSON.stringify(payload, null, 2),
+    "utf8",
+  );
 }
 
 function ensurePolicyRulesLoaded() {
@@ -1154,7 +1182,9 @@ function extractSqlFromRunPayload(payload) {
 }
 
 function normalizedPart(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function normalizedPortForFingerprint(type, port) {
@@ -1175,24 +1205,37 @@ function connectionFingerprint(entry) {
     (ssh && ssh.enabled)
   );
   const readOnly = !!(source.read_only || source.readOnly);
+  const filePath = normalizedPart(
+    source.file_path || source.filePath || source.path,
+  );
+  const hostPart =
+    type === "sqlite" ? filePath : normalizedPart(source.host || "localhost");
+  const portPart =
+    type === "sqlite" ? "" : normalizedPortForFingerprint(type, source.port);
+  const userPart = type === "sqlite" ? "" : normalizedPart(source.user);
+  const databasePart = type === "sqlite" ? "" : normalizedPart(source.database);
   return [
     type,
-    normalizedPart(source.host || "localhost"),
-    normalizedPortForFingerprint(type, source.port),
-    normalizedPart(source.user),
-    normalizedPart(source.database),
+    hostPart,
+    portPart,
+    userPart,
+    databasePart,
     readOnly ? "ro" : "rw",
     normalizedPart(getEntryPolicyMode(source)),
     sshEnabled ? "ssh" : "direct",
     normalizedPart(ssh.host || source.ssh_host || source.sshHost),
     normalizedPart(ssh.port || source.ssh_port || source.sshPort),
     normalizedPart(ssh.user || source.ssh_user || source.sshUser),
-    normalizedPart(ssh.localPort || source.ssh_local_port || source.sshLocalPort),
+    normalizedPart(
+      ssh.localPort || source.ssh_local_port || source.sshLocalPort,
+    ),
   ].join("|");
 }
 
 function normalizeConnectionName(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeImportedConnection(entry, index) {
@@ -1204,11 +1247,18 @@ function normalizeImportedConnection(entry, index) {
     source.sshEnabled ||
     (ssh && ssh.enabled)
   );
+  const normalizedType = normalizeConnectionType(source.type);
+  const isSqlite = normalizedType === "sqlite";
+  const filePath = String(
+    source.file_path || source.filePath || source.path || "",
+  ).trim();
   const normalized = {
     ...source,
-    name: String(source.name || "").trim() || `Imported connection ${index + 1}`,
-    type: normalizeConnectionType(source.type),
-    host: String(source.host || "").trim() || "localhost",
+    name:
+      String(source.name || "").trim() || `Imported connection ${index + 1}`,
+    type: normalizedType,
+    file_path: filePath,
+    host: isSqlite ? "" : String(source.host || "").trim() || "localhost",
     port: String(source.port || "").trim(),
     user: String(source.user || ""),
     password: String(source.password || ""),
@@ -1219,17 +1269,29 @@ function normalizeImportedConnection(entry, index) {
     ssh: sshEnabled
       ? {
           enabled: true,
-          host: String(ssh.host || source.ssh_host || source.sshHost || "").trim(),
-          port: String(ssh.port || source.ssh_port || source.sshPort || "").trim(),
-          user: String(ssh.user || source.ssh_user || source.sshUser || "").trim(),
+          host: String(
+            ssh.host || source.ssh_host || source.sshHost || "",
+          ).trim(),
+          port: String(
+            ssh.port || source.ssh_port || source.sshPort || "",
+          ).trim(),
+          user: String(
+            ssh.user || source.ssh_user || source.sshUser || "",
+          ).trim(),
           password: String(
             ssh.password || source.ssh_password || source.sshPassword || "",
           ),
           privateKey: String(
-            ssh.privateKey || source.ssh_private_key || source.sshPrivateKey || "",
+            ssh.privateKey ||
+              source.ssh_private_key ||
+              source.sshPrivateKey ||
+              "",
           ),
           passphrase: String(
-            ssh.passphrase || source.ssh_passphrase || source.sshPassphrase || "",
+            ssh.passphrase ||
+              source.ssh_passphrase ||
+              source.sshPassphrase ||
+              "",
           ),
           localPort: String(
             ssh.localPort || source.ssh_local_port || source.sshLocalPort || "",
@@ -1256,17 +1318,20 @@ function toConnectionMetadata(entry) {
   );
   const readOnly = !!(source.read_only || source.readOnly);
   const policyMode = getEntryPolicyMode(source);
+  const filePath = String(
+    source.file_path || source.filePath || source.path || "",
+  ).trim();
   return {
     name: String(source.name || "").trim(),
     type: normalizeConnectionType(source.type),
+    file_path: filePath,
     host: String(source.host || "").trim(),
     port: String(source.port || "").trim(),
     user: String(source.user || ""),
     database: String(source.database || "").trim(),
     policy_mode: policyMode,
-    last_connected_at: Number(
-      source.last_connected_at || source.lastConnectedAt || 0,
-    ) || 0,
+    last_connected_at:
+      Number(source.last_connected_at || source.lastConnectedAt || 0) || 0,
     read_only: readOnly ? 1 : 0,
     ssh_enabled: sshEnabled ? 1 : 0,
     ssh_host: String(
@@ -1289,7 +1354,7 @@ function toConnectionMetadata(entry) {
 
 function getConnectionMetadata(dbInstance) {
   const res = dbInstance.exec(
-    "SELECT id, name, type, host, port, user, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
+    "SELECT id, name, type, file_path, host, port, user, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
   );
   return rowsFromExec(res);
 }
@@ -1310,9 +1375,9 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
     throw new Error("Connection name is required.");
   }
   const resolvedId =
-    (entry && entry.id ? String(entry.id) : '') ||
+    (entry && entry.id ? String(entry.id) : "") ||
     getConnectionIdByName(dbInstance, entry.name) ||
-    generateId('conn');
+    generateId("conn");
   const stored = toStoredConnectionEntry(entry);
   const policyMode = getEntryPolicyMode(entry);
   const readOnly = !!(entry && (entry.read_only || entry.readOnly));
@@ -1322,12 +1387,13 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
   );
   const stmt = dbInstance.prepare(`
     INSERT INTO connections
-      (id, name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
+      (id, name, type, file_path, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port, created_at, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       id = excluded.id,
       type = excluded.type,
+      file_path = excluded.file_path,
       host = excluded.host,
       port = excluded.port,
       user = excluded.user,
@@ -1354,6 +1420,7 @@ function upsertConnectionRecord(dbInstance, entry, now = Date.now()) {
     resolvedId,
     entry.name,
     normalizeConnectionType(entry.type),
+    entry.file_path || entry.filePath || entry.path || "",
     entry.host || "",
     entry.port || "",
     entry.user || "",
@@ -1466,7 +1533,7 @@ function closeTunnel(tunnel) {
 async function listConnections() {
   const dbInstance = await initDb();
   const res = dbInstance.exec(
-    "SELECT id, name, type, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
+    "SELECT id, name, type, file_path, host, port, user, password, remember_secrets, policy_mode, database, last_connected_at, read_only, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_private_key, ssh_passphrase, ssh_local_port FROM connections ORDER BY COALESCE(last_connected_at, 0) DESC, name COLLATE NOCASE ASC",
   );
   return rowsFromExec(res).map((entry) => toPublicConnectionEntry(entry));
 }
@@ -1484,8 +1551,11 @@ async function saveConnection(entry) {
   const now = Date.now();
   nextEntry.last_connected_at = now;
   if (!nextEntry.id) {
-    const existingId = getConnectionIdByName(dbInstance, originalName || nextName);
-    nextEntry.id = existingId || generateId('conn');
+    const existingId = getConnectionIdByName(
+      dbInstance,
+      originalName || nextName,
+    );
+    nextEntry.id = existingId || generateId("conn");
   }
 
   dbInstance.run("BEGIN");
@@ -1695,11 +1765,13 @@ async function deleteConnection(name) {
 }
 
 async function listSnippets(payload) {
-  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
+  const connectionId =
+    payload && payload.connectionId ? String(payload.connectionId) : "";
   if (!connectionId) return [];
-  const limit = payload && Number.isFinite(Number(payload.limit))
-    ? Math.max(1, Math.floor(Number(payload.limit)))
-    : DEFAULT_SNIPPETS_LIMIT;
+  const limit =
+    payload && Number.isFinite(Number(payload.limit))
+      ? Math.max(1, Math.floor(Number(payload.limit)))
+      : DEFAULT_SNIPPETS_LIMIT;
   const dbInstance = await initDb();
   const stmt = dbInstance.prepare(
     "SELECT id, name, sql, updated_at FROM snippets WHERE connection_id = ? ORDER BY updated_at DESC LIMIT ?",
@@ -1723,25 +1795,29 @@ function getSnippetIdByName(dbInstance, connectionId, name) {
     "SELECT id FROM snippets WHERE connection_id = ? AND name = ?",
   );
   stmt.bind([connectionId, name]);
-  let id = '';
+  let id = "";
   if (stmt.step()) {
     const row = stmt.getAsObject();
-    id = row && row.id ? String(row.id) : '';
+    id = row && row.id ? String(row.id) : "";
   }
   stmt.free();
   return id;
 }
 
 async function saveSnippet(payload) {
-  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
-  const name = payload && payload.name ? String(payload.name).trim() : '';
-  const sql = payload && payload.sql ? String(payload.sql) : '';
+  const connectionId =
+    payload && payload.connectionId ? String(payload.connectionId) : "";
+  const name = payload && payload.name ? String(payload.name).trim() : "";
+  const sql = payload && payload.sql ? String(payload.sql) : "";
   if (!connectionId || !name || !sql.trim()) {
-    return { ok: false, error: 'Invalid snippet payload.' };
+    return { ok: false, error: "Invalid snippet payload." };
   }
   const dbInstance = await initDb();
   const existingId = getSnippetIdByName(dbInstance, connectionId, name);
-  const nextId = existingId || (payload && payload.id ? String(payload.id) : '') || generateId('snip');
+  const nextId =
+    existingId ||
+    (payload && payload.id ? String(payload.id) : "") ||
+    generateId("snip");
   const now = Date.now();
 
   dbInstance.run("BEGIN");
@@ -1769,24 +1845,32 @@ async function saveSnippet(payload) {
     try {
       dbInstance.run("ROLLBACK");
     } catch (_) {}
-    return { ok: false, error: err && err.message ? err.message : 'Failed to save snippet.' };
+    return {
+      ok: false,
+      error: err && err.message ? err.message : "Failed to save snippet.",
+    };
   }
   persistDb(dbInstance);
   return { ok: true, id: nextId };
 }
 
 async function deleteSnippet(payload) {
-  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
-  if (!connectionId) return { ok: false, error: 'Missing connectionId.' };
-  const id = payload && payload.id ? String(payload.id) : '';
-  const name = payload && payload.name ? String(payload.name) : '';
+  const connectionId =
+    payload && payload.connectionId ? String(payload.connectionId) : "";
+  if (!connectionId) return { ok: false, error: "Missing connectionId." };
+  const id = payload && payload.id ? String(payload.id) : "";
+  const name = payload && payload.name ? String(payload.name) : "";
   const dbInstance = await initDb();
   let stmt = null;
   if (id) {
-    stmt = dbInstance.prepare("DELETE FROM snippets WHERE connection_id = ? AND id = ?");
+    stmt = dbInstance.prepare(
+      "DELETE FROM snippets WHERE connection_id = ? AND id = ?",
+    );
     stmt.run([connectionId, id]);
   } else if (name) {
-    stmt = dbInstance.prepare("DELETE FROM snippets WHERE connection_id = ? AND name = ?");
+    stmt = dbInstance.prepare(
+      "DELETE FROM snippets WHERE connection_id = ? AND name = ?",
+    );
     stmt.run([connectionId, name]);
   }
   if (stmt) stmt.free();
@@ -1795,11 +1879,13 @@ async function deleteSnippet(payload) {
 }
 
 async function listHistory(payload) {
-  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
+  const connectionId =
+    payload && payload.connectionId ? String(payload.connectionId) : "";
   if (!connectionId) return [];
-  const limit = payload && Number.isFinite(Number(payload.limit))
-    ? Math.max(1, Math.floor(Number(payload.limit)))
-    : DEFAULT_HISTORY_LIMIT;
+  const limit =
+    payload && Number.isFinite(Number(payload.limit))
+      ? Math.max(1, Math.floor(Number(payload.limit)))
+      : DEFAULT_HISTORY_LIMIT;
   const dbInstance = await initDb();
   const stmt = dbInstance.prepare(
     "SELECT sql, ts FROM query_history WHERE connection_id = ? ORDER BY ts DESC LIMIT ?",
@@ -1814,9 +1900,11 @@ async function listHistory(payload) {
 }
 
 async function recordHistory(payload) {
-  const connectionId = payload && payload.connectionId ? String(payload.connectionId) : '';
-  const sql = payload && payload.sql ? String(payload.sql).trim() : '';
-  if (!connectionId || !sql) return { ok: false, error: 'Invalid history payload.' };
+  const connectionId =
+    payload && payload.connectionId ? String(payload.connectionId) : "";
+  const sql = payload && payload.sql ? String(payload.sql).trim() : "";
+  if (!connectionId || !sql)
+    return { ok: false, error: "Invalid history payload." };
   const ts = payload && payload.ts ? Number(payload.ts) : Date.now();
   const dbInstance = await initDb();
   const stmt = dbInstance.prepare(`
@@ -1921,13 +2009,6 @@ function createWindow() {
       return { action: "deny" };
     }
     return { action: "allow" };
-  });
-
-  mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (url && /^https?:/i.test(url)) {
-      event.preventDefault();
-      shell.openExternal(url);
-    }
   });
 
   mainWindow.once("ready-to-show", () => {
@@ -2048,12 +2129,14 @@ ipcMain.handle("connections:touch", async (_evt, name) => {
 });
 
 ipcMain.handle("connections:export", async (evt) => {
-  const owner = evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
+  const owner =
+    evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
   return exportConnections(owner);
 });
 
 ipcMain.handle("connections:import", async (evt) => {
-  const owner = evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
+  const owner =
+    evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
   return importConnections(owner);
 });
 
@@ -2071,20 +2154,65 @@ ipcMain.handle("settings:savePolicy", async (_evt, payload) => {
     return { ok: true, policies };
   } catch (err) {
     const message =
-      err && err.message
-        ? err.message
-        : "Failed to save policy settings.";
+      err && err.message ? err.message : "Failed to save policy settings.";
     return { ok: false, error: message };
   }
 });
 
-ipcMain.handle("app:openExternal", async (_evt, url) => {
-  if (!url || typeof url !== "string") return { ok: false };
+ipcMain.handle("dialog:sqliteOpen", async (evt) => {
   try {
-    await shell.openExternal(url);
-    return { ok: true };
+    const owner =
+      evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
+    const activeOwner =
+      owner && !owner.isDestroyed()
+        ? owner
+        : BrowserWindow.getFocusedWindow() || mainWindow || undefined;
+    if (activeOwner && !activeOwner.isDestroyed()) activeOwner.focus();
+    const openResult = await dialog.showOpenDialog({
+      title: "Open SQLite database",
+      buttonLabel: "Open",
+      properties: ["openFile"],
+      filters: [{ name: "SQLite", extensions: ["sqlite", "db", "sqlite3"] }],
+    });
+    if (
+      !openResult ||
+      openResult.canceled ||
+      !openResult.filePaths ||
+      !openResult.filePaths[0]
+    ) {
+      return { ok: false, canceled: true };
+    }
+    return { ok: true, path: openResult.filePaths[0] };
   } catch (err) {
-    const message = err && err.message ? err.message : "Failed to open link.";
+    const message =
+      err && err.message ? err.message : "Failed to open SQLite file.";
+    return { ok: false, error: message };
+  }
+});
+
+ipcMain.handle("dialog:sqliteSave", async (evt) => {
+  try {
+    const owner =
+      evt && evt.sender ? BrowserWindow.fromWebContents(evt.sender) : null;
+    const activeOwner =
+      owner && !owner.isDestroyed()
+        ? owner
+        : BrowserWindow.getFocusedWindow() || mainWindow || undefined;
+    if (activeOwner && !activeOwner.isDestroyed()) activeOwner.focus();
+    const defaultPath = path.join(app.getPath("documents"), "database.sqlite");
+    const saveResult = await dialog.showSaveDialog({
+      title: "Create SQLite database",
+      buttonLabel: "Create",
+      defaultPath,
+      filters: [{ name: "SQLite", extensions: ["sqlite", "db", "sqlite3"] }],
+    });
+    if (!saveResult || saveResult.canceled || !saveResult.filePath) {
+      return { ok: false, canceled: true };
+    }
+    return { ok: true, path: saveResult.filePath };
+  } catch (err) {
+    const message =
+      err && err.message ? err.message : "Failed to save SQLite file.";
     return { ok: false, error: message };
   }
 });

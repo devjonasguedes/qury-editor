@@ -39,5 +39,7 @@ contextBridge.exposeInMainWorld('api', {
     };
   },
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
-  showError: (message) => ipcRenderer.invoke('dialog:error', message)
+  showError: (message) => ipcRenderer.invoke('dialog:error', message),
+  openSqliteFile: () => ipcRenderer.invoke('dialog:sqliteOpen'),
+  saveSqliteFile: () => ipcRenderer.invoke('dialog:sqliteSave')
 });

@@ -2748,6 +2748,12 @@ export function initHome({ api }) {
 
   const normalizeSql = (sql) => String(sql || '').trim().replace(/;$/, '').trim();
 
+  const isExplainStatement = (statementSql) => {
+    const clean = normalizeSql(stripLeadingComments(statementSql));
+    if (!clean) return false;
+    return /^explain\b/i.test(clean);
+  };
+
   const resolveServerPageSize = (value) => {
     const raw = String(value == null ? '' : value).trim();
     const numeric = Number(raw);
@@ -3061,6 +3067,7 @@ export function initHome({ api }) {
         if (!stmt) continue;
         const classification = classifyStatementByPolicy(stmt);
         const keyword = firstDmlKeyword(stmt);
+        const isExplain = isExplainStatement(stmt);
         const canPaginateSelect = keyword === 'select' && !(classification && classification.kind === 'write');
         const serverPaginationConfig = options && options.serverPagination !== undefined
           ? options.serverPagination
@@ -3166,6 +3173,7 @@ export function initHome({ api }) {
         );
         const shouldRenderResults =
           (keyword === 'select' && !(classification && classification.kind === 'write'))
+          || (isExplain && Array.isArray(outputRows))
           || (!classification && Array.isArray(outputRows));
         if (shouldRenderResults) {
           lastRenderableResult = lastResult;
@@ -3188,7 +3196,7 @@ export function initHome({ api }) {
             updateOutputForActiveTab();
           }
         }
-        if (classification && (classification.kind === 'write' || classification.kind === 'ddlAdmin')) {
+        if (!isExplain && classification && (classification.kind === 'write' || classification.kind === 'ddlAdmin')) {
           const affected = Number.isFinite(res.affectedRows) ? res.affectedRows : null;
           const changed = Number.isFinite(res.changedRows) ? res.changedRows : null;
           const action = String(classification.action || '').trim() || 'Changes applied';

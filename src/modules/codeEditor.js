@@ -14,6 +14,7 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
   let hintOptionsProvider = null;
   let hintPrefetch = null;
   const changeHandlers = new Set();
+  const selectionHandlers = new Set();
   const themeCompartment = new Compartment();
 
   const highlightStyle = HighlightStyle.define([
@@ -153,9 +154,13 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
         keymap.of([indentWithTab]),
         runKeymap,
         EditorView.updateListener.of((update) => {
-          if (!update.docChanged) return;
-          if (textarea) textarea.value = update.state.doc.toString();
-          changeHandlers.forEach((handler) => handler(update));
+          if (update.docChanged) {
+            if (textarea) textarea.value = update.state.doc.toString();
+            changeHandlers.forEach((handler) => handler(update));
+          }
+          if (update.selectionSet) {
+            selectionHandlers.forEach((handler) => handler(update));
+          }
         })
       ]
     });
@@ -193,6 +198,9 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
   const onChange = (handler) => {
     if (typeof handler === 'function') changeHandlers.add(handler);
   };
+  const onSelectionChange = (handler) => {
+    if (typeof handler === 'function') selectionHandlers.add(handler);
+  };
   const refresh = () => {
     if (!view) return;
     view.requestMeasure();
@@ -228,6 +236,7 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
     getSelection,
     getCursorOffset,
     onChange,
+    onSelectionChange,
     refresh,
     focus,
     setTheme,

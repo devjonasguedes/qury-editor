@@ -2995,6 +2995,9 @@ export function initHome({ api }) {
 
     let lastResult = null;
     let lastExecutedStmt = '';
+    let lastRenderableResult = null;
+    let lastRenderableStmt = '';
+    let lastRenderableSourceStmt = '';
     let policyApprovalToken = '';
     let firstApprovalAction = '';
     let executedStatements = 0;
@@ -3158,6 +3161,17 @@ export function initHome({ api }) {
           stmt: displayStmt,
           pagination
         };
+        const sourceStmt = normalizeSql(
+          sourceStatements.length > i ? sourceStatements[i] : sourceSql
+        );
+        const shouldRenderResults =
+          (keyword === 'select' && !(classification && classification.kind === 'write'))
+          || (!classification && Array.isArray(outputRows));
+        if (shouldRenderResults) {
+          lastRenderableResult = lastResult;
+          lastRenderableStmt = displayStmt;
+          lastRenderableSourceStmt = sourceStmt || displayStmt;
+        }
         if (historyManager) await historyManager.recordHistory(displayStmt);
         if (tabTablesView) {
           const tab = tabTablesView.getActiveTab();
@@ -3174,24 +3188,33 @@ export function initHome({ api }) {
             updateOutputForActiveTab();
           }
         }
+        if (classification && (classification.kind === 'write' || classification.kind === 'ddlAdmin')) {
+          const affected = Number.isFinite(res.affectedRows) ? res.affectedRows : null;
+          const changed = Number.isFinite(res.changedRows) ? res.changedRows : null;
+          const action = String(classification.action || '').trim() || 'Changes applied';
+          if (affected !== null) {
+            showToast(`${action}: ${affected} row(s)`);
+          } else if (changed !== null) {
+            showToast(`${action}: ${changed} row(s)`);
+          } else {
+            showToast(action);
+          }
+        }
       }
 
       if (errorCount > 0) {
-        if (lastResult) {
-          const lastSourceStmt = normalizeSql(
-            sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
-          );
+        if (lastRenderableResult) {
           renderResults(
-            lastResult.rows || [],
-            lastResult.totalRows,
-            lastResult.truncated,
-            lastExecutedStmt || lastResult.stmt,
-            lastSourceStmt || lastExecutedStmt || lastResult.stmt,
-            lastResult.pagination || null
+            lastRenderableResult.rows || [],
+            lastRenderableResult.totalRows,
+            lastRenderableResult.truncated,
+            lastRenderableStmt || lastRenderableResult.stmt,
+            lastRenderableSourceStmt || lastRenderableStmt || lastRenderableResult.stmt,
+            lastRenderableResult.pagination || null
           );
           setQueryStatus({
             state: 'error',
-            message: `Completed with ${errorCount} error(s). Last rows: ${lastResult.totalRows || 0}`,
+            message: `Completed with ${errorCount} error(s). Last rows: ${lastRenderableResult.totalRows || 0}`,
             duration: Date.now() - overallStart
           });
         } else {
@@ -3205,24 +3228,27 @@ export function initHome({ api }) {
         return false;
       }
 
-      if (lastResult) {
-        const lastSourceStmt = normalizeSql(
-          sourceStatements.length ? sourceStatements[sourceStatements.length - 1] : sourceSql
-        );
+      if (lastRenderableResult) {
         renderResults(
-          lastResult.rows || [],
-          lastResult.totalRows,
-          lastResult.truncated,
-          lastExecutedStmt || lastResult.stmt,
-          lastSourceStmt || lastExecutedStmt || lastResult.stmt,
-          lastPagination || lastResult.pagination || null
+          lastRenderableResult.rows || [],
+          lastRenderableResult.totalRows,
+          lastRenderableResult.truncated,
+          lastRenderableStmt || lastRenderableResult.stmt,
+          lastRenderableSourceStmt || lastRenderableStmt || lastRenderableResult.stmt,
+          lastRenderableResult.pagination || null
         );
-        const paginationInfo = lastPagination || lastResult.pagination;
+        const paginationInfo = lastRenderableResult.pagination;
         setQueryStatus({
           state: 'success',
           message: paginationInfo
-            ? `Rows: ${lastResult.totalRows || 0} (page ${Number(paginationInfo.page) + 1})`
-            : `Rows: ${lastResult.totalRows || 0}`,
+            ? `Rows: ${lastRenderableResult.totalRows || 0} (page ${Number(paginationInfo.page) + 1})`
+            : `Rows: ${lastRenderableResult.totalRows || 0}`,
+          duration: Date.now() - overallStart
+        });
+      } else if (lastResult) {
+        setQueryStatus({
+          state: 'success',
+          message: `Rows: ${lastResult.totalRows || 0}`,
           duration: Date.now() - overallStart
         });
       }
@@ -5026,6 +5052,9 @@ export function initHome({ api }) {
   codeEditor.setHandlers({
     run: () => handleRun(),
     runSelection: () => handleRunSelection()
+  });
+  codeEditor.onSelectionChange(() => {
+    updateRunAvailability();
   });
   updateRunAvailability();
   tabTablesView = createTabTables({

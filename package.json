@@ -10,7 +10,6 @@
   "main": "src/main.js",
   "private": true,
   "scripts": {
-    "postinstall": "npx electron-rebuild -f -w better-sqlite3",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",

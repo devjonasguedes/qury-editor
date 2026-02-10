@@ -54,11 +54,7 @@ const electronApi = {
 // TODO (LEGACY): the spreads below export flat methods (e.g. `window.api.connect`).
 // Once migration completes, remove `...db` and `...electronApi` to force use of `window.api.db`/`window.api.electron`.
 contextBridge.exposeInMainWorld('api', {
-  // Legacy flat exports (for older renderer code)
-  ...db,
-  ...electronApi,
-
-  // Namespaced APIs (preferred)
+  // Namespaced APIs (preferred). Legacy flat exports removed after migration.
   db,
   electron: electronApi
 });

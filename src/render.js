@@ -18,6 +18,7 @@ import { createTableObjectTabs } from './modules/tableObjectTabs.js';
 import { createQueryHistory } from './modules/queryHistory.js';
 import { createSnippetsManager } from './modules/snippets.js';
 import { createSqlAutocomplete } from './modules/sqlAutocomplete.js';
+import { createSavedConnections } from './components/saved-connections.js';
 import {
   firstDmlKeyword,
   insertWhere,
@@ -436,7 +437,30 @@ export function initHome({ api }) {
   let credentialPromptResolver = null;
   let policyApprovalPromptResolver = null;
 
-  const safeApi = api || {};
+  const dbApi = (typeof window !== 'undefined' && window.api && window.api.db) ? window.api.db : (api || {});
+  const electronApi = (typeof window !== 'undefined' && window.api && window.api.electron) ? window.api.electron : (api || {});
+
+  const safeApi = new Proxy({}, {
+    get(_target, prop) {
+      if (prop === 'showError') {
+        if (electronApi && typeof electronApi.showError === 'function') return electronApi.showError;
+        if (dbApi && typeof dbApi.showError === 'function') return dbApi.showError;
+        return async (message) => {
+          console.error('API unavailable:', message);
+          if (message) alert(message);
+        };
+      }
+      if (prop === 'setProgressBar') {
+        if (electronApi && typeof electronApi.setProgressBar === 'function') return electronApi.setProgressBar;
+        if (dbApi && typeof dbApi.setProgressBar === 'function') return dbApi.setProgressBar;
+        return async () => ({ ok: false, error: 'API unavailable.' });
+      }
+      if (dbApi && typeof dbApi[prop] !== 'undefined') {
+        return dbApi[prop];
+      }
+      return async () => ({ ok: false, error: 'API unavailable.' });
+    }
+  });
 
   const ensureGlobalLoading = () => {
     if (globalLoading) return globalLoading;
@@ -3953,6 +3977,17 @@ export function initHome({ api }) {
     return mode.toUpperCase();
   };
 
+  const savedComponent = createSavedConnections({
+    getEntryPolicyMode,
+    isEntryReadOnly,
+    isEntrySsh,
+    connectionTitle,
+    formatSavedPolicyFilterLabel,
+    getSavedPolicyFilter,
+    showToast,
+    showError: safeApi.showError,
+  });
+
   const isSshTabActive = () => {
     if (!tabSshBtn) return false;
     return tabSshBtn.classList.contains('active');
@@ -4044,118 +4079,32 @@ export function initHome({ api }) {
     return true;
   };
 
+  // Wire saved-connections component events to higher-level handlers
+  document.addEventListener('saved:connect', async (ev) => {
+    const entry = ev && ev.detail ? ev.detail : null;
+    if (!entry) return;
+    if (isConnecting) return;
+    await connectEntryFromList(entry);
+  });
+
+  document.addEventListener('saved:edit', (ev) => {
+    const entry = ev && ev.detail ? ev.detail : null;
+    editingConnectionSeed = entry ? { ...entry, ssh: getEntrySshConfig(entry) } : null;
+    if (saveName) {
+      const originalName = entry && entry.name ? String(entry.name).trim() : '';
+      if (originalName) saveName.dataset.originalName = originalName;
+      else delete saveName.dataset.originalName;
+    }
+    applyEntryToForm(entry);
+    setEditMode(true);
+    openConnectModal({ keepForm: true, mode: 'full' });
+  });
+
   const renderSavedList = async () => {
-    if (!savedList) return;
-    const list = await safeApi.listSavedConnections();
-    const entries = Array.isArray(list) ? list : [];
-    const filterMode = getSavedPolicyFilter();
-    const filtered = filterMode === 'all'
-      ? entries
-      : entries.filter((entry) => getEntryPolicyMode(entry) === filterMode);
-    savedList.innerHTML = '';
-    if (entries.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'tree-empty';
-      empty.textContent = 'No saved connections.';
-      savedList.appendChild(empty);
-      return;
+    if (savedComponent && typeof savedComponent.renderSavedList === 'function') {
+      return savedComponent.renderSavedList();
     }
-    if (filtered.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'tree-empty';
-      empty.textContent = `No saved connections for ${formatSavedPolicyFilterLabel(filterMode)}.`;
-      savedList.appendChild(empty);
-      return;
-    }
-    filtered.forEach((entry) => {
-      const item = document.createElement('div');
-      item.className = 'saved-item';
-
-      const info = document.createElement('div');
-      info.className = 'saved-info';
-
-      const title = document.createElement('div');
-      title.className = 'saved-title';
-      title.textContent = entry.name || connectionTitle(entry);
-
-      const meta = document.createElement('div');
-      meta.className = 'saved-meta';
-      const metaMain = document.createElement('span');
-      metaMain.className = 'saved-meta-main';
-      const rawType = String(entry.type || '').trim().toLowerCase();
-      const typeLabel = rawType.toUpperCase();
-      const sqlitePath = entry.filePath || entry.file_path || entry.path || '';
-      const hostLabel = entry.port ? `${entry.host}:${entry.port}` : `${entry.host}`;
-      const baseLabel = rawType === 'sqlite' ? (sqlitePath || 'Local file') : hostLabel;
-      const segments = [typeLabel, baseLabel];
-      if (rawType !== 'sqlite' && entry.database) segments.push(String(entry.database));
-      metaMain.textContent = segments.filter(Boolean).join(' • ');
-
-      const badges = document.createElement('div');
-      badges.className = 'saved-badges';
-      const appendBadge = (text, variant = '') => {
-        const badge = document.createElement('span');
-        badge.className = variant ? `saved-badge ${variant}` : 'saved-badge';
-        badge.textContent = text;
-        badges.appendChild(badge);
-      };
-
-      const policy = String(getEntryPolicyMode(entry) || 'dev').toLowerCase();
-      appendBadge(policy.toUpperCase(), `is-${policy}`);
-      if (isEntryReadOnly(entry)) appendBadge('RO', 'is-readonly');
-      if (isEntrySsh(entry)) appendBadge('SSH', 'is-ssh');
-
-      meta.appendChild(metaMain);
-      meta.appendChild(badges);
-
-      info.appendChild(title);
-      info.appendChild(meta);
-      item.appendChild(info);
-
-      const actions = document.createElement('div');
-      actions.className = 'saved-actions';
-
-      const editBtn = document.createElement('button');
-      editBtn.className = 'icon-btn';
-      editBtn.innerHTML = '<i class="bi bi-pencil"></i>';
-      editBtn.title = 'Edit';
-
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'icon-btn';
-      deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
-      deleteBtn.title = 'Delete';
-
-      actions.appendChild(editBtn);
-      actions.appendChild(deleteBtn);
-      item.appendChild(actions);
-
-      info.addEventListener('click', async () => {
-        if (isConnecting) return;
-        await connectEntryFromList(entry);
-      });
-
-      editBtn.addEventListener('click', () => {
-        editingConnectionSeed = entry ? { ...entry, ssh: getEntrySshConfig(entry) } : null;
-        if (saveName) {
-          const originalName = entry && entry.name ? String(entry.name).trim() : '';
-          if (originalName) saveName.dataset.originalName = originalName;
-          else delete saveName.dataset.originalName;
-        }
-        applyEntryToForm(entry);
-        setEditMode(true);
-        openConnectModal({ keepForm: true, mode: 'full' });
-      });
-
-      deleteBtn.addEventListener('click', async () => {
-        const name = entry.name || connectionTitle(entry);
-        const confirmed = confirm(`Remove connection "${name}"?`);
-        if (!confirmed) return;
-        await safeApi.deleteConnection(entry.name);
-        await renderSavedList();
-      });
-
-      savedList.appendChild(item);
-    });
+    return Promise.resolve();
   };
 
   const connectFromForm = async () => {

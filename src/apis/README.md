@@ -25,16 +25,15 @@ Notas
 
 Legacy markers
 - Este repositório marca trechos "legacy" com o comentário `TODO (LEGACY)` para facilitar migração.
-- Atualmente o `src/preload.js` exporta uma forma plana (por exemplo `window.api.connect`) por compatibilidade e também o namespace preferido `window.api.db`/`window.api.electron`.
-- Procure por `TODO (LEGACY)` para identificar pontos que podem ser removidos quando a UI for totalmente migrada.
-- Recomendação: remover os spreads (`...db`, `...electronApi`) do `preload.js` somente depois que todos os usos no renderer foram convertidos para `window.api.db.*` ou `window.api.electron.*`.
+- The flat top-level exports were removed from `src/preload.js` once the renderer was migrated to `window.api.db`/`window.api.electron`.
+- Procure por `TODO (LEGACY)` para identificar other legacy points that may still need cleanup.
 
 Changelog (migration to namespaced API)
 -------------------------------------
 
 - Added namespaced preload exports: `window.api.db` and `window.api.electron`.
 	- Implemented in `src/preload.js` — see `db` and `electronApi` objects.
-	- Flat/legacy top-level exports (e.g. `window.api.connect`) are still present but annotated with `TODO (LEGACY)` comments to guide removal.
+	- Flat/legacy top-level exports (e.g. `window.api.connect`) were removed from `src/preload.js` after migration to the namespaced API.
 
 - New API scaffolds added:
 	- `src/apis/dbApi.js` — registers `db:*` IPC handlers and provides a simple driver registry.

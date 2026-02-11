@@ -1,11 +1,11 @@
+import { toastApi } from "../api/toast.js";
+
 export function createDbConnection(api) {
   const SAFE_EMPTY_LIST_METHODS = new Set(['listSavedConnections', 'listHistory', 'listSnippets']);
 
   const showErrorFallback = async (message) => {
     console.error('API unavailable:', message);
-    if (message) {
-      alert(message);
-    }
+    if (message) toastApi.show(message, 1600, "error");
   };
 
   const safeApi = new Proxy(

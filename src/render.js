@@ -8,6 +8,7 @@ import { createQuickConnect } from "./components/quick-connect.js";
 import { createSavedConnections } from "./components/saved-connections.js";
 import { createSettingsModal } from "./components/settings-modal.js";
 import { createSidebarMenu } from "./components/sidebar-menu.js";
+import { createToast } from "./components/toast.js";
 import { createCodeEditor } from "./modules/codeEditor.js";
 import {
   connectionTitle,
@@ -25,12 +26,13 @@ import { createTabConnections } from "./components/tab-connections.js";
 import { createTableObjectTabs } from "./modules/tableObjectTabs.js";
 import { createTableView } from "./modules/tableView.js";
 import { createTabTables } from "./modules/tabTables.js";
-import { createTreeView } from "./modules/treeView.js";
+import { createTreeView } from "./components/tree-view.js";
 import {
   dialogsApi,
   historyApi,
   settingsApi,
   snippetsApi,
+  toastApi,
 } from "./api/index.js";
 import {
   SESSION_TIMEZONE_ITEMS,
@@ -233,6 +235,7 @@ export function initHome({ api }) {
   const DEFAULT_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.DEFAULT;
   const MIN_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.MIN;
   const MAX_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.MAX;
+  let showToast = () => {};
 
   const dbApi =
     typeof window !== "undefined" && window.api && window.api.db
@@ -254,7 +257,7 @@ export function initHome({ api }) {
                 return await dialogsApi.showError(message);
               } catch (err) {
                 console.error("API unavailable:", err);
-                if (message) alert(message);
+                if (message) showToast(message, 1600, "error");
               }
             };
           }
@@ -264,7 +267,7 @@ export function initHome({ api }) {
             return dbApi.showError;
           return async (message) => {
             console.error("API unavailable:", message);
-            if (message) alert(message);
+            if (message) showToast(message, 1600, "error");
           };
         }
         if (prop === "setProgressBar") {
@@ -301,22 +304,10 @@ export function initHome({ api }) {
     return overlay;
   };
 
-  let toastTimer = null;
-  const showToast = (message, duration = 1600) => {
-    if (!toast || !message) return;
-    toast.textContent = message;
-    toast.classList.remove("hidden");
-    toast.classList.remove("show");
-    void toast.offsetWidth;
-    toast.classList.add("show");
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-      toast.classList.remove("show");
-      setTimeout(() => {
-        toast.classList.add("hidden");
-      }, 200);
-    }, duration);
-  };
+  const toastComponent = createToast({ element: toast });
+  toastApi.setHandler(toastComponent.show);
+  showToast = (message, duration = 1600, type) =>
+    toastApi.show(message, duration, type);
 
   const setGlobalLoading = (loading, labelText) => {
     const overlay = ensureGlobalLoading();
@@ -1586,7 +1577,7 @@ export function initHome({ api }) {
     );
     if (save)
       localStorage.setItem(STORAGE_KEYS.EDITOR_FONT_SIZE_KEY, String(next));
-    if (notify) showToast(`Font: ${next}px`, 900);
+    if (notify) showToast(`Font: ${next}px`, 900, "info");
   };
 
   const getCurrentEditorFontSize = () => {
@@ -3531,7 +3522,7 @@ export function initHome({ api }) {
       if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
       updateDbSelectUsageHint(targetDb);
       if (tabTablesView) tabTablesView.render();
-      showToast(`Using database: ${targetDb}`);
+      showToast(`Using database: ${targetDb}`, 1600, "info");
     } finally {
       setGlobalLoading(false);
     }
@@ -3670,6 +3661,9 @@ export function initHome({ api }) {
     },
     onTestSuccess: () => {
       showToast("Connection successful");
+    },
+    onTestError: (message) => {
+      showToast(message, 1600, "error");
     },
     onError: async (message) => {
       await safeApi.showError(message);
@@ -4456,7 +4450,6 @@ export function initHome({ api }) {
   initEditorResizer();
   bindTabShortcuts();
   treeView = createTreeView({
-    api: safeApi,
     tableList,
     tableSearch,
     tableSearchModeBtn,
@@ -4467,7 +4460,7 @@ export function initHome({ api }) {
     onOpenView: async (schema, name) => {
       await openViewDefinition(schema, name);
     },
-    onToast: (message) => showToast(message),
+    onToast: (message, duration, type) => showToast(message, duration, type),
   });
   codeEditor = createCodeEditor({ textarea: query });
   codeEditor.init();

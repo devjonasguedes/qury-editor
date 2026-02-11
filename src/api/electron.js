@@ -1,21 +1,17 @@
 // Simple backend-like wrapper for Electron app/system actions
 import { apiService } from "../services/apiService.js";
 
-function call(method, ...args) {
+function invoke(method, options, ...args) {
   const electron = apiService.electron;
   if (typeof electron[method] !== "function") {
     throw new Error(`API method "${method}" unavailable`);
   }
-  return electron[method](...args).then(normalizeResponse);
+  const res = electron[method](...args);
+  if (options && options.raw) return res;
+  return res.then(normalizeResponse);
 }
 
-function callRaw(method, ...args) {
-  const electron = apiService.electron;
-  if (typeof electron[method] !== "function") {
-    throw new Error(`API method "${method}" unavailable`);
-  }
-  return electron[method](...args);
-}
+const call = (method, options) => (...args) => invoke(method, options, ...args);
 
 function normalizeResponse(res) {
   if (res?.ok === false) throw new Error(res.error || "API error");
@@ -37,11 +33,11 @@ function normalizeResponse(res) {
  * @param {string} message - Error message
  */
 export const electronApi = {
-  setProgressBar: (value) => call("setProgressBar", value),
-  getNativeTheme: () => call("getNativeTheme"),
-  onNativeThemeUpdated: (handler) => callRaw("onNativeThemeUpdated", handler),
-  openExternal: (url) => call("openExternal", url),
-  showError: (message) => call("showError", message),
+  setProgressBar: call("setProgressBar"),
+  getNativeTheme: call("getNativeTheme"),
+  onNativeThemeUpdated: call("onNativeThemeUpdated", { raw: true }),
+  openExternal: call("openExternal"),
+  showError: call("showError"),
 };
 
 export default electronApi;

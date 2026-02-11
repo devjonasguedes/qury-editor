@@ -24,6 +24,8 @@ global
   --accent-dark: #026ec1;
   --accent-strong: #007acc;
   --accent-rgb: 0, 120, 212;
+  --success: #22c55e;
+  --success-dark: #16a34a;
   --text: #d4d4d4;
   --text-strong: #f8f8f8;
   --text-soft: #d7d7d7;
@@ -102,6 +104,8 @@ body.theme-light {
   --accent: #0f62fe;
   --accent-dark: #0b56e0;
   --accent-strong: #0f62fe;
+  --success: #16a34a;
+  --success-dark: #15803d;
   --text: #1f2933;
   --text-strong: #0f172a;
   --text-soft: #334155;
@@ -1017,6 +1021,24 @@ body.theme-light .saved-policy-option input:checked + span {
   pointer-events: none;
   max-width: min(80vw, 420px);
   text-align: center;
+}
+
+.toast--success {
+  background: var(--success);
+  color: var(--text-inverse);
+  border-color: var(--success-dark);
+}
+
+.toast--info {
+  background: var(--accent);
+  color: var(--text-inverse);
+  border-color: var(--accent-dark);
+}
+
+.toast--error {
+  background: var(--danger);
+  color: var(--text-inverse);
+  border-color: var(--danger);
 }
 
 .toast.show {

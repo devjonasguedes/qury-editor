@@ -1,13 +1,15 @@
 // Simple backend-like wrapper for saved connections
 import { apiService } from "../services/apiService.js";
 
-function call(method, ...args) {
+function invoke(method, ...args) {
   const db = apiService.db;
   if (typeof db[method] !== "function") {
     throw new Error(`API method "${method}" unavailable`);
   }
   return db[method](...args).then(normalizeResponse);
 }
+
+const call = (method) => (...args) => invoke(method, ...args);
 
 function normalizeResponse(res) {
   if (Array.isArray(res)) return res;
@@ -30,12 +32,12 @@ function normalizeResponse(res) {
  * @property {Function} importConnections - Imports connections from a source
  */
 export const connectionsApi = {
-  getConnections: () => call("listSavedConnections"),
-  saveConnection: (entry) => call("saveConnection", entry),
-  deleteConnection: (name) => call("deleteConnection", name),
-  touchConnection: (name) => call("touchConnection", name),
-  exportConnections: () => call("exportSavedConnections"),
-  importConnections: () => call("importSavedConnections"),
+  getConnections: call("listSavedConnections"),
+  saveConnection: call("saveConnection"),
+  deleteConnection: call("deleteConnection"),
+  touchConnection: call("touchConnection"),
+  exportConnections: call("exportSavedConnections"),
+  importConnections: call("importSavedConnections"),
 };
 
 export default connectionsApi;

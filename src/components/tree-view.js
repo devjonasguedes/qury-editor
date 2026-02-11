@@ -1,7 +1,8 @@
-import { renderTableTree, resetTreeDataCache } from '../tree.js';
+import { dbApi } from "../api/db.js";
+import { dialogsApi } from "../api/dialogs.js";
+import { renderTableTree, resetTreeDataCache } from "../tree.js";
 
 export function createTreeView({
-  api,
   tableList,
   tableSearch,
   tableSearchModeBtn,
@@ -10,43 +11,54 @@ export function createTreeView({
   getActiveConnection,
   onOpenTable,
   onOpenView,
-  onToast
+  onToast,
 }) {
   let tableCache = [];
   let routineCache = [];
   let treeExpanded = {};
-  let activeSchema = '';
+  let activeSchema = "";
   const searchByConnection = new Map();
   const searchModeByConnection = new Map();
   let objectSearchCache = new Map();
   let objectSearchPending = new Map();
   let searchDebounceTimer = null;
   let objectSearchSeq = 0;
-  const DEFAULT_SEARCH_KEY = '__default__';
-  const SEARCH_MODE_NAME = 'name';
-  const SEARCH_MODE_OBJECTS = 'objects';
+  const DEFAULT_SEARCH_KEY = "__default__";
+  const SEARCH_MODE_NAME = "name";
+  const SEARCH_MODE_OBJECTS = "objects";
   const OBJECT_SEARCH_DEBOUNCE_MS = 220;
   const OBJECT_SEARCH_MAX_MATCHES = 200;
   const OBJECT_SEARCH_CONCURRENCY = 4;
 
   const activeSearchKey = () => {
-    if (typeof getActiveConnectionKey === 'function') {
+    if (typeof getActiveConnectionKey === "function") {
       const key = getActiveConnectionKey();
       if (key) return String(key);
     }
     return DEFAULT_SEARCH_KEY;
   };
 
-  const normalizeSchemaName = (value) => String(value || '').trim().toLowerCase();
+  const normalizeSchemaName = (value) => String(value || "").trim().toLowerCase();
+
+  const showError = async (message) => {
+    try {
+      await dialogsApi.showError(message);
+    } catch (err) {
+      console.error("API unavailable:", err);
+      if (message && onToast) onToast(message, 1600, "error");
+    }
+  };
 
   const getSearchFilter = () => {
     const key = activeSearchKey();
-    return searchByConnection.has(key) ? String(searchByConnection.get(key) || '') : '';
+    return searchByConnection.has(key)
+      ? String(searchByConnection.get(key) || "")
+      : "";
   };
 
   const setSearchFilter = (value) => {
     const key = activeSearchKey();
-    searchByConnection.set(key, String(value || ''));
+    searchByConnection.set(key, String(value || ""));
   };
 
   const getSearchMode = () => {
@@ -63,20 +75,24 @@ export function createTreeView({
   const updateSearchClearState = () => {
     if (!tableSearchClear) return;
     const hasValue = !!(tableSearch && tableSearch.value && tableSearch.value.trim());
-    tableSearchClear.classList.toggle('visible', hasValue);
+    tableSearchClear.classList.toggle("visible", hasValue);
   };
 
   const syncSearchModeUi = () => {
     const objectMode = getSearchMode() === SEARCH_MODE_OBJECTS;
     if (tableSearch) {
-      tableSearch.placeholder = objectMode ? 'Type text to search objects...' : 'Search tables...';
+      tableSearch.placeholder = objectMode
+        ? "Type text to search objects..."
+        : "Search tables...";
     }
     if (tableSearchModeBtn) {
-      tableSearchModeBtn.classList.toggle('active', objectMode);
-      tableSearchModeBtn.title = objectMode ? 'Search mode: objects' : 'Search mode: names';
-      const icon = tableSearchModeBtn.querySelector('i');
+      tableSearchModeBtn.classList.toggle("active", objectMode);
+      tableSearchModeBtn.title = objectMode
+        ? "Search mode: objects"
+        : "Search mode: names";
+      const icon = tableSearchModeBtn.querySelector("i");
       if (icon) {
-        icon.className = objectMode ? 'bi bi-boxes' : 'bi bi-funnel';
+        icon.className = objectMode ? "bi bi-boxes" : "bi bi-funnel";
       }
     }
   };
@@ -92,26 +108,31 @@ export function createTreeView({
   };
 
   const rowField = (row, fields) => {
-    if (!row || typeof row !== 'object') return '';
+    if (!row || typeof row !== "object") return "";
     for (const field of fields) {
       const value = row[field];
-      if (value !== undefined && value !== null && value !== '') return value;
+      if (value !== undefined && value !== null && value !== "") return value;
     }
-    return '';
+    return "";
   };
 
-  const normalizeSearchText = (value) => String(value || '').toLowerCase();
-  const tokenizeSearchText = (value) => normalizeSearchText(value).split(/\s+/).filter(Boolean);
+  const normalizeSearchText = (value) => String(value || "").toLowerCase();
+  const tokenizeSearchText = (value) =>
+    normalizeSearchText(value).split(/\s+/).filter(Boolean);
   const matchesSearchTokens = (text, tokens) => {
     if (!Array.isArray(tokens) || tokens.length === 0) return true;
     const normalized = normalizeSearchText(text);
     return tokens.every((token) => normalized.includes(token));
   };
 
-  const getTableSchema = (row) => rowField(row, ['table_schema', 'schema', 'table_schema_name']) || activeSchema || '';
-  const getTableName = (row) => rowField(row, ['table_name', 'name', 'table']) || '';
-  const getRoutineName = (row) => rowField(row, ['routine_name', 'name', 'routine']) || '';
-  const getTableKey = (schema, table) => `${String(schema || '').toLowerCase()}.${String(table || '').toLowerCase()}`;
+  const getTableSchema = (row) =>
+    rowField(row, ["table_schema", "schema", "table_schema_name"]) ||
+    activeSchema ||
+    "";
+  const getTableName = (row) => rowField(row, ["table_name", "name", "table"]) || "";
+  const getRoutineName = (row) => rowField(row, ["routine_name", "name", "routine"]) || "";
+  const getTableKey = (schema, table) =>
+    `${String(schema || "").toLowerCase()}.${String(table || "").toLowerCase()}`;
 
   const emptyTableInfo = () => ({ indexes: [], constraints: [], triggers: [] });
 
@@ -119,8 +140,8 @@ export function createTreeView({
     const tokens = [schema, table];
     (columns || []).forEach((col) => {
       tokens.push(
-        rowField(col, ['column_name', 'name']),
-        rowField(col, ['data_type', 'type'])
+        rowField(col, ["column_name", "name"]),
+        rowField(col, ["data_type", "type"]),
       );
     });
     const indexes = Array.isArray(info && info.indexes) ? info.indexes : [];
@@ -140,41 +161,46 @@ export function createTreeView({
     triggers.forEach((trigger) => {
       tokens.push(trigger.name, trigger.timing, trigger.event);
     });
-    return normalizeSearchText(tokens.filter(Boolean).join(' '));
+    return normalizeSearchText(tokens.filter(Boolean).join(" "));
   };
 
   const loadTableSearchText = async (row, queryTokens = []) => {
     const schema = getTableSchema(row);
     const table = getTableName(row);
-    if (!table) return '';
+    if (!table) return "";
     const key = getTableKey(schema, table);
-    const tokens = Array.isArray(queryTokens) ? queryTokens : tokenizeSearchText(queryTokens);
+    const tokens = Array.isArray(queryTokens)
+      ? queryTokens
+      : tokenizeSearchText(queryTokens);
     const cached = objectSearchCache.get(key);
     if (cached && cached.complete) return cached.text;
     if (cached && matchesSearchTokens(cached.text, tokens)) return cached.text;
     if (objectSearchPending.has(key)) {
       const pending = await objectSearchPending.get(key);
       const pendingCached = objectSearchCache.get(key);
-      if (pendingCached && (pendingCached.complete || matchesSearchTokens(pendingCached.text, tokens))) {
+      if (
+        pendingCached &&
+        (pendingCached.complete || matchesSearchTokens(pendingCached.text, tokens))
+      ) {
         return pendingCached.text;
       }
       if (tokens.length === 0) return pending;
     }
     const loader = (async () => {
-      const columnsRes = api.listColumns ? await api.listColumns({ schema, table }) : { ok: true, columns: [] };
+      const columnsRes = await dbApi.listColumnsRaw({ schema, table });
       const columns = columnsRes && columnsRes.ok ? columnsRes.columns || [] : [];
       const partialText = collectTableTokens(schema, table, columns, emptyTableInfo());
       objectSearchCache.set(key, { text: partialText, complete: false });
       if (matchesSearchTokens(partialText, tokens)) return partialText;
 
-      const infoRes = api.listTableInfo ? await api.listTableInfo({ schema, table }) : { ok: true, ...emptyTableInfo() };
+      const infoRes = await dbApi.listTableInfoRaw({ schema, table });
       const info = infoRes && infoRes.ok ? infoRes : emptyTableInfo();
       const fullText = collectTableTokens(schema, table, columns, info);
       objectSearchCache.set(key, { text: fullText, complete: true });
       return fullText;
     })()
       .catch(() => {
-        const fallback = normalizeSearchText([schema, table].filter(Boolean).join(' '));
+        const fallback = normalizeSearchText([schema, table].filter(Boolean).join(" "));
         objectSearchCache.set(key, { text: fallback, complete: false });
         return fallback;
       })
@@ -195,11 +221,15 @@ export function createTreeView({
 
   const quoteIdentifier = (name, type) => {
     if (!name) return name;
-    const parts = String(name).split('.');
-    if (type === 'postgres' || type === 'postgresql') {
-      return parts.map((p) => (p.startsWith('"') ? p : `"${p.replace(/"/g, '""')}"`)).join('.');
+    const parts = String(name).split(".");
+    if (type === "postgres" || type === "postgresql") {
+      return parts
+        .map((p) => (p.startsWith("\"") ? p : `"${p.replace(/"/g, '""')}"`))
+        .join(".");
     }
-    return parts.map((p) => (p.startsWith('`') ? p : `\`${p.replace(/`/g, '``')}\``)).join('.');
+    return parts
+      .map((p) => (p.startsWith("`") ? p : `\`${p.replace(/`/g, "``")}\``))
+      .join(".");
   };
 
   const buildQualified = (schema, name, type) => {
@@ -209,8 +239,9 @@ export function createTreeView({
 
   const runOpenTable = async (schema, name, options = {}) => {
     if (onOpenTable) {
-      const conn = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
-      const type = conn && conn.type ? conn.type : 'mysql';
+      const conn =
+        typeof getActiveConnection === "function" ? getActiveConnection() : null;
+      const type = conn && conn.type ? conn.type : "mysql";
       const qualified = buildQualified(schema, name, type);
       const sql = `SELECT * FROM ${qualified};`;
       onOpenTable(schema, name, sql, options);
@@ -227,21 +258,22 @@ export function createTreeView({
 
   const runOpenRoutine = async (schema, name, routineType, options = {}) => {
     if (onOpenTable) {
-      const conn = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
-      const type = conn && conn.type ? conn.type : 'mysql';
+      const conn =
+        typeof getActiveConnection === "function" ? getActiveConnection() : null;
+      const type = conn && conn.type ? conn.type : "mysql";
       const qualified = buildQualified(schema, name, type);
-      const isProcedure = String(routineType || '').toUpperCase() === 'PROCEDURE';
+      const isProcedure = String(routineType || "").toUpperCase() === "PROCEDURE";
       const sql = isProcedure ? `CALL ${qualified}();` : `SELECT ${qualified}();`;
       onOpenTable(schema, name, sql, options);
     }
   };
 
-  const render = (filterText = '', options = {}) => {
+  const render = (filterText = "", options = {}) => {
     const {
       tableRows = tableCache,
       routineRows = routineCache,
       skipNameFilter = false,
-      highlightText = ''
+      highlightText = "",
     } = options;
     renderTableTree({
       tableList,
@@ -254,9 +286,9 @@ export function createTreeView({
       onOpenTable: runOpenTable,
       onOpenView: runOpenView,
       onOpenRoutine: runOpenRoutine,
-      listColumns: api.listColumns,
-      listTableInfo: api.listTableInfo,
-      onShowError: api.showError,
+      listColumns: (payload) => dbApi.listColumnsRaw(payload),
+      listTableInfo: (payload) => dbApi.listTableInfoRaw(payload),
+      onShowError: showError,
       expandedState: treeExpanded,
       onToggleExpand: (key, expanded) => {
         treeExpanded[key] = expanded;
@@ -265,34 +297,37 @@ export function createTreeView({
         if (!name) return;
         try {
           await navigator.clipboard.writeText(name);
-          if (onToast) onToast('Copied name');
+          if (onToast) onToast("Copied name");
         } catch (_) {
-          if (api.showError) await api.showError('Unable to copy.');
+          await showError("Unable to copy.");
         }
       },
       onCopyQualified: async (schema, name) => {
         if (!name) return;
-        const conn = typeof getActiveConnection === 'function' ? getActiveConnection() : null;
-        const type = conn && conn.type ? conn.type : 'mysql';
+        const conn =
+          typeof getActiveConnection === "function" ? getActiveConnection() : null;
+        const type = conn && conn.type ? conn.type : "mysql";
         const qualified = buildQualified(schema, name, type);
         try {
           await navigator.clipboard.writeText(qualified);
-          if (onToast) onToast('Copied qualified name');
+          if (onToast) onToast("Copied qualified name");
         } catch (_) {
-          if (api.showError) await api.showError('Unable to copy.');
+          await showError("Unable to copy.");
         }
-      }
+      },
     });
   };
 
   const runObjectSearch = async (filterText) => {
     const tokens = tokenizeSearchText(filterText);
     if (tokens.length === 0) {
-      render('');
+      render("");
       return;
     }
     const seq = ++objectSearchSeq;
-    const routines = (routineCache || []).filter((row) => matchesSearchTokens(getRoutineName(row), tokens));
+    const routines = (routineCache || []).filter((row) =>
+      matchesSearchTokens(getRoutineName(row), tokens),
+    );
     const tables = Array.isArray(tableCache) ? tableCache : [];
     const matched = [];
     const matchedKeys = new Set();
@@ -340,7 +375,10 @@ export function createTreeView({
     };
 
     const workers = [];
-    const workerCount = Math.min(OBJECT_SEARCH_CONCURRENCY, Math.max(1, tables.length));
+    const workerCount = Math.min(
+      OBJECT_SEARCH_CONCURRENCY,
+      Math.max(1, tables.length),
+    );
     for (let i = 0; i < workerCount; i += 1) workers.push(worker());
     await Promise.all(workers);
     if (seq !== objectSearchSeq) return;
@@ -348,7 +386,7 @@ export function createTreeView({
       tableRows: matched,
       routineRows: routines,
       skipNameFilter: true,
-      highlightText: filterText
+      highlightText: filterText,
     });
   };
 
@@ -367,9 +405,9 @@ export function createTreeView({
       render(filterText);
       return;
     }
-    if (!String(filterText || '').trim()) {
+    if (!String(filterText || "").trim()) {
       cancelObjectSearch();
-      render('');
+      render("");
       return;
     }
     scheduleObjectSearch(filterText);
@@ -377,28 +415,22 @@ export function createTreeView({
 
   const refresh = async () => {
     if (!tableList) return;
-    const resTables = await api.listTables();
+    const resTables = await dbApi.listTablesRaw();
     if (!resTables || !resTables.ok) {
       tableCache = [];
-      if (api.showError) {
-        await api.showError((resTables && resTables.error) || 'Failed to list tables.');
-      }
+      await showError((resTables && resTables.error) || "Failed to list tables.");
     } else {
       tableCache = resTables.rows || [];
     }
 
-    if (api.listRoutines) {
-      const resRoutines = await api.listRoutines();
-      if (!resRoutines || !resRoutines.ok) {
-        routineCache = [];
-        if (api.showError) {
-          await api.showError((resRoutines && resRoutines.error) || 'Failed to list routines.');
-        }
-      } else {
-        routineCache = resRoutines.rows || [];
-      }
+    const resRoutines = await dbApi.listRoutinesRaw();
+    if (resRoutines && resRoutines.ok) {
+      routineCache = resRoutines.rows || [];
     } else {
       routineCache = [];
+      if (!resRoutines || !resRoutines.ok) {
+        await showError((resRoutines && resRoutines.error) || "Failed to list routines.");
+      }
     }
 
     resetTreeDataCache();
@@ -410,22 +442,27 @@ export function createTreeView({
   };
 
   const setActiveSchema = (schema) => {
-    activeSchema = schema || '';
+    activeSchema = schema || "";
     const normalizedActive = normalizeSchemaName(activeSchema);
     const nextExpanded = {};
     Object.keys(treeExpanded || {}).forEach((key) => {
-      if (!key.startsWith('db:')) {
+      if (!key.startsWith("db:")) {
         nextExpanded[key] = treeExpanded[key];
         return;
       }
       const schemaName = key.slice(3);
-      nextExpanded[key] = !!normalizedActive && normalizeSchemaName(schemaName) === normalizedActive;
+      nextExpanded[key] =
+        !!normalizedActive && normalizeSchemaName(schemaName) === normalizedActive;
     });
     if (normalizedActive) {
-      const hasActiveKey = Object.keys(nextExpanded).some((key) => key.startsWith('db:') && nextExpanded[key]);
+      const hasActiveKey = Object.keys(nextExpanded).some(
+        (key) => key.startsWith("db:") && nextExpanded[key],
+      );
       if (!hasActiveKey) {
         const fallbackKey = Object.keys(treeExpanded || {}).find(
-          (key) => key.startsWith('db:') && normalizeSchemaName(key.slice(3)) === normalizedActive
+          (key) =>
+            key.startsWith("db:") &&
+            normalizeSchemaName(key.slice(3)) === normalizedActive,
         );
         if (fallbackKey) nextExpanded[fallbackKey] = true;
       }
@@ -442,17 +479,17 @@ export function createTreeView({
     treeExpanded = {};
     objectSearchCache = new Map();
     objectSearchPending = new Map();
-    render('', {
+    render("", {
       tableRows: [],
       routineRows: [],
       skipNameFilter: true,
-      highlightText: ''
+      highlightText: "",
     });
   };
 
   const bindSearch = () => {
     if (tableSearch) {
-      tableSearch.addEventListener('input', () => {
+      tableSearch.addEventListener("input", () => {
         setSearchFilter(tableSearch.value);
         updateSearchClearState();
         runSearch(tableSearch.value);
@@ -460,7 +497,7 @@ export function createTreeView({
     }
 
     if (tableSearchModeBtn) {
-      tableSearchModeBtn.addEventListener('click', () => {
+      tableSearchModeBtn.addEventListener("click", () => {
         const current = getSearchMode();
         const next = current === SEARCH_MODE_OBJECTS ? SEARCH_MODE_NAME : SEARCH_MODE_OBJECTS;
         setSearchMode(next);
@@ -471,11 +508,11 @@ export function createTreeView({
     }
 
     if (tableSearchClear) {
-      tableSearchClear.addEventListener('click', () => {
-        setSearchFilter('');
-        if (tableSearch) tableSearch.value = '';
+      tableSearchClear.addEventListener("click", () => {
+        setSearchFilter("");
+        if (tableSearch) tableSearch.value = "";
         updateSearchClearState();
-        runSearch('');
+        runSearch("");
       });
     }
   };
@@ -487,6 +524,6 @@ export function createTreeView({
     refresh,
     render,
     setActiveSchema,
-    clear
+    clear,
   };
 }

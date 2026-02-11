@@ -1,13 +1,15 @@
 // Simple backend-like wrapper for snippets
 import { apiService } from "../services/apiService.js";
 
-function call(method, ...args) {
+function invoke(method, ...args) {
   const db = apiService.db;
   if (typeof db[method] !== "function") {
     throw new Error(`API method "${method}" unavailable`);
   }
   return db[method](...args).then(normalizeResponse);
 }
+
+const call = (method) => (...args) => invoke(method, ...args);
 
 function normalizeResponse(res) {
   if (Array.isArray(res)) return res;
@@ -27,9 +29,9 @@ function normalizeResponse(res) {
  * @param {Object} payload - Delete payload
  */
 export const snippetsApi = {
-  listSnippets: (payload) => call("listSnippets", payload),
-  saveSnippet: (payload) => call("saveSnippet", payload),
-  deleteSnippet: (payload) => call("deleteSnippet", payload),
+  listSnippets: call("listSnippets"),
+  saveSnippet: call("saveSnippet"),
+  deleteSnippet: call("deleteSnippet"),
 };
 
 export default snippetsApi;

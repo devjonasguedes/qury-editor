@@ -1,20 +1,12 @@
 // Simple backend-like wrapper for dialog actions
 import { apiService } from "../services/apiService.js";
 
-function callDbRaw(method, ...args) {
-  const db = apiService.db;
-  if (typeof db[method] !== "function") {
+function invoke(target, method, ...args) {
+  const api = apiService[target];
+  if (!api || typeof api[method] !== "function") {
     throw new Error(`API method "${method}" unavailable`);
   }
-  return db[method](...args);
-}
-
-function callElectron(method, ...args) {
-  const electron = apiService.electron;
-  if (typeof electron[method] !== "function") {
-    throw new Error(`API method "${method}" unavailable`);
-  }
-  return electron[method](...args);
+  return api[method](...args);
 }
 
 /**
@@ -26,9 +18,9 @@ function callElectron(method, ...args) {
  * @param {string} message - Error message
  */
 export const dialogsApi = {
-  openSqliteFile: () => callDbRaw("openSqliteFile"),
-  saveSqliteFile: () => callDbRaw("saveSqliteFile"),
-  showError: (message) => callElectron("showError", message),
+  openSqliteFile: () => invoke("db", "openSqliteFile"),
+  saveSqliteFile: () => invoke("db", "saveSqliteFile"),
+  showError: (message) => invoke("electron", "showError", message),
 };
 
 export default dialogsApi;

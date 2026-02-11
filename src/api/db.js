@@ -1,21 +1,17 @@
 // Simple backend-like wrapper for database actions
 import { apiService } from "../services/apiService.js";
 
-function call(method, ...args) {
+function invoke(method, options, ...args) {
   const db = apiService.db;
   if (typeof db[method] !== "function") {
     throw new Error(`API method "${method}" unavailable`);
   }
-  return db[method](...args).then(normalizeResponse);
+  const res = db[method](...args);
+  if (options && options.raw) return res;
+  return res.then(normalizeResponse);
 }
 
-function callRaw(method, ...args) {
-  const db = apiService.db;
-  if (typeof db[method] !== "function") {
-    throw new Error(`API method "${method}" unavailable`);
-  }
-  return db[method](...args);
-}
+const call = (method, options) => (...args) => invoke(method, options, ...args);
 
 function normalizeResponse(res) {
   if (res?.ok === false) throw new Error(res.error || "API error");
@@ -53,22 +49,26 @@ function normalizeResponse(res) {
  * @property {Function} saveSqliteFile - Opens a SQLite save dialog
  */
 export const dbApi = {
-  connect: (config) => call("connect", config),
-  disconnect: () => call("disconnect"),
-  testConnection: (config) => call("testConnection", config),
-  runQuery: (payload) => call("runQuery", payload),
-  cancelQuery: () => call("cancelQuery"),
-  listTables: () => call("listTables"),
-  listRoutines: () => call("listRoutines"),
-  listColumns: (payload) => call("listColumns", payload),
-  listTableInfo: (payload) => call("listTableInfo", payload),
-  getViewDefinition: (payload) => call("getViewDefinition", payload),
-  getTableDefinition: (payload) => call("getTableDefinition", payload),
-  listDatabases: () => call("listDatabases"),
-  useDatabase: (name) => call("useDatabase", name),
-  setSessionTimezone: (payload) => call("setSessionTimezone", payload),
-  openSqliteFile: () => callRaw("openSqliteFile"),
-  saveSqliteFile: () => callRaw("saveSqliteFile"),
+  connect: call("connect"),
+  disconnect: call("disconnect"),
+  testConnection: call("testConnection"),
+  runQuery: call("runQuery"),
+  cancelQuery: call("cancelQuery"),
+  listTables: call("listTables"),
+  listTablesRaw: call("listTables", { raw: true }),
+  listRoutines: call("listRoutines"),
+  listRoutinesRaw: call("listRoutines", { raw: true }),
+  listColumns: call("listColumns"),
+  listColumnsRaw: call("listColumns", { raw: true }),
+  listTableInfo: call("listTableInfo"),
+  listTableInfoRaw: call("listTableInfo", { raw: true }),
+  getViewDefinition: call("getViewDefinition"),
+  getTableDefinition: call("getTableDefinition"),
+  listDatabases: call("listDatabases"),
+  useDatabase: call("useDatabase"),
+  setSessionTimezone: call("setSessionTimezone"),
+  openSqliteFile: call("openSqliteFile", { raw: true }),
+  saveSqliteFile: call("saveSqliteFile", { raw: true }),
 };
 
 export default dbApi;

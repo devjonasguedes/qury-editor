@@ -8,6 +8,7 @@ export function createConnectModal({
   onConnectSuccess,
   onSaveSuccess,
   onTestSuccess,
+  onTestError,
   onError,
   onClose,
 }) {
@@ -424,14 +425,22 @@ export function createConnectModal({
         const result = await dbApi.testConnection(data);
         
         if (!result || result.ok === false) {
-          if (onError) onError(result?.error || 'Failed to test connection.');
+          if (onTestError) {
+            onTestError(result?.error || 'Failed to test connection.');
+          } else if (onError) {
+            onError(result?.error || 'Failed to test connection.');
+          }
           return;
         }
 
         if (onTestSuccess) onTestSuccess(data);
         
       } catch (err) {
-        if (onError) onError(err?.message || 'Failed to test connection.');
+        if (onTestError) {
+          onTestError(err?.message || 'Failed to test connection.');
+        } else if (onError) {
+          onError(err?.message || 'Failed to test connection.');
+        }
       }
     });
   }

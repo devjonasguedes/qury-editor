@@ -1,13 +1,15 @@
 // Simple backend-like wrapper for settings
 import { apiService } from "../services/apiService.js";
 
-function call(method, ...args) {
+function invoke(method, ...args) {
   const db = apiService.db;
   if (typeof db[method] !== "function") {
     throw new Error(`API method "${method}" unavailable`);
   }
   return db[method](...args).then(normalizeResponse);
 }
+
+const call = (method) => (...args) => invoke(method, ...args);
 
 function normalizeResponse(res) {
   if (res?.ok === false) throw new Error(res.error || "API error");
@@ -23,8 +25,8 @@ function normalizeResponse(res) {
  * @param {Object} payload - Policy payload
  */
 export const settingsApi = {
-  getPolicySettings: () => call("getPolicySettings"),
-  savePolicySettings: (payload) => call("savePolicySettings", payload),
+  getPolicySettings: call("getPolicySettings"),
+  savePolicySettings: call("savePolicySettings"),
 };
 
 export default settingsApi;

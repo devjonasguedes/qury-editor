@@ -6,3 +6,4 @@ export { historyApi } from "./history.js";
 export { snippetsApi } from "./snippets.js";
 export { settingsApi } from "./settings.js";
 export { storageApi } from "./storage.js";
+export { toastApi } from "./toast.js";

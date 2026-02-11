@@ -162,7 +162,7 @@ export function createSavedConnections({
   if (exportConnectionsBtn) {
     exportConnectionsBtn.addEventListener("click", async () => {
       try {
-        if (showToast) showToast("Opening save dialog...");
+        if (showToast) showToast("Opening save dialog...", 1600, "info");
         const res = await connectionsApi.exportConnections();
         if (res?.canceled) return;
         if (showToast) showToast(`Exported ${res?.count || 0} connection(s)`);

@@ -2014,12 +2014,18 @@ export function initHome({ api }) {
     return `SELECT * FROM (${baseSql}) AS __qury_page LIMIT ${fetchLimit} OFFSET ${fetchOffset}`;
   };
 
+  const hasExplicitLimit = (sql) => {
+    const clean = normalizeSql(stripLeadingComments(sql));
+    if (!clean) return false;
+    return /\blimit\b/i.test(clean);
+  };
+
   const applyLimit = (sql) => {
     const limitValue = limitSelect ? limitSelect.value : "none";
     if (!limitValue || limitValue === "none") return sql;
     const clean = normalizeSql(sql);
     if (!clean) return clean;
-    if (/\\blimit\\b/i.test(clean)) return clean;
+    if (hasExplicitLimit(clean)) return clean;
     return `${clean} LIMIT ${limitValue}`;
   };
 
@@ -2372,6 +2378,7 @@ export function initHome({ api }) {
         const classification = classifyStatementByPolicy(stmt);
         const keyword = firstDmlKeyword(stmt);
         const isExplain = isExplainStatement(stmt);
+        const explicitLimit = hasExplicitLimit(stmt);
         const canPaginateSelect =
           keyword === "select" &&
           !(classification && classification.kind === "write");
@@ -2380,7 +2387,7 @@ export function initHome({ api }) {
             ? options.serverPagination
             : null;
         const useServerPagination =
-          canPaginateSelect && serverPaginationConfig !== false;
+          canPaginateSelect && !explicitLimit && serverPaginationConfig !== false;
         const paginationPage =
           useServerPagination &&
           serverPaginationConfig &&
@@ -2404,7 +2411,8 @@ export function initHome({ api }) {
 
         executedStatements += 1;
         lastExecutedStmt = displayStmt;
-        let sql = applyDefaultLimit ? applyLimitIfSelect(stmt) : stmt;
+        let sql =
+          applyDefaultLimit && !explicitLimit ? applyLimitIfSelect(stmt) : stmt;
         if (useServerPagination && paginationBaseSql) {
           sql = buildServerPaginatedSql(
             paginationBaseSql,

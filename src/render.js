@@ -1,11 +1,10 @@
-import { format as formatSql } from "sql-formatter";
-
 import { createConnectModal } from "./components/connect-modal.js";
 import { createCredentialModal } from "./components/credential-modal.js";
 import { createPolicyApprovalModal } from "./components/policy-approval-modal.js";
 import { POLICY_APPROVAL_TOKEN } from "./constants/policyApproval.js";
 import { createQuickConnect } from "./components/quick-connect.js";
 import { createSavedConnections } from "./components/saved-connections.js";
+import { createSqlEditor } from "./components/sql-editor.js";
 import { createSettingsModal } from "./components/settings-modal.js";
 import { createSidebarMenu } from "./components/sidebar-menu.js";
 import { createToast } from "./components/toast.js";
@@ -25,7 +24,7 @@ import { storageApi } from "./api/index.js";
 import { createTabConnections } from "./components/tab-connections.js";
 import { createTableObjectTabs } from "./modules/tableObjectTabs.js";
 import { createTableView } from "./modules/tableView.js";
-import { createTabTables } from "./modules/tabTables.js";
+import { createTabTables } from "./components/tab-tables.js";
 import { createTreeView } from "./components/tree-view.js";
 import {
   dialogsApi,
@@ -42,7 +41,6 @@ import {
 import {
   CONNECTION_TIMEOUT_DEFAULTS,
   DEFAULT_SESSION_TIMEZONE,
-  EDITOR_FONT_SIZE_DEFAULTS,
   ERROR_HANDLING_DEFAULTS,
   QUERY_DEFAULTS,
   QUERY_PROGRESS_SHOW_DELAY_MS,
@@ -68,34 +66,14 @@ import {
   insertWhere,
   isDangerousStatement,
   splitStatements,
-  splitStatementsWithRanges,
   stripLeadingComments,
 } from "./sql.js";
-
 
 export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
 
   const dbType = byId("dbType");
-  const sqliteModeExisting = byId("sqliteModeExisting");
-  const sqlitePath = byId("sqlitePath");
-  const connectionUrl = byId("connectionUrl");
-  const host = byId("host");
-  const port = byId("port");
-  const user = byId("user");
-  const password = byId("password");
-  const database = byId("database");
   const saveName = byId("saveName");
-  const rememberPassword = byId("rememberPassword");
-  const readOnly = byId("readOnly");
-  const policyMode = byId("policyMode");
-  const sshHost = byId("sshHost");
-  const sshPort = byId("sshPort");
-  const sshUser = byId("sshUser");
-  const sshPassword = byId("sshPassword");
-  const sshPrivateKey = byId("sshPrivateKey");
-  const sshPassphrase = byId("sshPassphrase");
-  const sshLocalPort = byId("sshLocalPort");
   const savedPolicyFilters = byId("savedPolicyFilters");
   const mainScreen = byId("mainScreen");
   const welcomeScreen = byId("welcomeScreen");
@@ -104,6 +82,72 @@ export function initHome({ api }) {
   const homeBtn = byId("homeBtn");
   const openSettingsBtn = byId("openSettingsBtn");
   const historyList = byId("historyList");
+  const editorPanel = mainScreen ? mainScreen.querySelector(".editor") : null;
+  const editorBody = mainScreen
+    ? mainScreen.querySelector(".editor-body")
+    : null;
+  const resultsPanel = byId("resultsPanel");
+  const editorResizer = byId("editorResizer");
+  const workspace = mainScreen ? mainScreen.querySelector(".workspace") : null;
+  const sidebarShell = byId("sidebarShell");
+  const sidebarResizer = byId("sidebarResizer");
+  const dbSelectWrap = byId("dbSelectWrap");
+  const dbSelect = byId("dbSelect");
+  const tableList = byId("tableList");
+  const tableSearch = byId("tableSearch");
+  const tableSearchModeBtn = byId("tableSearchModeBtn");
+  const tableSearchClear = byId("tableSearchClear");
+  const query = byId("query");
+  const limitSelect = byId("limitSelect");
+  const timeoutSelect = byId("timeoutSelect");
+  const queryStatus = byId("queryStatus");
+  const snippetQueryInput = byId("snippetQueryInput");
+  const definitionQueryInput = byId("definitionQueryInput");
+  const resultsTableWrap = resultsPanel
+    ? resultsPanel.querySelector(".results-table-wrap")
+    : null;
+  const tableActionsBar = byId("tableActionsBar");
+  const queryFilter = byId("queryFilter");
+  const queryFilterClear = byId("queryFilterClear");
+  const objectDetailsPanel = byId("objectDetailsPanel");
+  const sidebar = byId("sidebar");
+  const mainLayout = byId("mainLayout");
+  const toast = byId("toast");
+  const tabBar = byId("tabBar");
+  const newTabBtn = byId("newTabBtn");
+  const tableObjectTabs = byId("tableObjectTabs");
+  const resultsTable = byId("resultsTable");
+  const resultsEmptyState = byId("resultsEmptyState");
+  const tablePagination = byId("tablePagination");
+  const pagePrevBtn = byId("pagePrevBtn");
+  const pageNextBtn = byId("pageNextBtn");
+  const pageInfo = byId("pageInfo");
+  const countBtn = byId("countBtn");
+  const tableRefreshBtn = byId("tableRefreshBtn");
+  const refreshSchemaBtn = byId("refreshSchemaBtn");
+  const applyFilterBtn = byId("applyFilterBtn");
+  const queryOutputBtn = byId("queryOutputBtn");
+  const queryOutputPreview = byId("queryOutputPreview");
+  const outputModal = byId("outputModal");
+  const outputModalSubtitle = byId("outputModalSubtitle");
+  const outputLogBody = byId("outputLogBody");
+  const outputCloseBtn = byId("outputCloseBtn");
+  const outputCloseBtnBottom = byId("outputCloseBtnBottom");
+  const outputModalBackdrop = byId("outputModalBackdrop");
+  const outputCopyBtn = byId("outputCopyBtn");
+  const definitionModal = byId("definitionModal");
+  const definitionTitle = byId("definitionTitle");
+  const definitionSubtitle = byId("definitionSubtitle");
+  const definitionCloseBtn = byId("definitionCloseBtn");
+  const definitionModalBackdrop = byId("definitionModalBackdrop");
+  const definitionFormatBtn = byId("definitionFormatBtn");
+  const definitionCopyBtn = byId("definitionCopyBtn");
+  const definitionSaveBtn = byId("definitionSaveBtn");
+  const settingsDefaultLimit = byId("settingsDefaultLimit");
+  const settingsDefaultTimeout = byId("settingsDefaultTimeout");
+  const settingsSessionTimezoneCombobox = byId(
+    "settingsSessionTimezoneCombobox",
+  );
   const snippetsList = byId("snippetsList");
   const addSnippetBtn = byId("addSnippetBtn");
   const snippetModal = byId("snippetModal");
@@ -112,130 +156,47 @@ export function initHome({ api }) {
   const snippetCancelBtn = byId("snippetCancelBtn");
   const snippetSaveBtn = byId("snippetSaveBtn");
   const snippetNameInput = byId("snippetNameInput");
-  const snippetQueryInput = byId("snippetQueryInput");
-  const tableList = byId("tableList");
-  const tableSearch = byId("tableSearch");
-  const tableSearchModeBtn = byId("tableSearchModeBtn");
-  const tableSearchClear = byId("tableSearchClear");
-  const sidebarShell = byId("sidebarShell");
-  const dbSelect = byId("dbSelect");
-  const dbSelectWrap = byId("dbSelectWrap");
-  const sidebarResizer = byId("sidebarResizer");
-  const editorResizer = byId("editorResizer");
-  const sidebar = document.querySelector(".tables");
-  const editorPanel = document.querySelector(".editor");
-  const editorBody = document.querySelector(".editor-body");
-  const mainLayout = document.querySelector(".main");
-  const workspace = document.querySelector(".workspace");
-  const resultsPanel = byId("resultsPanel");
-  const tableObjectTabs = byId("tableObjectTabs");
-  const objectDetailsPanel = byId("objectDetailsPanel");
-  const resultsTableWrap = byId("resultsTableWrap");
-  const resultsEmptyState = byId("resultsEmptyState");
-  const resultsTable = byId("resultsTable");
-  const queryStatus = byId("queryStatus");
-  const queryOutputBtn = byId("queryOutputBtn");
-  const queryOutputPreview = byId("queryOutputPreview");
-  const tableActionsBar = byId("tableActionsBar");
-  const tablePagination = byId("tablePagination");
-  const pagePrevBtn = byId("pagePrevBtn");
-  const pageNextBtn = byId("pageNextBtn");
-  const pageInfo = byId("pageInfo");
-  const tableRefreshBtn = byId("tableRefreshBtn");
-  const copyCellBtn = byId("copyCellBtn");
-  const copyRowBtn = byId("copyRowBtn");
-  const exportToggle = byId("exportToggle");
-  const exportMenu = byId("exportMenu");
-  const exportCsvBtn = byId("exportCsvBtn");
-  const exportJsonBtn = byId("exportJsonBtn");
-  const refreshSchemaBtn = byId("refreshSchemaBtn");
-  const tabBar = byId("tabBar");
-  const newTabBtn = byId("newTabBtn");
-  const query = byId("query");
-  const runBtn = byId("runBtn");
-  const runSelectionBtn = byId("runSelectionBtn");
-  const runCurrentBtn = byId("runCurrentBtn");
-  const formatBtn = byId("formatBtn");
-  const zoomOutBtn = byId("zoomOutBtn");
-  const zoomInBtn = byId("zoomInBtn");
-  const explainBtn = byId("explainBtn");
-  const explainAnalyzeBtn = byId("explainAnalyzeBtn");
-  const stopBtn = byId("stopBtn");
-  const limitSelect = byId("limitSelect");
-  const timeoutSelect = byId("timeoutSelect");
-  const toggleEditorBtn = byId("toggleEditorBtn");
-  const saveSnippetEditorBtn = byId("saveSnippetEditorBtn");
-  const countBtn = byId("countBtn");
-  const queryFilter = byId("queryFilter");
-  const queryFilterClear = byId("queryFilterClear");
-  const applyFilterBtn = byId("applyFilterBtn");
-  let globalLoading = byId("globalLoading");
-
-  const outputModal = byId("outputModal");
-  const outputModalBackdrop = byId("outputModalBackdrop");
-  const outputLogBody = byId("outputLogBody");
-  const outputModalSubtitle = byId("outputModalSubtitle");
-  const outputCloseBtn = byId("outputCloseBtn");
-  const outputCloseBtnBottom = byId("outputCloseBtnBottom");
-  const outputCopyBtn = byId("outputCopyBtn");
-  const toast = byId("toast");
-  const definitionModal = byId("definitionModal");
-  const definitionModalBackdrop = byId("definitionModalBackdrop");
-  const definitionCloseBtn = byId("definitionCloseBtn");
-  const definitionTitle = byId("definitionTitle");
-  const definitionSubtitle = byId("definitionSubtitle");
-  const definitionFormatBtn = byId("definitionFormatBtn");
-  const definitionCopyBtn = byId("definitionCopyBtn");
-  const definitionSaveBtn = byId("definitionSaveBtn");
-  const definitionQueryInput = byId("definitionQueryInput");
-  const settingsSessionTimezoneCombobox = byId(
-    "settingsSessionTimezoneCombobox",
-  );
-
-  const settingsDefaultLimit = byId("settingsDefaultLimit");
-  const settingsDefaultTimeout = byId("settingsDefaultTimeout");
-
-  let isConnecting = false;
-  let isEditingConnection = false;
-  let treeView = null;
-  let tabConnectionsView = null;
-  let tabTablesView = null;
-  let codeEditor = null;
-  let snippetEditor = null;
-  let definitionEditor = null;
-  let activeDefinitionTarget = null;
-  let isSavingDefinition = false;
-  let tableView = null;
-  let tableObjectTabsView = null;
-  let lastSort = null;
-  let resultsByTabId = new Map();
-  let objectContextByTabId = new Map();
-  let columnKeyMetaByTableKey = new Map();
-  let columnKeyMetaRequestSeq = 0;
-  let outputByTabId = new Map();
-  let tableFilterByTabId = new Map();
-  let currentOutput = null;
-  let historyManager = null;
-  let snippetsManager = null;
-  let sqlAutocomplete = null;
-  let queryProgressTimer = null;
-  let queryProgressRevealTimer = null;
-  let queryProgressStartedAt = 0;
-  let editingConnectionSeed = null;
-  let environmentPolicyRules = null;
-  let settingsModalComponent = null;
-  let connectModalComponent = null;
-  let sidebarMenuComponent = null;
-  let activeConnectSettingsTab = "connection";
-  let activeConnectMode = "full";
-  let sessionTimezoneOptionItems = [];
-  let sessionTimezoneVisibleItems = [];
-  let sessionTimezoneHighlightedIndex = -1;
-  let sessionTimezoneMenuOpen = false;
-  const DEFAULT_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.DEFAULT;
-  const MIN_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.MIN;
-  const MAX_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.MAX;
-  let showToast = () => {};
+  const editorSqlState = {
+    historyManager: null,
+    snippetsManager: null,
+    sqlAutocomplete: null,
+    codeEditor: null,
+    snippetEditor: null,
+    definitionEditor: null,
+    treeView: null,
+    tabTablesView: null,
+    tabConnectionsView: null,
+    tableObjectTabsView: null,
+    tableView: null,
+    activeDefinitionTarget: null,
+    isSavingDefinition: false,
+    isConnecting: false,
+    queryProgressTimer: null,
+    queryProgressRevealTimer: null,
+    queryProgressStartedAt: 0,
+    currentOutput: null,
+    globalLoading: null,
+    isEditingConnection: false,
+    editingConnectionSeed: null,
+    resultsByTabId: new Map(),
+    outputByTabId: new Map(),
+    tableFilterByTabId: new Map(),
+    objectContextByTabId: new Map(),
+    columnKeyMetaByTableKey: new Map(),
+    columnKeyMetaRequestSeq: 0,
+    lastSort: null,
+    environmentPolicyRules: null,
+    settingsModalComponent: null,
+    connectModalComponent: null,
+    sidebarMenuComponent: null,
+    activeConnectSettingsTab: "connection",
+    activeConnectMode: "full",
+    sessionTimezoneOptionItems: [],
+    sessionTimezoneVisibleItems: [],
+    sessionTimezoneHighlightedIndex: -1,
+    sessionTimezoneMenuOpen: false,
+    showToast: () => {},
+  };
 
   const dbApi =
     typeof window !== "undefined" && window.api && window.api.db
@@ -257,7 +218,7 @@ export function initHome({ api }) {
                 return await dialogsApi.showError(message);
               } catch (err) {
                 console.error("API unavailable:", err);
-                if (message) showToast(message, 1600, "error");
+                if (message) editorSqlState.showToast(message, 1600, "error");
               }
             };
           }
@@ -267,7 +228,7 @@ export function initHome({ api }) {
             return dbApi.showError;
           return async (message) => {
             console.error("API unavailable:", message);
-            if (message) showToast(message, 1600, "error");
+            if (message) editorSqlState.showToast(message, 1600, "error");
           };
         }
         if (prop === "setProgressBar") {
@@ -280,15 +241,18 @@ export function initHome({ api }) {
         if (dbApi && typeof dbApi[prop] !== "undefined") {
           return dbApi[prop];
         }
+        if (electronApi && typeof electronApi[prop] !== "undefined") {
+          return electronApi[prop];
+        }
         return async () => ({ ok: false, error: "API unavailable." });
       },
     },
   );
 
   const ensureGlobalLoading = () => {
-    if (globalLoading) return globalLoading;
+    if (editorSqlState.globalLoading) return editorSqlState.globalLoading;
     const overlay = document.createElement("div");
-    overlay.id = "globalLoading";
+    overlay.id = "editorSqlState.globalLoading";
     overlay.className = "global-loading hidden";
     const card = document.createElement("div");
     card.className = "global-loading-card";
@@ -300,13 +264,13 @@ export function initHome({ api }) {
     card.appendChild(label);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
-    globalLoading = overlay;
+    editorSqlState.globalLoading = overlay;
     return overlay;
   };
 
   const toastComponent = createToast({ element: toast });
   toastApi.setHandler(toastComponent.show);
-  showToast = (message, duration = 1600, type) =>
+  editorSqlState.showToast = (message, duration = 1600, type) =>
     toastApi.show(message, duration, type);
 
   const setGlobalLoading = (loading, labelText) => {
@@ -321,19 +285,19 @@ export function initHome({ api }) {
   // applyTheme, updateThemeUi, setThemeMode, setThemeMenuOpen, loadThemeMode, and theme management now in themeManager
 
   const setEnvironmentPolicyRules = (rules) => {
-    environmentPolicyRules = normalizeEnvironmentPolicyRules(
+    editorSqlState.environmentPolicyRules = normalizeEnvironmentPolicyRules(
       resolveEnvironmentPoliciesPayload(rules),
     );
-    return environmentPolicyRules;
+    return editorSqlState.environmentPolicyRules;
   };
 
   const getEnvironmentPolicyRules = () => {
-    if (!environmentPolicyRules) {
-      environmentPolicyRules = cloneEnvironmentPolicyRules(
+    if (!editorSqlState.environmentPolicyRules) {
+      editorSqlState.environmentPolicyRules = cloneEnvironmentPolicyRules(
         ENVIRONMENT_POLICY_DEFAULTS,
       );
     }
-    return environmentPolicyRules;
+    return editorSqlState.environmentPolicyRules;
   };
 
   const getEnvironmentPolicyRule = (mode) => {
@@ -456,57 +420,66 @@ export function initHome({ api }) {
 
   const setSessionTimezoneMenuOpen = (open) => {
     const nextOpen = !!open;
-    sessionTimezoneMenuOpen = nextOpen;
-    if (settingsModalComponent) {
-      settingsModalComponent.setSessionTimezoneMenuOpen(nextOpen);
+    editorSqlState.sessionTimezoneMenuOpen = nextOpen;
+    if (editorSqlState.settingsModalComponent) {
+      editorSqlState.settingsModalComponent.setSessionTimezoneMenuOpen(
+        nextOpen,
+      );
     }
-    if (!nextOpen) sessionTimezoneHighlightedIndex = -1;
+    if (!nextOpen) editorSqlState.sessionTimezoneHighlightedIndex = -1;
   };
 
   const renderSessionTimezoneMenu = () => {
-    if (!settingsModalComponent) return;
-    settingsModalComponent.renderSessionTimezoneMenu({
-      items: sessionTimezoneVisibleItems,
-      highlightedIndex: sessionTimezoneHighlightedIndex,
+    if (!editorSqlState.settingsModalComponent) return;
+    editorSqlState.settingsModalComponent.renderSessionTimezoneMenu({
+      items: editorSqlState.sessionTimezoneVisibleItems,
+      highlightedIndex: editorSqlState.sessionTimezoneHighlightedIndex,
       onSelect: (timezone) => {
         applySessionTimezoneToSettingsInput(timezone);
         setSessionTimezoneMenuOpen(false);
-        if (settingsModalComponent)
-          settingsModalComponent.focusSessionTimezone();
+        if (editorSqlState.settingsModalComponent)
+          editorSqlState.settingsModalComponent.focusSessionTimezone();
       },
     });
   };
 
   const setSessionTimezoneHighlightedIndex = (index) => {
-    if (!sessionTimezoneVisibleItems.length) {
-      sessionTimezoneHighlightedIndex = -1;
+    if (!editorSqlState.sessionTimezoneVisibleItems.length) {
+      editorSqlState.sessionTimezoneHighlightedIndex = -1;
       renderSessionTimezoneMenu();
       return;
     }
     const next = Math.max(
       0,
-      Math.min(sessionTimezoneVisibleItems.length - 1, Number(index) || 0),
+      Math.min(
+        editorSqlState.sessionTimezoneVisibleItems.length - 1,
+        Number(index) || 0,
+      ),
     );
-    sessionTimezoneHighlightedIndex = next;
+    editorSqlState.sessionTimezoneHighlightedIndex = next;
     renderSessionTimezoneMenu();
   };
 
   const filterSessionTimezoneMenu = (query) => {
     const token = extractSessionTimezoneToken(query).toLowerCase();
     if (!token) {
-      sessionTimezoneVisibleItems = [...sessionTimezoneOptionItems];
+      editorSqlState.sessionTimezoneVisibleItems = [
+        ...editorSqlState.sessionTimezoneOptionItems,
+      ];
     } else {
-      sessionTimezoneVisibleItems = sessionTimezoneOptionItems.filter((item) =>
-        item.search.includes(token),
-      );
+      editorSqlState.sessionTimezoneVisibleItems =
+        editorSqlState.sessionTimezoneOptionItems.filter((item) =>
+          item.search.includes(token),
+        );
     }
-    if (!sessionTimezoneVisibleItems.length) {
-      sessionTimezoneHighlightedIndex = -1;
+    if (!editorSqlState.sessionTimezoneVisibleItems.length) {
+      editorSqlState.sessionTimezoneHighlightedIndex = -1;
     } else if (
-      sessionTimezoneHighlightedIndex < 0 ||
-      sessionTimezoneHighlightedIndex >= sessionTimezoneVisibleItems.length
+      editorSqlState.sessionTimezoneHighlightedIndex < 0 ||
+      editorSqlState.sessionTimezoneHighlightedIndex >=
+        editorSqlState.sessionTimezoneVisibleItems.length
     ) {
-      sessionTimezoneHighlightedIndex = 0;
+      editorSqlState.sessionTimezoneHighlightedIndex = 0;
     }
     renderSessionTimezoneMenu();
   };
@@ -532,7 +505,7 @@ export function initHome({ api }) {
       });
     }
     items.push(...SESSION_TIMEZONE_ITEMS);
-    sessionTimezoneOptionItems = items.map((item) => {
+    editorSqlState.sessionTimezoneOptionItems = items.map((item) => {
       const timezone = item.id;
       const display =
         timezone === SESSION_TIMEZONE_SYSTEM
@@ -546,18 +519,19 @@ export function initHome({ api }) {
         search,
       };
     });
-    const selectedIndex = sessionTimezoneOptionItems.findIndex(
+    const selectedIndex = editorSqlState.sessionTimezoneOptionItems.findIndex(
       (item) => item.timezone === normalized,
     );
-    sessionTimezoneHighlightedIndex = selectedIndex >= 0 ? selectedIndex : -1;
+    editorSqlState.sessionTimezoneHighlightedIndex =
+      selectedIndex >= 0 ? selectedIndex : -1;
     filterSessionTimezoneMenu("");
   };
 
   const applySessionTimezoneToSettingsInput = (value) => {
     const timezone = normalizeSessionTimezone(value);
     renderSessionTimezoneOptions(timezone);
-    if (settingsModalComponent)
-      settingsModalComponent.setSessionTimezoneValue(
+    if (editorSqlState.settingsModalComponent)
+      editorSqlState.settingsModalComponent.setSessionTimezoneValue(
         buildSessionTimezoneDisplay(timezone),
       );
     setSessionTimezoneMenuOpen(false);
@@ -584,8 +558,8 @@ export function initHome({ api }) {
 
   const readSessionTimezoneInput = () =>
     normalizeSessionTimezone(
-      settingsModalComponent
-        ? settingsModalComponent.getSessionTimezoneValue()
+      editorSqlState.settingsModalComponent
+        ? editorSqlState.settingsModalComponent.getSessionTimezoneValue()
         : readStoredSessionTimezone(),
     );
 
@@ -635,16 +609,16 @@ export function initHome({ api }) {
 
   const applyConnectionTimeoutsToSettingsInputs = (input) => {
     const next = normalizeConnectionTimeouts(input);
-    if (settingsModalComponent) {
-      settingsModalComponent.setConnectionTimeoutValues(next);
+    if (editorSqlState.settingsModalComponent) {
+      editorSqlState.settingsModalComponent.setConnectionTimeoutValues(next);
     }
     return next;
   };
 
   const readConnectionTimeoutsInputs = () =>
     normalizeConnectionTimeouts({
-      ...(settingsModalComponent
-        ? settingsModalComponent.getConnectionTimeoutValues()
+      ...(editorSqlState.settingsModalComponent
+        ? editorSqlState.settingsModalComponent.getConnectionTimeoutValues()
         : {}),
     });
 
@@ -741,20 +715,20 @@ export function initHome({ api }) {
 
   const applyErrorHandlingToSettingsInputs = (input) => {
     const next = normalizeErrorHandlingSettings(input);
-    if (settingsModalComponent) {
-      settingsModalComponent.setErrorHandlingValues(next);
+    if (editorSqlState.settingsModalComponent) {
+      editorSqlState.settingsModalComponent.setErrorHandlingValues(next);
     }
     return normalizeErrorHandlingSettings({
-      ...(settingsModalComponent
-        ? settingsModalComponent.getErrorHandlingValues()
+      ...(editorSqlState.settingsModalComponent
+        ? editorSqlState.settingsModalComponent.getErrorHandlingValues()
         : next),
     });
   };
 
   const readErrorHandlingSettingsInputs = () =>
     normalizeErrorHandlingSettings({
-      ...(settingsModalComponent
-        ? settingsModalComponent.getErrorHandlingValues()
+      ...(editorSqlState.settingsModalComponent
+        ? editorSqlState.settingsModalComponent.getErrorHandlingValues()
         : ERROR_HANDLING_DEFAULTS),
     });
 
@@ -844,8 +818,8 @@ export function initHome({ api }) {
 
   const applyQueryDefaultsToSettingsInputs = (input) => {
     const next = normalizeQueryDefaults(input);
-    if (settingsModalComponent) {
-      settingsModalComponent.setQueryDefaultsValues({
+    if (editorSqlState.settingsModalComponent) {
+      editorSqlState.settingsModalComponent.setQueryDefaultsValues({
         limit: normalizeSelectValue(
           settingsDefaultLimit,
           next.limit,
@@ -863,8 +837,8 @@ export function initHome({ api }) {
 
   const readQueryDefaultsInputs = () =>
     normalizeQueryDefaults({
-      ...(settingsModalComponent
-        ? settingsModalComponent.getQueryDefaultsValues()
+      ...(editorSqlState.settingsModalComponent
+        ? editorSqlState.settingsModalComponent.getQueryDefaultsValues()
         : {}),
     });
 
@@ -878,11 +852,10 @@ export function initHome({ api }) {
     return next;
   };
 
-
   const applyEnvironmentPolicyInputs = (rules) => {
     const nextRules = normalizeEnvironmentPolicyRules(rules);
-    if (settingsModalComponent) {
-      settingsModalComponent.setEnvironmentPolicyValues({
+    if (editorSqlState.settingsModalComponent) {
+      editorSqlState.settingsModalComponent.setEnvironmentPolicyValues({
         dev: nextRules[POLICY_MODE_DEV],
         staging: nextRules[POLICY_MODE_STAGING],
         prod: nextRules[POLICY_MODE_PROD],
@@ -891,8 +864,8 @@ export function initHome({ api }) {
   };
 
   const readEnvironmentPolicyInputs = () => {
-    const inputs = settingsModalComponent
-      ? settingsModalComponent.getEnvironmentPolicyValues()
+    const inputs = editorSqlState.settingsModalComponent
+      ? editorSqlState.settingsModalComponent.getEnvironmentPolicyValues()
       : {};
     const next = {};
     [POLICY_MODE_DEV, POLICY_MODE_STAGING, POLICY_MODE_PROD].forEach((mode) => {
@@ -938,7 +911,9 @@ export function initHome({ api }) {
     const fallback = cloneEnvironmentPolicyRules(ENVIRONMENT_POLICY_DEFAULTS);
     try {
       const res = await settingsApi.getPolicySettings();
-      const next = setEnvironmentPolicyRules(res && res.policies ? res.policies : res);
+      const next = setEnvironmentPolicyRules(
+        res && res.policies ? res.policies : res,
+      );
       applyEnvironmentPolicyInputs(next);
       return next;
     } catch (err) {
@@ -976,7 +951,9 @@ export function initHome({ api }) {
       return { ok: true, saved: false };
     try {
       const res = await settingsApi.savePolicySettings({ policies: next });
-      const saved = setEnvironmentPolicyRules(res && res.policies ? res.policies : next);
+      const saved = setEnvironmentPolicyRules(
+        res && res.policies ? res.policies : next,
+      );
       applyEnvironmentPolicyInputs(saved);
       return { ok: true, saved: true };
     } catch (err) {
@@ -1008,14 +985,14 @@ export function initHome({ api }) {
   // saveSettings now defined after component initialization
 
   const setEditMode = (enabled) => {
-    isEditingConnection = enabled;
+    editorSqlState.isEditingConnection = enabled;
     if (!enabled) {
-      editingConnectionSeed = null;
+      editorSqlState.editingConnectionSeed = null;
       if (saveName) delete saveName.dataset.originalName;
     }
-    if (connectModalComponent) connectModalComponent.setEditMode(enabled);
+    if (editorSqlState.connectModalComponent)
+      editorSqlState.connectModalComponent.setEditMode(enabled);
   };
-
 
   const entryRemembersSecrets = (entry) => {
     if (!entry) return false;
@@ -1066,51 +1043,9 @@ export function initHome({ api }) {
     return config;
   };
 
-  const hasRuntimeSecretsInConfig = (config) => {
-    if (!config) return false;
-    const ssh = config.ssh || {};
-    return !!(
-      (config.password && String(config.password).length) ||
-      (ssh.password && String(ssh.password).length) ||
-      (ssh.privateKey && String(ssh.privateKey).length) ||
-      (ssh.passphrase && String(ssh.passphrase).length)
-    );
-  };
-
-  const buildPromptEntryForValidation = (baseEntry, currentConfig) => {
-    const fallback = {
-      name: currentConfig && currentConfig.name ? currentConfig.name : "",
-      host: currentConfig && currentConfig.host ? currentConfig.host : "",
-      type: currentConfig && currentConfig.type ? currentConfig.type : "mysql",
-      ssh:
-        currentConfig && currentConfig.ssh
-          ? { ...currentConfig.ssh }
-          : { enabled: false },
-    };
-    if (!baseEntry) return fallback;
-    const merged = { ...baseEntry };
-    merged.ssh = {
-      ...getEntrySshConfig(baseEntry),
-      ...(currentConfig && currentConfig.ssh ? currentConfig.ssh : {}),
-    };
-    if (!merged.name && fallback.name) merged.name = fallback.name;
-    if (!merged.host && fallback.host) merged.host = fallback.host;
-    if (!merged.type && fallback.type) merged.type = fallback.type;
-    return merged;
-  };
-
-  const resolveSaveValidationEntry = async (name) => {
-    if (editingConnectionSeed) {
-      return resolveConnectEntry(editingConnectionSeed);
-    }
-    if (!name) return null;
-    return resolveConnectEntry({ name });
-  };
-
-
   const resetConnectionForm = () => {
-    if (connectModalComponent) {
-      connectModalComponent.setFormData({
+    if (editorSqlState.connectModalComponent) {
+      editorSqlState.connectModalComponent.setFormData({
         type: "mysql",
         connectionUrl: "",
         host: "localhost",
@@ -1126,8 +1061,8 @@ export function initHome({ api }) {
         sqliteMode: "create",
         ssh: { enabled: false },
       });
-      connectModalComponent.setActiveTab("direct");
-      connectModalComponent.setSettingsTab("connection");
+      editorSqlState.connectModalComponent.setActiveTab("direct");
+      editorSqlState.connectModalComponent.setSettingsTab("connection");
     }
     updateConnectionUrlPlaceholder("mysql");
     if (saveName) delete saveName.dataset.originalName;
@@ -1151,14 +1086,9 @@ export function initHome({ api }) {
     return "mysql";
   };
 
-  const getSelectedDbType = () =>
-    normalizeTypeForForm(dbType ? dbType.value : "mysql");
-  const resolveSqliteMode = () =>
-    sqliteModeExisting && sqliteModeExisting.checked ? "existing" : "create";
-
-
   const syncConnectionTypeFields = () => {
-    if (connectModalComponent) connectModalComponent.syncTypeFields();
+    if (editorSqlState.connectModalComponent)
+      editorSqlState.connectModalComponent.syncTypeFields();
   };
 
   const resolveConnectionUrlPlaceholder = (typeValue) => {
@@ -1172,91 +1102,13 @@ export function initHome({ api }) {
   };
 
   const updateConnectionUrlPlaceholder = (typeValue) => {
-    if (!connectModalComponent) return;
-    connectModalComponent.setConnectionUrlPlaceholder(
+    if (!editorSqlState.connectModalComponent) return;
+    editorSqlState.connectModalComponent.setConnectionUrlPlaceholder(
       resolveConnectionUrlPlaceholder(
         typeValue || (dbType ? dbType.value : "mysql"),
       ),
     );
   };
-
-  const normalizeTypeFromUrlScheme = (value) => {
-    const scheme = String(value || "")
-      .trim()
-      .toLowerCase()
-      .replace(/:$/, "");
-    if (scheme === "postgres" || scheme === "postgresql") return "postgres";
-    if (scheme === "mysql") return "mysql";
-    if (scheme === "mariadb" || scheme === "maria" || scheme === "maria-db")
-      return "mariadb";
-    if (scheme === "sqlite") return "sqlite";
-    if (scheme === "sqlite3") return "sqlite";
-    return "";
-  };
-
-  const decodeUrlPart = (value) => {
-    const text = String(value || "");
-    if (!text) return "";
-    try {
-      return decodeURIComponent(text);
-    } catch (_) {
-      return text;
-    }
-  };
-
-  const parseConnectionUrl = (rawValue) => {
-    const text = String(rawValue || "").trim();
-    if (!text) return null;
-    let parsed = null;
-    try {
-      parsed = new URL(text);
-    } catch (_) {
-      throw new Error("Invalid connection URL.");
-    }
-    const type = normalizeTypeFromUrlScheme(parsed.protocol);
-    if (!type)
-      throw new Error(
-        "Unsupported URL scheme. Use postgresql://, mysql://, mariadb:// or sqlite://",
-      );
-    if (type !== "sqlite" && !parsed.hostname)
-      throw new Error("Connection URL must include host.");
-    const pathname = String(parsed.pathname || "").replace(/^\/+/, "");
-    if (type === "sqlite") {
-      const hostPart = decodeUrlPart(parsed.hostname || "");
-      const pathPart = decodeUrlPart(parsed.pathname || "");
-      let filePath = pathPart;
-      if (!filePath && hostPart) filePath = hostPart;
-      if (hostPart && filePath && !filePath.startsWith("/")) {
-        filePath = `${hostPart}/${filePath}`;
-      }
-      filePath = filePath.replace(/^\/+/, "/");
-      if (!filePath) throw new Error("SQLite URL must include a file path.");
-      return {
-        type,
-        filePath,
-      };
-    }
-    return {
-      type,
-      host: parsed.hostname,
-      port: parsed.port || "",
-      user: decodeUrlPart(parsed.username || ""),
-      password: decodeUrlPart(parsed.password || ""),
-      database: decodeUrlPart(pathname || ""),
-    };
-  };
-
-  const getLockedEditType = () => {
-    if (
-      !isEditingConnection ||
-      !editingConnectionSeed ||
-      !editingConnectionSeed.type
-    )
-      return "";
-    return normalizeTypeForForm(editingConnectionSeed.type);
-  };
-
-
 
   const normalizeConnectSettingsTab = (tab) => {
     if (tab === "access") return tab;
@@ -1266,17 +1118,16 @@ export function initHome({ api }) {
   const setConnectSettingsTab = (tab) => {
     const requested = normalizeConnectSettingsTab(tab);
     const next = requested;
-    activeConnectSettingsTab = next;
-    if (connectModalComponent) connectModalComponent.setSettingsTab(next);
+    editorSqlState.activeConnectSettingsTab = next;
+    if (editorSqlState.connectModalComponent)
+      editorSqlState.connectModalComponent.setSettingsTab(next);
   };
-
 
   const setScreen = (connected) => {
     if (mainScreen) mainScreen.classList.remove("hidden");
     if (welcomeScreen) welcomeScreen.classList.toggle("hidden", connected);
     if (sidebarShell) sidebarShell.classList.toggle("hidden", !connected);
     if (dbSelectWrap) dbSelectWrap.classList.toggle("hidden", !connected);
-    if (sidebar) sidebar.classList.toggle("hidden", !connected);
     if (sidebarResizer) sidebarResizer.classList.toggle("hidden", !connected);
     if (editorResizer) editorResizer.classList.toggle("hidden", !connected);
     if (editorPanel) editorPanel.classList.toggle("hidden", !connected);
@@ -1285,13 +1136,14 @@ export function initHome({ api }) {
     if (!connected) setOutputDisplay(null);
     if (!connected) stopQueryProgress();
     if (!connected) {
-      objectContextByTabId = new Map();
+      editorSqlState.objectContextByTabId = new Map();
       applyResultsPanelState({ snapshot: null, objectContext: null });
     }
     if (homeBtn) {
       homeBtn.classList.toggle(
         "hidden",
-        !tabConnectionsView || tabConnectionsView.size() === 0,
+        !editorSqlState.tabConnectionsView ||
+          editorSqlState.tabConnectionsView.size() === 0,
       );
     }
     if (connected) {
@@ -1301,21 +1153,25 @@ export function initHome({ api }) {
   };
 
   const setSidebarView = (view) => {
-    if (sidebarMenuComponent) sidebarMenuComponent.setView(view);
+    if (editorSqlState.sidebarMenuComponent)
+      editorSqlState.sidebarMenuComponent.setView(view);
   };
 
   const renderConnectionTabs = () => {
-    if (!tabConnectionsView) return;
-    tabConnectionsView.render();
+    if (!editorSqlState.tabConnectionsView) return;
+    editorSqlState.tabConnectionsView.render();
     if (homeBtn) {
-      homeBtn.classList.toggle("hidden", tabConnectionsView.size() === 0);
+      homeBtn.classList.toggle(
+        "hidden",
+        editorSqlState.tabConnectionsView.size() === 0,
+      );
     }
   };
 
   const upsertConnectionTab = (entry) => {
-    if (!entry || !tabConnectionsView) return;
+    if (!entry || !editorSqlState.tabConnectionsView) return;
     const key = getTabKey(entry);
-    tabConnectionsView.upsert(key, entry);
+    editorSqlState.tabConnectionsView.upsert(key, entry);
     renderConnectionTabs();
   };
 
@@ -1348,19 +1204,19 @@ export function initHome({ api }) {
   const getTabKey = (entry) => getConnectionScopeKey(entry);
 
   const getActiveConnection = () => {
-    if (!tabConnectionsView) return null;
-    const key = tabConnectionsView.getActiveKey();
-    return key ? tabConnectionsView.getEntry(key) : null;
+    if (!editorSqlState.tabConnectionsView) return null;
+    const key = editorSqlState.tabConnectionsView.getActiveKey();
+    return key ? editorSqlState.tabConnectionsView.getEntry(key) : null;
   };
 
-  sqlAutocomplete = createSqlAutocomplete({
+  editorSqlState.sqlAutocomplete = createSqlAutocomplete({
     api: safeApi,
     getActiveConnection,
   });
 
   const getCurrentHistoryKey = () => {
-    if (!tabConnectionsView) return null;
-    return tabConnectionsView.getActiveKey();
+    if (!editorSqlState.tabConnectionsView) return null;
+    return editorSqlState.tabConnectionsView.getActiveKey();
   };
 
   const tabsStorageKey = (key) => (key ? `sqlEditor.tabs:${key}` : null);
@@ -1382,37 +1238,44 @@ export function initHome({ api }) {
   };
 
   const saveTabsForKey = (key) => {
-    if (!key || !tabTablesView) return;
-    storageApi.writeJson(tabsStorageKey(key), tabTablesView.getState());
+    if (!key || !editorSqlState.tabTablesView) return;
+    storageApi.writeJson(
+      tabsStorageKey(key),
+      editorSqlState.tabTablesView.getState(),
+    );
   };
 
   const saveTabsForActive = () => {
-    if (!tabConnectionsView) return;
-    const key = tabConnectionsView.getActiveKey();
+    if (!editorSqlState.tabConnectionsView) return;
+    const key = editorSqlState.tabConnectionsView.getActiveKey();
     if (key) {
       saveTabsForKey(key);
     }
   };
 
   const loadTabsForKey = (key) => {
-    if (!key || !tabTablesView) return;
-    const state = storageApi.readJson(tabsStorageKey(key), null);
-    if (state && Array.isArray(state.tabs)) {
-      tabTablesView.setState(state);
-      if (state.tabs.length === 0) tabTablesView.ensureOne();
+    if (!key || !editorSqlState.tabTablesView) return;
+    const tabsState = storageApi.readJson(tabsStorageKey(key), null);
+    if (tabsState && Array.isArray(tabsState.tabs)) {
+      editorSqlState.tabTablesView.setState(tabsState);
+      if (tabsState.tabs.length === 0) editorSqlState.tabTablesView.ensureOne();
       refreshEditor();
       return;
     }
-    tabTablesView.setState({ tabs: [], activeTabId: null, tabCounter: 1 });
-    tabTablesView.ensureOne();
+    editorSqlState.tabTablesView.setState({
+      tabs: [],
+      activeTabId: null,
+      tabCounter: 1,
+    });
+    editorSqlState.tabTablesView.ensureOne();
     refreshEditor();
   };
 
   const applyEntryToForm = (entry) => {
     if (!entry) return;
     const type = normalizeTypeForForm(entry.type);
-    if (connectModalComponent) {
-      connectModalComponent.setFormData({
+    if (editorSqlState.connectModalComponent) {
+      editorSqlState.connectModalComponent.setFormData({
         ...entry,
         type,
         rememberPassword: entryRemembersSecrets(entry),
@@ -1484,23 +1347,27 @@ export function initHome({ api }) {
       const key = String(event.key || "").toLowerCase();
       if (!event.shiftKey && key === "w") {
         event.preventDefault();
-        if (tabTablesView) tabTablesView.closeActive();
+        if (editorSqlState.tabTablesView)
+          editorSqlState.tabTablesView.closeActive();
       } else if (!event.shiftKey && key === "t") {
         event.preventDefault();
-        if (tabTablesView) {
-          tabTablesView.syncActiveTabContent();
-          tabTablesView.create();
+        if (editorSqlState.tabTablesView) {
+          editorSqlState.tabTablesView.syncActiveTabContent();
+          editorSqlState.tabTablesView.create();
           setEditorVisible(true);
         }
       } else if (key === "+" || key === "=") {
         event.preventDefault();
-        adjustEditorFontSize(1);
+        if (editorSqlState.codeEditor)
+          editorSqlState.codeEditor.adjustFontSize(1);
       } else if (key === "-" || key === "_") {
         event.preventDefault();
-        adjustEditorFontSize(-1);
+        if (editorSqlState.codeEditor)
+          editorSqlState.codeEditor.adjustFontSize(-1);
       } else if (!event.shiftKey && key === "0") {
         event.preventDefault();
-        resetEditorFontSize();
+        if (editorSqlState.codeEditor)
+          editorSqlState.codeEditor.resetFontSize();
       }
     });
   };
@@ -1546,8 +1413,8 @@ export function initHome({ api }) {
     if (!editorBody) return;
     const next = clampEditorBodyHeight(height);
     editorBody.style.height = `${next}px`;
-    if (codeEditor) {
-      codeEditor.setSize("100%", next);
+    if (editorSqlState.codeEditor) {
+      editorSqlState.codeEditor.setSize("100%", next);
     }
     if (save) {
       localStorage.setItem(STORAGE_KEYS.EDITOR_HEIGHT_KEY, String(next));
@@ -1558,62 +1425,6 @@ export function initHome({ api }) {
     const raw = Number(localStorage.getItem(STORAGE_KEYS.EDITOR_HEIGHT_KEY));
     if (!Number.isFinite(raw) || raw <= 0) return;
     applyEditorBodyHeight(raw, { save: false });
-  };
-
-  const clampEditorFontSize = (value) => {
-    const size = Number(value);
-    if (!Number.isFinite(size)) return DEFAULT_EDITOR_FONT_SIZE;
-    return Math.max(
-      MIN_EDITOR_FONT_SIZE,
-      Math.min(MAX_EDITOR_FONT_SIZE, Math.round(size)),
-    );
-  };
-
-  const applyEditorFontSize = (size, { save = true, notify = true } = {}) => {
-    const next = clampEditorFontSize(size);
-    document.documentElement.style.setProperty(
-      "--editor-font-size",
-      `${next}px`,
-    );
-    if (save)
-      localStorage.setItem(STORAGE_KEYS.EDITOR_FONT_SIZE_KEY, String(next));
-    if (notify) showToast(`Font: ${next}px`, 900, "info");
-  };
-
-  const getCurrentEditorFontSize = () => {
-    const cssValue = Number.parseInt(
-      getComputedStyle(document.documentElement).getPropertyValue(
-        "--editor-font-size",
-      ),
-      10,
-    );
-    if (Number.isFinite(cssValue)) return cssValue;
-    const saved = Number(
-      localStorage.getItem(STORAGE_KEYS.EDITOR_FONT_SIZE_KEY),
-    );
-    return Number.isFinite(saved) ? saved : DEFAULT_EDITOR_FONT_SIZE;
-  };
-
-  const adjustEditorFontSize = (delta) => {
-    applyEditorFontSize(getCurrentEditorFontSize() + delta);
-  };
-
-  const resetEditorFontSize = () => {
-    applyEditorFontSize(DEFAULT_EDITOR_FONT_SIZE);
-  };
-
-  const loadEditorFontSize = () => {
-    const raw = Number(
-      localStorage.getItem(STORAGE_KEYS.EDITOR_FONT_SIZE_KEY),
-    );
-    if (!Number.isFinite(raw)) {
-      applyEditorFontSize(DEFAULT_EDITOR_FONT_SIZE, {
-        save: false,
-        notify: false,
-      });
-      return;
-    }
-    applyEditorFontSize(raw, { save: false, notify: false });
   };
 
   const initEditorResizer = () => {
@@ -1664,8 +1475,8 @@ export function initHome({ api }) {
   };
 
   const refreshEditor = () => {
-    if (!codeEditor) return;
-    codeEditor.refresh();
+    if (!editorSqlState.codeEditor) return;
+    editorSqlState.codeEditor.refresh();
   };
 
   const setQueryStatus = ({ state, message, duration }) => {
@@ -1757,29 +1568,29 @@ export function initHome({ api }) {
 
   const ensureOutputState = (tabId) => {
     if (!tabId) return null;
-    if (!outputByTabId.has(tabId)) {
-      outputByTabId.set(tabId, {
+    if (!editorSqlState.outputByTabId.has(tabId)) {
+      editorSqlState.outputByTabId.set(tabId, {
         seq: 0,
         items: [],
         subtitle: "Latest result",
       });
     }
-    return outputByTabId.get(tabId);
+    return editorSqlState.outputByTabId.get(tabId);
   };
 
   const appendOutputEntry = (tabId, entry) => {
-    const state = ensureOutputState(tabId);
-    if (!state || !entry) return;
-    state.seq += 1;
-    const next = { ...entry, id: state.seq };
-    state.items.push(next);
-    if (state.items.length > 200) {
-      state.items.shift();
+    const outputState = ensureOutputState(tabId);
+    if (!outputState || !entry) return;
+    outputState.seq += 1;
+    const next = { ...entry, id: outputState.seq };
+    outputState.items.push(next);
+    if (outputState.items.length > 200) {
+      outputState.items.shift();
     }
   };
 
   const setOutputDisplay = (payload) => {
-    currentOutput = payload || null;
+    editorSqlState.currentOutput = payload || null;
     if (queryOutputPreview) {
       if (payload && payload.items && payload.items.length) {
         const last = payload.items[payload.items.length - 1];
@@ -1799,14 +1610,19 @@ export function initHome({ api }) {
   };
 
   const openOutputModal = () => {
-    if (!outputModal || !currentOutput || !currentOutput.items) return;
+    if (
+      !outputModal ||
+      !editorSqlState.currentOutput ||
+      !editorSqlState.currentOutput.items
+    )
+      return;
     if (outputModalSubtitle) {
       outputModalSubtitle.textContent =
-        currentOutput.subtitle || "Latest result";
+        editorSqlState.currentOutput.subtitle || "Latest result";
     }
     if (outputLogBody) {
       outputLogBody.innerHTML = "";
-      currentOutput.items.forEach((entry) => {
+      editorSqlState.currentOutput.items.forEach((entry) => {
         const tr = document.createElement("tr");
         const cols = [
           String(entry.id),
@@ -1832,52 +1648,56 @@ export function initHome({ api }) {
   };
 
   const getDefinitionSql = () => {
-    if (definitionEditor) return definitionEditor.getValue();
+    if (editorSqlState.definitionEditor)
+      return editorSqlState.definitionEditor.getValue();
     return definitionQueryInput ? definitionQueryInput.value : "";
   };
 
   const syncDefinitionSaveState = () => {
     if (!definitionSaveBtn) return;
     const hasTarget = !!(
-      activeDefinitionTarget &&
-      activeDefinitionTarget.kind === "view" &&
-      activeDefinitionTarget.name
+      editorSqlState.activeDefinitionTarget &&
+      editorSqlState.activeDefinitionTarget.kind === "view" &&
+      editorSqlState.activeDefinitionTarget.name
     );
     const hasSql = !!String(getDefinitionSql() || "").trim();
-    definitionSaveBtn.disabled = isSavingDefinition || !hasTarget || !hasSql;
+    definitionSaveBtn.disabled =
+      editorSqlState.isSavingDefinition || !hasTarget || !hasSql;
   };
 
   const openDefinitionModal = ({ title, subtitle, sql, target } = {}) => {
     if (!definitionModal) return;
-    activeDefinitionTarget = target || null;
-    isSavingDefinition = false;
+    editorSqlState.activeDefinitionTarget = target || null;
+    editorSqlState.isSavingDefinition = false;
     if (definitionTitle) definitionTitle.textContent = title || "Definition";
     if (definitionSubtitle) definitionSubtitle.textContent = subtitle || "";
-    if (definitionEditor) definitionEditor.setValue(sql || "");
+    if (editorSqlState.definitionEditor)
+      editorSqlState.definitionEditor.setValue(sql || "");
     else if (definitionQueryInput) definitionQueryInput.value = sql || "";
     syncDefinitionSaveState();
     definitionModal.classList.remove("hidden");
-    if (definitionEditor) definitionEditor.refresh();
+    if (editorSqlState.definitionEditor)
+      editorSqlState.definitionEditor.refresh();
   };
 
   const closeDefinitionModal = () => {
-    activeDefinitionTarget = null;
-    isSavingDefinition = false;
+    editorSqlState.activeDefinitionTarget = null;
+    editorSqlState.isSavingDefinition = false;
     syncDefinitionSaveState();
     if (definitionModal) definitionModal.classList.add("hidden");
   };
 
   const updateOutputForActiveTab = () => {
-    if (!tabTablesView) {
+    if (!editorSqlState.tabTablesView) {
       setOutputDisplay(null);
       return;
     }
-    const tab = tabTablesView.getActiveTab();
+    const tab = editorSqlState.tabTablesView.getActiveTab();
     if (!tab || !tab.id) {
       setOutputDisplay(null);
       return;
     }
-    const payload = outputByTabId.get(tab.id) || null;
+    const payload = editorSqlState.outputByTabId.get(tab.id) || null;
     setOutputDisplay(payload);
   };
 
@@ -1891,17 +1711,19 @@ export function initHome({ api }) {
 
   const getObjectContextForTab = (tabId) => {
     if (!tabId) return null;
-    return normalizeObjectContext(objectContextByTabId.get(tabId));
+    return normalizeObjectContext(
+      editorSqlState.objectContextByTabId.get(tabId),
+    );
   };
 
   const setObjectContextForTab = (tabId, context) => {
     if (!tabId) return;
     const normalized = normalizeObjectContext(context);
     if (normalized) {
-      objectContextByTabId.set(tabId, normalized);
+      editorSqlState.objectContextByTabId.set(tabId, normalized);
       return;
     }
-    objectContextByTabId.delete(tabId);
+    editorSqlState.objectContextByTabId.delete(tabId);
   };
 
   const normalizeColumnName = (value) =>
@@ -2009,8 +1831,8 @@ export function initHome({ api }) {
     if (typeof safeApi.listTableInfo !== "function") return null;
     const cacheKey = buildColumnMetaCacheKey(context);
     if (!cacheKey) return null;
-    if (columnKeyMetaByTableKey.has(cacheKey)) {
-      return columnKeyMetaByTableKey.get(cacheKey);
+    if (editorSqlState.columnKeyMetaByTableKey.has(cacheKey)) {
+      return editorSqlState.columnKeyMetaByTableKey.get(cacheKey);
     }
 
     try {
@@ -2020,7 +1842,7 @@ export function initHome({ api }) {
       });
       if (!res || !res.ok) return null;
       const meta = buildColumnKeyMeta(res);
-      columnKeyMetaByTableKey.set(cacheKey, meta);
+      editorSqlState.columnKeyMetaByTableKey.set(cacheKey, meta);
       return meta;
     } catch (_) {
       return null;
@@ -2075,41 +1897,41 @@ export function initHome({ api }) {
       : preferredObjectTab === "columns"
         ? "columns"
         : "data";
-    const requestSeq = ++columnKeyMetaRequestSeq;
+    const requestSeq = ++editorSqlState.columnKeyMetaRequestSeq;
 
-    if (tableView) {
-      if (hasSnapshot) tableView.setResults(snapshot);
-      else tableView.clearUi();
+    if (editorSqlState.tableView) {
+      if (hasSnapshot) editorSqlState.tableView.setResults(snapshot);
+      else editorSqlState.tableView.clearUi();
     }
     updatePaginationControls(hasSnapshot ? snapshot : null);
 
-    if (hasSnapshot && normalizedContext && tableView) {
+    if (hasSnapshot && normalizedContext && editorSqlState.tableView) {
       void (async () => {
         const columnKeyMeta = await loadColumnKeyMeta(normalizedContext);
         if (!columnKeyMeta) return;
-        if (requestSeq !== columnKeyMetaRequestSeq) return;
-        if (!tableView) return;
-        tableView.setResults({
+        if (requestSeq !== editorSqlState.columnKeyMetaRequestSeq) return;
+        if (!editorSqlState.tableView) return;
+        editorSqlState.tableView.setResults({
           ...snapshot,
           columnKeyMeta,
         });
       })();
     }
 
-    if (tableObjectTabsView) {
+    if (editorSqlState.tableObjectTabsView) {
       if (normalizedContext) {
-        tableObjectTabsView.openTable({
+        editorSqlState.tableObjectTabsView.openTable({
           schema: normalizedContext.schema,
           table: normalizedContext.table,
           active: nextObjectTab,
         });
       } else {
-        tableObjectTabsView.clear();
+        editorSqlState.tableObjectTabsView.clear();
       }
       if (nextObjectTab === "data") {
-        tableObjectTabsView.activateData();
+        editorSqlState.tableObjectTabsView.activateData();
       }
-      tableObjectTabsView.setDataToolbarVisible(hasSnapshot);
+      editorSqlState.tableObjectTabsView.setDataToolbarVisible(hasSnapshot);
     }
   };
 
@@ -2130,10 +1952,10 @@ export function initHome({ api }) {
       pagination,
     };
     let context = null;
-    if (tabTablesView) {
-      const tab = tabTablesView.getActiveTab();
+    if (editorSqlState.tabTablesView) {
+      const tab = editorSqlState.tabTablesView.getActiveTab();
       if (tab && tab.id) {
-        resultsByTabId.set(tab.id, snapshot);
+        editorSqlState.resultsByTabId.set(tab.id, snapshot);
         const inferred = inferObjectContextFromSql(sourceSql || baseSql);
         if (inferred) {
           setObjectContextForTab(tab.id, inferred);
@@ -2220,39 +2042,39 @@ export function initHome({ api }) {
   };
 
   const stopQueryProgress = () => {
-    if (queryProgressRevealTimer) {
-      clearTimeout(queryProgressRevealTimer);
-      queryProgressRevealTimer = null;
+    if (editorSqlState.queryProgressRevealTimer) {
+      clearTimeout(editorSqlState.queryProgressRevealTimer);
+      editorSqlState.queryProgressRevealTimer = null;
     }
-    if (queryProgressTimer) {
-      clearInterval(queryProgressTimer);
-      queryProgressTimer = null;
+    if (editorSqlState.queryProgressTimer) {
+      clearInterval(editorSqlState.queryProgressTimer);
+      editorSqlState.queryProgressTimer = null;
     }
-    queryProgressStartedAt = 0;
+    editorSqlState.queryProgressStartedAt = 0;
     setProgressBar(-1);
   };
 
   const startQueryProgress = (timeoutMs) => {
     stopQueryProgress();
-    queryProgressStartedAt = Date.now();
+    editorSqlState.queryProgressStartedAt = Date.now();
     const safeTimeout = Number(timeoutMs);
     const hasTimeout = Number.isFinite(safeTimeout) && safeTimeout > 0;
     const tick = () => {
-      if (!queryProgressStartedAt) return;
+      if (!editorSqlState.queryProgressStartedAt) return;
       if (!hasTimeout) {
         setProgressBar(2);
         return;
       }
-      const elapsed = Date.now() - queryProgressStartedAt;
+      const elapsed = Date.now() - editorSqlState.queryProgressStartedAt;
       const progress = Math.min(elapsed / safeTimeout, 0.99);
       setProgressBar(progress);
     };
-    queryProgressRevealTimer = setTimeout(() => {
-      queryProgressRevealTimer = null;
-      if (!queryProgressStartedAt) return;
+    editorSqlState.queryProgressRevealTimer = setTimeout(() => {
+      editorSqlState.queryProgressRevealTimer = null;
+      if (!editorSqlState.queryProgressStartedAt) return;
       tick();
       if (hasTimeout) {
-        queryProgressTimer = setInterval(tick, 180);
+        editorSqlState.queryProgressTimer = setInterval(tick, 180);
       }
     }, QUERY_PROGRESS_SHOW_DELAY_MS);
   };
@@ -2417,10 +2239,12 @@ export function initHome({ api }) {
     const executionSql = normalizeSql(rawSql);
     if (!executionSql) return false;
     setResultsVisible(true);
-    if (tabTablesView) {
-      const tab = tabTablesView.getActiveTab();
+    if (editorSqlState.tabTablesView) {
+      const tab = editorSqlState.tabTablesView.getActiveTab();
       const tabId = tab && tab.id ? tab.id : "";
-      const snapshot = tabId ? resultsByTabId.get(tabId) || null : null;
+      const snapshot = tabId
+        ? editorSqlState.resultsByTabId.get(tabId) || null
+        : null;
       const objectContext = tabId ? getObjectContextForTab(tabId) : null;
       applyResultsPanelState({ snapshot, objectContext });
     }
@@ -2509,12 +2333,12 @@ export function initHome({ api }) {
     }
 
     const overallStart = Date.now();
-    if (runBtn) runBtn.disabled = true;
-    if (runSelectionBtn) runSelectionBtn.disabled = true;
-    if (runCurrentBtn) runCurrentBtn.disabled = true;
-    if (explainBtn) explainBtn.disabled = true;
-    if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = true;
-    if (stopBtn) stopBtn.disabled = false;
+    if (
+      editorSqlState.codeEditor &&
+      typeof editorSqlState.codeEditor.setRunning === "function"
+    ) {
+      editorSqlState.codeEditor.setRunning(true);
+    }
     startQueryProgress(timeoutMs);
     try {
       for (let i = 0; i < statements.length; i += 1) {
@@ -2605,8 +2429,8 @@ export function initHome({ api }) {
           );
           errorCount += 1;
           lastErrorMessage = formattedError;
-          if (tabTablesView) {
-            const tab = tabTablesView.getActiveTab();
+          if (editorSqlState.tabTablesView) {
+            const tab = editorSqlState.tabTablesView.getActiveTab();
             if (tab && tab.id) {
               appendOutputEntry(
                 tab.id,
@@ -2674,9 +2498,10 @@ export function initHome({ api }) {
           lastRenderableStmt = displayStmt;
           lastRenderableSourceStmt = sourceStmt || displayStmt;
         }
-        if (historyManager) await historyManager.recordHistory(displayStmt);
-        if (tabTablesView) {
-          const tab = tabTablesView.getActiveTab();
+        if (editorSqlState.historyManager)
+          await editorSqlState.historyManager.recordHistory(displayStmt);
+        if (editorSqlState.tabTablesView) {
+          const tab = editorSqlState.tabTablesView.getActiveTab();
           if (tab && tab.id) {
             appendOutputEntry(
               tab.id,
@@ -2712,11 +2537,11 @@ export function initHome({ api }) {
           const action =
             String(classification.action || "").trim() || "Changes applied";
           if (affected !== null) {
-            showToast(`${action}: ${affected} row(s)`);
+            editorSqlState.showToast(`${action}: ${affected} row(s)`);
           } else if (changed !== null) {
-            showToast(`${action}: ${changed} row(s)`);
+            editorSqlState.showToast(`${action}: ${changed} row(s)`);
           } else {
-            showToast(action);
+            editorSqlState.showToast(action);
           }
         }
       }
@@ -2777,154 +2602,30 @@ export function initHome({ api }) {
           duration: Date.now() - overallStart,
         });
       }
-      if (needsSchemaRefresh && treeView) {
-        const tables = await treeView.refresh();
-        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+      if (needsSchemaRefresh && editorSqlState.treeView) {
+        const tables = await editorSqlState.treeView.refresh();
+        if (editorSqlState.sqlAutocomplete && tables)
+          editorSqlState.sqlAutocomplete.setTables(tables);
       }
       return executedStatements > 0;
     } finally {
       stopQueryProgress();
-      if (runBtn) runBtn.disabled = false;
-      if (runSelectionBtn) runSelectionBtn.disabled = false;
-      if (runCurrentBtn) runCurrentBtn.disabled = false;
-      if (explainBtn) explainBtn.disabled = false;
-      if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = false;
-      if (stopBtn) stopBtn.disabled = true;
+      if (
+        editorSqlState.codeEditor &&
+        typeof editorSqlState.codeEditor.setRunning === "function"
+      ) {
+        editorSqlState.codeEditor.setRunning(false);
+      }
     }
   };
 
   const updateRunAvailability = () => {
-    const sql = codeEditor ? codeEditor.getValue() : query ? query.value : "";
-    const hasText = !!(sql && sql.trim());
-    if (runBtn) runBtn.disabled = !hasText;
-    if (runSelectionBtn) {
-      const selection = codeEditor ? codeEditor.getSelection() : "";
-      const hasSelection = !!(selection && selection.trim());
-      runSelectionBtn.disabled = !hasText || !hasSelection;
+    if (
+      editorSqlState.codeEditor &&
+      typeof editorSqlState.codeEditor.updateAvailability === "function"
+    ) {
+      editorSqlState.codeEditor.updateAvailability();
     }
-    if (runCurrentBtn) runCurrentBtn.disabled = !hasText;
-    if (explainBtn) explainBtn.disabled = !hasText;
-    if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = !hasText;
-    if (runBtn) runBtn.classList.toggle("ready", hasText);
-    if (saveSnippetEditorBtn) {
-      saveSnippetEditorBtn.classList.toggle("hidden", !hasText);
-      saveSnippetEditorBtn.disabled = !hasText;
-    }
-  };
-
-  const handleRun = async () => {
-    const sql = codeEditor ? codeEditor.getValue() : query ? query.value : "";
-    if (!sql || !sql.trim()) {
-      await safeApi.showError("Empty query.");
-      return;
-    }
-    lastSort = null;
-    await runSql(sql);
-  };
-
-  const handleRunSelection = async () => {
-    const selection = codeEditor ? codeEditor.getSelection() : "";
-    const sql = selection && selection.trim() ? selection : "";
-    if (!sql) {
-      await safeApi.showError("Select a query.");
-      return;
-    }
-    lastSort = null;
-    await runSql(sql);
-  };
-
-  const resolveEditorCursorOffset = () => {
-    if (codeEditor && typeof codeEditor.getCursorOffset === "function") {
-      const offset = Number(codeEditor.getCursorOffset());
-      return Number.isFinite(offset) ? offset : 0;
-    }
-    if (query && Number.isFinite(query.selectionStart)) {
-      const offset = Number(query.selectionStart);
-      return Number.isFinite(offset) ? offset : 0;
-    }
-    return 0;
-  };
-
-  const findStatementAtCursor = (sourceSql, cursorOffset) => {
-    const source = String(sourceSql || "");
-    const statements = splitStatementsWithRanges(source);
-    if (!statements.length) return "";
-    const safeCursor = Math.max(
-      0,
-      Math.min(source.length, Number(cursorOffset) || 0),
-    );
-
-    for (let i = 0; i < statements.length; i += 1) {
-      const current = statements[i];
-      if (safeCursor >= current.start && safeCursor <= current.end) {
-        return current.text;
-      }
-    }
-
-    for (let i = statements.length - 1; i >= 0; i -= 1) {
-      const current = statements[i];
-      if (safeCursor > current.end) return current.text;
-    }
-
-    return statements[0].text;
-  };
-
-  const handleRunCurrentStatement = async () => {
-    const sql = codeEditor ? codeEditor.getValue() : query ? query.value : "";
-    if (!sql || !sql.trim()) {
-      await safeApi.showError("Empty query.");
-      return;
-    }
-    const cursorOffset = resolveEditorCursorOffset();
-    const stmt = findStatementAtCursor(sql, cursorOffset);
-    if (!stmt) {
-      await safeApi.showError("No statement found at cursor.");
-      return;
-    }
-    lastSort = null;
-    await runSql(stmt);
-  };
-
-  const handleExplain = async ({ analyze = false } = {}) => {
-    const explainPrefix = analyze ? "EXPLAIN ANALYZE" : "EXPLAIN";
-    const explainLabel = analyze ? "EXPLAIN ANALYZE" : "EXPLAIN";
-    const selection = codeEditor ? codeEditor.getSelection() : "";
-    const sourceSql =
-      selection && selection.trim()
-        ? selection
-        : codeEditor
-          ? codeEditor.getValue()
-          : query
-            ? query.value
-            : "";
-    if (!sourceSql || !sourceSql.trim()) {
-      await safeApi.showError("Empty query.");
-      return;
-    }
-
-    const statements = splitStatements(sourceSql);
-    const explainStatements = [];
-    for (let i = 0; i < statements.length; i += 1) {
-      const stmt = normalizeSql(statements[i]);
-      if (!stmt) continue;
-      if (firstDmlKeyword(stmt) !== "select") {
-        await safeApi.showError(
-          `${explainLabel} is currently available only for SELECT statements.`,
-        );
-        return;
-      }
-      explainStatements.push(`${explainPrefix} ${stmt}`);
-    }
-
-    if (!explainStatements.length) {
-      await safeApi.showError("Empty query.");
-      return;
-    }
-
-    lastSort = null;
-    await runSql(explainStatements.join(";\n"), sourceSql, {
-      applyDefaultLimit: false,
-    });
   };
 
   const extractSelectAllTableRef = (rawSql) => {
@@ -3021,15 +2722,19 @@ export function initHome({ api }) {
 
   const applyTableFilter = async () => {
     const filter = queryFilter ? queryFilter.value.trim() : "";
-    const active = tableView ? tableView.getActive() : null;
-    const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
+    const activeTab = editorSqlState.tabTablesView
+      ? editorSqlState.tabTablesView.getActiveTab()
+      : null;
     const activeContext =
       activeTab && activeTab.id ? getObjectContextForTab(activeTab.id) : null;
     const base =
       active && (active.sourceSql || active.baseSql)
         ? active.sourceSql || active.baseSql
-        : codeEditor
-          ? codeEditor.getValue()
+        : editorSqlState.codeEditor
+          ? editorSqlState.codeEditor.getValue()
           : query
             ? query.value
             : "";
@@ -3044,22 +2749,24 @@ export function initHome({ api }) {
           activeContext.schema,
           activeContext.table,
         );
-        lastSort = null;
+        editorSqlState.lastSort = null;
         await runSql(selectAll, selectAll);
         return;
       }
-      lastSort = null;
+      editorSqlState.lastSort = null;
       await runSql(base, base);
       return;
     }
     const sql = insertWhere(base, filter);
     if (!sql || !sql.trim()) return;
-    lastSort = null;
+    editorSqlState.lastSort = null;
     await runSql(sql, base);
   };
 
   const refreshActiveTable = async () => {
-    const active = tableView ? tableView.getActive() : null;
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
     const pagination = normalizeSnapshotPagination(active && active.pagination);
     if (pagination) {
       await runServerPage({
@@ -3076,7 +2783,7 @@ export function initHome({ api }) {
       await safeApi.showError("Open a table first.");
       return;
     }
-    lastSort = null;
+    editorSqlState.lastSort = null;
     await runSql(base, base);
   };
 
@@ -3087,20 +2794,22 @@ export function initHome({ api }) {
   };
 
   const getActiveFilterTabId = () => {
-    const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    const activeTab = editorSqlState.tabTablesView
+      ? editorSqlState.tabTablesView.getActiveTab()
+      : null;
     return activeTab && activeTab.id ? activeTab.id : null;
   };
 
   const readActiveTableFilter = () => {
     const key = getActiveFilterTabId();
     if (!key) return "";
-    return tableFilterByTabId.get(key) || "";
+    return editorSqlState.tableFilterByTabId.get(key) || "";
   };
 
   const persistActiveTableFilter = (value) => {
     const key = getActiveFilterTabId();
     if (!key) return;
-    tableFilterByTabId.set(key, String(value || ""));
+    editorSqlState.tableFilterByTabId.set(key, String(value || ""));
   };
 
   const quoteIdentifier = (name) => {
@@ -3222,11 +2931,15 @@ export function initHome({ api }) {
     const querySql =
       String(sql || "").trim() || buildSelectAllSql(schema, table);
     let openedTab = null;
-    if (tabTablesView) {
+    if (editorSqlState.tabTablesView) {
       const defaultDb = dbSelect ? String(dbSelect.value || "").trim() : "";
-      openedTab = tabTablesView.createWithQuery(table, querySql, {
-        database: schema || defaultDb,
-      });
+      openedTab = editorSqlState.tabTablesView.createWithQuery(
+        table,
+        querySql,
+        {
+          database: schema || defaultDb,
+        },
+      );
     }
     if (openedTab && openedTab.id) {
       setObjectContextForTab(openedTab.id, { schema, table });
@@ -3243,37 +2956,31 @@ export function initHome({ api }) {
       preferredObjectTab,
     });
     setEditorVisible(true);
-    if (codeEditor) codeEditor.focus();
-    lastSort = null;
+    if (editorSqlState.codeEditor) editorSqlState.codeEditor.focus();
+    editorSqlState.lastSort = null;
     if (options && options.execute) {
       await runSql(querySql);
     }
   };
 
   const updateToggleEditorButtonState = (visible) => {
-    if (!toggleEditorBtn) return;
-    const nextVisible = !!visible;
-    toggleEditorBtn.classList.toggle("active", nextVisible);
-    toggleEditorBtn.title = nextVisible ? "Collapse editor" : "Expand editor";
-    toggleEditorBtn.setAttribute(
-      "aria-label",
-      nextVisible ? "Collapse editor" : "Expand editor",
-    );
-    toggleEditorBtn.setAttribute(
-      "aria-pressed",
-      nextVisible ? "true" : "false",
-    );
-    const icon = toggleEditorBtn.querySelector("i");
-    if (icon) {
-      icon.className = nextVisible ? "bi bi-chevron-up" : "bi bi-chevron-down";
+    if (
+      editorSqlState.codeEditor &&
+      typeof editorSqlState.codeEditor.setToggleState === "function"
+    ) {
+      editorSqlState.codeEditor.setToggleState(visible);
     }
   };
 
   const resolveEditorVisibility = () => {
-    const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+    const key = editorSqlState.tabConnectionsView
+      ? editorSqlState.tabConnectionsView.getActiveKey()
+      : null;
     const persisted = readEditorVisibilityForConnection(key);
     if (typeof persisted === "boolean") return persisted;
-    const tab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    const tab = editorSqlState.tabTablesView
+      ? editorSqlState.tabTablesView.getActiveTab()
+      : null;
     return tab ? tab.editorVisible !== false : true;
   };
 
@@ -3281,12 +2988,14 @@ export function initHome({ api }) {
     const nextVisible = !!visible;
     if (editorBody) editorBody.classList.toggle("hidden", !nextVisible);
     updateToggleEditorButtonState(nextVisible);
-    if (persist && tabTablesView) {
-      const tab = tabTablesView.getActiveTab();
+    if (persist && editorSqlState.tabTablesView) {
+      const tab = editorSqlState.tabTablesView.getActiveTab();
       if (tab) tab.editorVisible = nextVisible;
     }
     if (persist) {
-      const key = tabConnectionsView ? tabConnectionsView.getActiveKey() : null;
+      const key = editorSqlState.tabConnectionsView
+        ? editorSqlState.tabConnectionsView.getActiveKey()
+        : null;
       saveEditorVisibilityForConnection(key, nextVisible);
     }
     if (nextVisible) refreshEditor();
@@ -3362,7 +3071,7 @@ export function initHome({ api }) {
       dbSelect.value = targetDb;
     }
     updateDbSelectUsageHint(targetDb);
-    if (tabTablesView) tabTablesView.render();
+    if (editorSqlState.tabTablesView) editorSqlState.tabTablesView.render();
     if (targetDb && res.current !== targetDb) {
       const useRes = await safeApi.useDatabase(targetDb);
       if (!useRes || !useRes.ok) {
@@ -3372,17 +3081,19 @@ export function initHome({ api }) {
         return;
       }
       if (active) {
-        const key = tabConnectionsView
-          ? tabConnectionsView.getActiveKey()
+        const key = editorSqlState.tabConnectionsView
+          ? editorSqlState.tabConnectionsView.getActiveKey()
           : null;
         active.database = targetDb;
-        if (tabConnectionsView && key) {
-          tabConnectionsView.upsert(key, active);
+        if (editorSqlState.tabConnectionsView && key) {
+          editorSqlState.tabConnectionsView.upsert(key, active);
           renderConnectionTabs();
         }
       }
-      if (treeView) treeView.setActiveSchema(targetDb);
-      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(targetDb);
+      if (editorSqlState.treeView)
+        editorSqlState.treeView.setActiveSchema(targetDb);
+      if (editorSqlState.sqlAutocomplete)
+        editorSqlState.sqlAutocomplete.setActiveSchema(targetDb);
     }
   };
 
@@ -3432,7 +3143,7 @@ export function initHome({ api }) {
   };
 
   const saveDefinition = async () => {
-    const target = activeDefinitionTarget;
+    const target = editorSqlState.activeDefinitionTarget;
     if (!target || target.kind !== "view" || !target.name) {
       await safeApi.showError("Save unavailable for this definition.");
       return;
@@ -3442,34 +3153,35 @@ export function initHome({ api }) {
       await safeApi.showError("Empty definition.");
       return;
     }
-    isSavingDefinition = true;
+    editorSqlState.isSavingDefinition = true;
     syncDefinitionSaveState();
     setGlobalLoading(true, "Saving view...");
     try {
       const ok = await runSql(sql, sql, { applyDefaultLimit: false });
       if (!ok) return;
-      if (treeView) {
-        const tables = await treeView.refresh();
-        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+      if (editorSqlState.treeView) {
+        const tables = await editorSqlState.treeView.refresh();
+        if (editorSqlState.sqlAutocomplete && tables)
+          editorSqlState.sqlAutocomplete.setTables(tables);
       }
-      showToast("View saved");
+      editorSqlState.showToast("View saved");
     } finally {
-      isSavingDefinition = false;
+      editorSqlState.isSavingDefinition = false;
       syncDefinitionSaveState();
       setGlobalLoading(false);
     }
   };
 
   const resetConnectionScopedUi = () => {
-    resultsByTabId = new Map();
-    objectContextByTabId = new Map();
-    columnKeyMetaByTableKey = new Map();
-    columnKeyMetaRequestSeq += 1;
-    outputByTabId = new Map();
-    tableFilterByTabId = new Map();
+    editorSqlState.resultsByTabId = new Map();
+    editorSqlState.objectContextByTabId = new Map();
+    editorSqlState.columnKeyMetaByTableKey = new Map();
+    editorSqlState.columnKeyMetaRequestSeq += 1;
+    editorSqlState.outputByTabId = new Map();
+    editorSqlState.tableFilterByTabId = new Map();
     setOutputDisplay(null);
-    if (tableObjectTabsView) {
-      tableObjectTabsView.resetScopeCache();
+    if (editorSqlState.tableObjectTabsView) {
+      editorSqlState.tableObjectTabsView.resetScopeCache();
     }
     applyResultsPanelState({ snapshot: null, objectContext: null });
   };
@@ -3477,19 +3189,26 @@ export function initHome({ api }) {
   const syncActiveDatabaseAndTree = async (entry, key) => {
     const selectedDb = dbSelect ? String(dbSelect.value || "") : "";
     if (selectedDb) {
-      if (treeView) treeView.setActiveSchema(selectedDb);
-      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(selectedDb);
+      if (editorSqlState.treeView)
+        editorSqlState.treeView.setActiveSchema(selectedDb);
+      if (editorSqlState.sqlAutocomplete)
+        editorSqlState.sqlAutocomplete.setActiveSchema(selectedDb);
       if (entry) entry.database = selectedDb;
-      if (entry && tabConnectionsView && key) {
-        tabConnectionsView.upsert(key, entry);
+      if (entry && editorSqlState.tabConnectionsView && key) {
+        editorSqlState.tabConnectionsView.upsert(key, entry);
       }
     } else {
       const fallbackDb = entry && entry.database ? String(entry.database) : "";
-      if (treeView) treeView.setActiveSchema(fallbackDb);
-      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(fallbackDb);
+      if (editorSqlState.treeView)
+        editorSqlState.treeView.setActiveSchema(fallbackDb);
+      if (editorSqlState.sqlAutocomplete)
+        editorSqlState.sqlAutocomplete.setActiveSchema(fallbackDb);
     }
-    const tables = treeView ? await treeView.refresh() : null;
-    if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+    const tables = editorSqlState.treeView
+      ? await editorSqlState.treeView.refresh()
+      : null;
+    if (editorSqlState.sqlAutocomplete && tables)
+      editorSqlState.sqlAutocomplete.setTables(tables);
     return tables;
   };
 
@@ -3507,22 +3226,27 @@ export function initHome({ api }) {
       }
       const active = getActiveConnection();
       if (active) {
-        const key = tabConnectionsView
-          ? tabConnectionsView.getActiveKey()
+        const key = editorSqlState.tabConnectionsView
+          ? editorSqlState.tabConnectionsView.getActiveKey()
           : null;
         active.database = targetDb;
-        if (tabConnectionsView && key) {
-          tabConnectionsView.upsert(key, active);
+        if (editorSqlState.tabConnectionsView && key) {
+          editorSqlState.tabConnectionsView.upsert(key, active);
           renderConnectionTabs();
         }
       }
-      if (treeView) treeView.setActiveSchema(targetDb);
-      if (sqlAutocomplete) sqlAutocomplete.setActiveSchema(targetDb);
-      const tables = treeView ? await treeView.refresh() : null;
-      if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+      if (editorSqlState.treeView)
+        editorSqlState.treeView.setActiveSchema(targetDb);
+      if (editorSqlState.sqlAutocomplete)
+        editorSqlState.sqlAutocomplete.setActiveSchema(targetDb);
+      const tables = editorSqlState.treeView
+        ? await editorSqlState.treeView.refresh()
+        : null;
+      if (editorSqlState.sqlAutocomplete && tables)
+        editorSqlState.sqlAutocomplete.setTables(tables);
       updateDbSelectUsageHint(targetDb);
-      if (tabTablesView) tabTablesView.render();
-      showToast(`Using database: ${targetDb}`, 1600, "info");
+      if (editorSqlState.tabTablesView) editorSqlState.tabTablesView.render();
+      editorSqlState.showToast(`Using database: ${targetDb}`, 1600, "info");
     } finally {
       setGlobalLoading(false);
     }
@@ -3532,21 +3256,31 @@ export function initHome({ api }) {
     const resolvedEntry = await resolveConnectEntry(entry);
     const config = await buildConnectionConfigFromEntry(resolvedEntry);
     if (!config) {
-      if (tabConnectionsView && previousKey)
-        tabConnectionsView.setActive(previousKey);
+      if (editorSqlState.tabConnectionsView && previousKey)
+        editorSqlState.tabConnectionsView.setActive(previousKey);
       return false;
     }
     const key = getTabKey(entry);
     if (previousKey) saveTabsForKey(previousKey);
     setScreen(true);
-    if (tabConnectionsView) tabConnectionsView.setActive(key);
-    if (treeView && typeof treeView.clear === "function") treeView.clear();
+    if (editorSqlState.tabConnectionsView)
+      editorSqlState.tabConnectionsView.setActive(key);
+    if (
+      editorSqlState.treeView &&
+      typeof editorSqlState.treeView.clear === "function"
+    )
+      editorSqlState.treeView.clear();
 
     const res = await connectWithLoading(config);
     if (!res.ok) {
       await safeApi.showError(res.error || "Failed to connect.");
-      if (treeView && typeof treeView.clear === "function") treeView.clear();
-      if (tabConnectionsView) tabConnectionsView.clearActive();
+      if (
+        editorSqlState.treeView &&
+        typeof editorSqlState.treeView.clear === "function"
+      )
+        editorSqlState.treeView.clear();
+      if (editorSqlState.tabConnectionsView)
+        editorSqlState.tabConnectionsView.clearActive();
       setScreen(false);
       return false;
     }
@@ -3563,15 +3297,19 @@ export function initHome({ api }) {
     await refreshDatabases();
     await syncActiveDatabaseAndTree(entry, key);
     resetConnectionScopedUi();
-    if (tabTablesView) loadTabsForKey(key);
+    if (editorSqlState.tabTablesView) loadTabsForKey(key);
     return true;
   };
 
   const tryActivateExistingConnection = async (entry) => {
     if (!entry) return false;
     const key = getTabKey(entry);
-    if (!tabConnectionsView || !tabConnectionsView.has(key)) return false;
-    const previousKey = tabConnectionsView.getActiveKey();
+    if (
+      !editorSqlState.tabConnectionsView ||
+      !editorSqlState.tabConnectionsView.has(key)
+    )
+      return false;
+    const previousKey = editorSqlState.tabConnectionsView.getActiveKey();
     const ok = await activateConnection(
       entry,
       previousKey && previousKey !== key ? previousKey : null,
@@ -3616,11 +3354,11 @@ export function initHome({ api }) {
     connectionTitle,
     formatSavedPolicyFilterLabel,
     getSavedPolicyFilter,
-    showToast,
+    showToast: editorSqlState.showToast,
     showError: safeApi.showError,
   });
 
-  connectModalComponent = createConnectModal({
+  editorSqlState.connectModalComponent = createConnectModal({
     onConnectSuccess: async (data, { shouldSave }) => {
       let config = {
         ...data,
@@ -3630,7 +3368,7 @@ export function initHome({ api }) {
       };
 
       if (await tryActivateExistingConnection(config)) {
-        connectModalComponent.close();
+        editorSqlState.connectModalComponent.close();
         return;
       }
 
@@ -3653,17 +3391,17 @@ export function initHome({ api }) {
       resetConnectionScopedUi();
       loadTabsForKey(getTabKey(config));
       setScreen(true);
-      connectModalComponent.close();
+      editorSqlState.connectModalComponent.close();
     },
     onSaveSuccess: async () => {
       setEditMode(false);
       await savedComponent.renderSavedList();
     },
     onTestSuccess: () => {
-      showToast("Connection successful");
+      editorSqlState.showToast("Connection successful");
     },
     onTestError: (message) => {
-      showToast(message, 1600, "error");
+      editorSqlState.showToast(message, 1600, "error");
     },
     onError: async (message) => {
       await safeApi.showError(message);
@@ -3676,7 +3414,7 @@ export function initHome({ api }) {
   // Quick connect buttons
   const quickConnectComponent = createQuickConnect({
     onQuickConnect: (mode) => {
-      connectModalComponent.open({ mode, keepForm: false });
+      editorSqlState.connectModalComponent.open({ mode, keepForm: false });
     },
   });
 
@@ -3684,7 +3422,7 @@ export function initHome({ api }) {
   const credentialModalComponent = createCredentialModal();
 
   // Settings modal
-  settingsModalComponent = createSettingsModal({
+  editorSqlState.settingsModalComponent = createSettingsModal({
     onOpen: async () => {
       setThemeMenuOpen(false);
       applySessionTimezoneToSettingsInput(readStoredSessionTimezone());
@@ -3730,7 +3468,7 @@ export function initHome({ api }) {
       const envResult = await saveEnvironmentPolicySettings();
       if (!envResult || !envResult.ok) return { shouldClose: false };
 
-      showToast("Settings saved");
+      editorSqlState.showToast("Settings saved");
       return { shouldClose: true };
     },
     onResetDefaults: (activeTab) => {
@@ -3746,13 +3484,13 @@ export function initHome({ api }) {
       setSessionTimezoneMenuOpen(false);
     },
     onTimezoneToggle: () => {
-      if (sessionTimezoneMenuOpen) {
+      if (editorSqlState.sessionTimezoneMenuOpen) {
         setSessionTimezoneMenuOpen(false);
       } else {
         filterSessionTimezoneMenu("");
         setSessionTimezoneMenuOpen(true);
-        if (settingsModalComponent)
-          settingsModalComponent.focusSessionTimezone();
+        if (editorSqlState.settingsModalComponent)
+          editorSqlState.settingsModalComponent.focusSessionTimezone();
       }
     },
     onTimezoneFocus: () => {
@@ -3766,55 +3504,59 @@ export function initHome({ api }) {
     onTimezoneKeydown: (event) => {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
-        if (sessionTimezoneHighlightedIndex < 0) {
+        if (!editorSqlState.sessionTimezoneMenuOpen)
+          setSessionTimezoneMenuOpen(true);
+        if (editorSqlState.sessionTimezoneHighlightedIndex < 0) {
           setSessionTimezoneHighlightedIndex(0);
         } else {
           setSessionTimezoneHighlightedIndex(
-            sessionTimezoneHighlightedIndex + 1,
+            editorSqlState.sessionTimezoneHighlightedIndex + 1,
           );
         }
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
-        if (sessionTimezoneHighlightedIndex < 0) {
+        if (!editorSqlState.sessionTimezoneMenuOpen)
+          setSessionTimezoneMenuOpen(true);
+        if (editorSqlState.sessionTimezoneHighlightedIndex < 0) {
           setSessionTimezoneHighlightedIndex(
-            sessionTimezoneVisibleItems.length - 1,
+            editorSqlState.sessionTimezoneVisibleItems.length - 1,
           );
         } else {
           setSessionTimezoneHighlightedIndex(
-            sessionTimezoneHighlightedIndex - 1,
+            editorSqlState.sessionTimezoneHighlightedIndex - 1,
           );
         }
         return;
       }
       if (event.key === "Enter") {
-        if (!sessionTimezoneMenuOpen) return;
+        if (!editorSqlState.sessionTimezoneMenuOpen) return;
         event.preventDefault();
         const target =
-          sessionTimezoneVisibleItems[sessionTimezoneHighlightedIndex];
+          editorSqlState.sessionTimezoneVisibleItems[
+            editorSqlState.sessionTimezoneHighlightedIndex
+          ];
         if (target) {
           applySessionTimezoneToSettingsInput(target.timezone);
         } else {
           applySessionTimezoneToSettingsInput(
-            settingsModalComponent
-              ? settingsModalComponent.getSessionTimezoneValue()
+            editorSqlState.settingsModalComponent
+              ? editorSqlState.settingsModalComponent.getSessionTimezoneValue()
               : "",
           );
         }
         return;
       }
       if (event.key === "Escape") {
-        if (!sessionTimezoneMenuOpen) return;
+        if (!editorSqlState.sessionTimezoneMenuOpen) return;
         event.preventDefault();
         setSessionTimezoneMenuOpen(false);
       }
     },
     onOutsideClick: (event) => {
       if (
-        sessionTimezoneMenuOpen &&
+        editorSqlState.sessionTimezoneMenuOpen &&
         settingsSessionTimezoneCombobox &&
         !(
           event.target &&
@@ -3838,12 +3580,14 @@ export function initHome({ api }) {
   });
 
   // Sidebar menu
-  sidebarMenuComponent = createSidebarMenu({
+  editorSqlState.sidebarMenuComponent = createSidebarMenu({
     onShowHistory: () => {
-      if (historyManager) void historyManager.renderHistoryList();
+      if (editorSqlState.historyManager)
+        void editorSqlState.historyManager.renderHistoryList();
     },
     onShowSnippets: () => {
-      if (snippetsManager) void snippetsManager.renderSnippetsList();
+      if (editorSqlState.snippetsManager)
+        void editorSqlState.snippetsManager.renderSnippetsList();
     },
   });
 
@@ -3855,19 +3599,16 @@ export function initHome({ api }) {
     return credentialModalComponent.prompt(entry);
   };
 
-
   const openSettingsModal = async () => {
-    await settingsModalComponent.open();
+    await editorSqlState.settingsModalComponent.open();
   };
 
   const closeSettingsModal = () => {
-    settingsModalComponent.close();
+    editorSqlState.settingsModalComponent.close();
   };
 
-
-
   const setSettingsTab = (tab) => {
-    settingsModalComponent.setTab(tab);
+    editorSqlState.settingsModalComponent.setTab(tab);
   };
 
   const promptPolicyApproval = ({ policyLabel, actionLabel } = {}) => {
@@ -3877,7 +3618,6 @@ export function initHome({ api }) {
   const closePolicyApprovalPrompt = (result = "") => {
     policyApprovalModalComponent.close(result);
   };
-
 
   const setThemeMenuOpen = (open) => {
     themeManagerComponent.setMenuOpen(open);
@@ -3889,38 +3629,20 @@ export function initHome({ api }) {
       resetConnectionForm();
       setEditMode(false);
     }
-    activeConnectMode = mode === "quick" ? "quick" : "full";
-    if (connectModalComponent) connectModalComponent.open({ mode, keepForm });
+    editorSqlState.activeConnectMode = mode === "quick" ? "quick" : "full";
+    if (editorSqlState.connectModalComponent)
+      editorSqlState.connectModalComponent.open({ mode, keepForm });
   };
 
   const closeConnectModal = () => {
-    connectModalComponent.close();
+    editorSqlState.connectModalComponent.close();
     setEditMode(false);
   };
 
-  const isSshTabActive = () => {
-    if (!connectModalComponent) return false;
-    return connectModalComponent.getActiveTab() === "ssh";
-  };
-
-  const buildSshConfig = () => {
-    const enabled = isSshTabActive();
-    if (!enabled) return { enabled: false };
-    return {
-      enabled: true,
-      host: sshHost ? sshHost.value.trim() : "",
-      port: sshPort ? sshPort.value.trim() : "",
-      user: sshUser ? sshUser.value.trim() : "",
-      password: sshPassword ? sshPassword.value : "",
-      privateKey: sshPrivateKey ? sshPrivateKey.value : "",
-      passphrase: sshPassphrase ? sshPassphrase.value : "",
-      localPort: sshLocalPort ? sshLocalPort.value.trim() : "",
-    };
-  };
-
   const setConnecting = (loading) => {
-    isConnecting = loading;
-    if (connectModalComponent) connectModalComponent.setLoading(loading);
+    editorSqlState.isConnecting = loading;
+    if (editorSqlState.connectModalComponent)
+      editorSqlState.connectModalComponent.setLoading(loading);
     if (savedComponent && typeof savedComponent.setLoading === "function") {
       savedComponent.setLoading(loading);
     }
@@ -3928,7 +3650,8 @@ export function initHome({ api }) {
   };
 
   const connectWithLoading = async (config) => {
-    if (isConnecting) return { ok: false, error: "Connection in progress." };
+    if (editorSqlState.isConnecting)
+      return { ok: false, error: "Connection in progress." };
     setConnecting(true);
     setGlobalLoading(true, "Connecting...");
     try {
@@ -3943,7 +3666,6 @@ export function initHome({ api }) {
       setGlobalLoading(false);
     }
   };
-
 
   const connectEntryFromList = async (entry) => {
     if (!entry) return false;
@@ -3978,13 +3700,13 @@ export function initHome({ api }) {
   document.addEventListener("saved:connect", async (ev) => {
     const entry = ev && ev.detail ? ev.detail : null;
     if (!entry) return;
-    if (isConnecting) return;
+    if (editorSqlState.isConnecting) return;
     await connectEntryFromList(entry);
   });
 
   document.addEventListener("saved:edit", (ev) => {
     const entry = ev && ev.detail ? ev.detail : null;
-    editingConnectionSeed = entry
+    editorSqlState.editingConnectionSeed = entry
       ? { ...entry, ssh: getEntrySshConfig(entry) }
       : null;
     if (saveName) {
@@ -4007,17 +3729,15 @@ export function initHome({ api }) {
     return Promise.resolve();
   };
 
-
-
-
   if (homeBtn) {
     homeBtn.addEventListener("click", () => {
-      if (tabConnectionsView) {
-        const key = tabConnectionsView.getActiveKey();
+      if (editorSqlState.tabConnectionsView) {
+        const key = editorSqlState.tabConnectionsView.getActiveKey();
         if (key) saveTabsForKey(key);
       }
       setScreen(false);
-      if (tabConnectionsView) tabConnectionsView.clearActive();
+      if (editorSqlState.tabConnectionsView)
+        editorSqlState.tabConnectionsView.clearActive();
       renderConnectionTabs();
       renderSavedList();
     });
@@ -4059,16 +3779,16 @@ export function initHome({ api }) {
   if (outputCopyBtn) {
     outputCopyBtn.addEventListener("click", async () => {
       if (
-        !currentOutput ||
-        !currentOutput.items ||
-        currentOutput.items.length === 0
+        !editorSqlState.currentOutput ||
+        !editorSqlState.currentOutput.items ||
+        editorSqlState.currentOutput.items.length === 0
       )
         return;
       try {
         const header = ["#", "Time", "Action", "Response", "Duration"].join(
           "\t",
         );
-        const lines = currentOutput.items.map((entry) =>
+        const lines = editorSqlState.currentOutput.items.map((entry) =>
           [
             entry.id,
             entry.time,
@@ -4078,7 +3798,7 @@ export function initHome({ api }) {
           ].join("\t"),
         );
         await navigator.clipboard.writeText([header, ...lines].join("\n"));
-        showToast("Output copied");
+        editorSqlState.showToast("Output copied");
       } catch (_) {
         if (safeApi.showError)
           await safeApi.showError("Unable to copy output.");
@@ -4106,7 +3826,8 @@ export function initHome({ api }) {
       const language =
         type === "postgres" || type === "postgresql" ? "postgresql" : "mysql";
       const formatted = formatSql(source, { language });
-      if (definitionEditor) definitionEditor.setValue(formatted);
+      if (editorSqlState.definitionEditor)
+        editorSqlState.definitionEditor.setValue(formatted);
       else if (definitionQueryInput) definitionQueryInput.value = formatted;
       syncDefinitionSaveState();
     });
@@ -4118,7 +3839,7 @@ export function initHome({ api }) {
       if (!source || !source.trim()) return;
       try {
         await navigator.clipboard.writeText(source);
-        showToast("SQL copied");
+        editorSqlState.showToast("SQL copied");
       } catch (_) {
         if (safeApi.showError) await safeApi.showError("Unable to copy.");
       }
@@ -4143,10 +3864,10 @@ export function initHome({ api }) {
     });
   }
 
-  // connectBtn, saveBtn, testBtn are now handled by connectModalComponent
+  // connectBtn, saveBtn, testBtn are now handled by editorSqlState.connectModalComponent
   // openConnectModalBtn and quickConnectBtn are now handled by quickConnectComponent
 
-  // sqliteModeCreate, sqliteModeExisting, clearFormBtn, cancelEditBtn are now handled by connectModalComponent
+  // sqliteModeCreate, sqliteModeExisting, clearFormBtn, cancelEditBtn are now handled by editorSqlState.connectModalComponent
 
   // Theme toggle and menu event listeners now in themeManager
 
@@ -4168,7 +3889,9 @@ export function initHome({ api }) {
   // Sidebar menu event listeners now in sidebarMenu component
 
   const runServerPage = async ({ page, pageSize } = {}) => {
-    const active = tableView ? tableView.getActive() : null;
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
     const pagination = normalizeSnapshotPagination(active && active.pagination);
     if (!pagination) return false;
     const nextPage = Number.isFinite(Number(page))
@@ -4193,121 +3916,11 @@ export function initHome({ api }) {
     return true;
   };
 
-  if (runBtn) {
-    runBtn.addEventListener("click", async () => {
-      await handleRun();
-    });
-  }
-
-  if (runSelectionBtn) {
-    runSelectionBtn.addEventListener("click", async () => {
-      await handleRunSelection();
-    });
-  }
-
-  if (runCurrentBtn) {
-    runCurrentBtn.addEventListener("click", async () => {
-      await handleRunCurrentStatement();
-    });
-  }
-
-  if (explainBtn) {
-    explainBtn.addEventListener("click", async () => {
-      await handleExplain();
-    });
-  }
-
-  if (explainAnalyzeBtn) {
-    explainAnalyzeBtn.addEventListener("click", async () => {
-      await handleExplain({ analyze: true });
-    });
-  }
-
-  if (formatBtn) {
-    formatBtn.addEventListener("click", () => {
-      const source = codeEditor
-        ? codeEditor.getValue()
-        : query
-          ? query.value
-          : "";
-      if (!source || !source.trim()) return;
-      const active = getActiveConnection();
-      const type =
-        active && active.type ? String(active.type).toLowerCase() : "";
-      const language =
-        type === "postgres" || type === "postgresql" ? "postgresql" : "mysql";
-      const formatted = formatSql(source, { language });
-      if (codeEditor) codeEditor.setValue(formatted);
-      else if (query) query.value = formatted;
-    });
-  }
-
-  if (zoomOutBtn) {
-    zoomOutBtn.addEventListener("click", () => {
-      adjustEditorFontSize(-1);
-    });
-  }
-
-  if (zoomInBtn) {
-    zoomInBtn.addEventListener("click", () => {
-      adjustEditorFontSize(1);
-    });
-  }
-
-  if (stopBtn) {
-    stopBtn.addEventListener("click", async () => {
-      stopQueryProgress();
-      const res = await safeApi.cancelQuery();
-      if (!res || !res.ok) {
-        await safeApi.showError((res && res.error) || "Unable to cancel.");
-      } else {
-        setQueryStatus({ state: "error", message: "Canceled" });
-      }
-      if (runBtn) runBtn.disabled = false;
-      if (runSelectionBtn) runSelectionBtn.disabled = false;
-      if (runCurrentBtn) runCurrentBtn.disabled = false;
-      if (explainBtn) explainBtn.disabled = false;
-      if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = false;
-      if (stopBtn) stopBtn.disabled = true;
-    });
-  }
-
-  if (toggleEditorBtn) {
-    toggleEditorBtn.addEventListener("click", () => {
-      const isVisible = editorBody
-        ? !editorBody.classList.contains("hidden")
-        : true;
-      setEditorVisible(!isVisible);
-    });
-  }
-
-  if (saveSnippetEditorBtn) {
-    saveSnippetEditorBtn.addEventListener("click", async () => {
-      const sqlText = codeEditor
-        ? codeEditor.getValue()
-        : query
-          ? query.value
-          : "";
-      const trimmed = String(sqlText || "").trim();
-      if (!trimmed) return;
-      if (!getCurrentHistoryKey()) {
-        if (safeApi.showError)
-          await safeApi.showError("Connect to save snippets.");
-        return;
-      }
-      const suggestion = trimmed.split("\n")[0].slice(0, 40);
-      if (
-        snippetsManager &&
-        typeof snippetsManager.openSnippetModal === "function"
-      ) {
-        snippetsManager.openSnippetModal({ sql: trimmed, name: suggestion });
-      }
-    });
-  }
-
   if (countBtn) {
     countBtn.addEventListener("click", async () => {
-      const active = tableView ? tableView.getActive() : null;
+      const active = editorSqlState.tableView
+        ? editorSqlState.tableView.getActive()
+        : null;
       const source =
         active && (active.sourceSql || active.baseSql)
           ? active.sourceSql || active.baseSql
@@ -4323,7 +3936,7 @@ export function initHome({ api }) {
         );
         return;
       }
-      lastSort = null;
+      editorSqlState.lastSort = null;
       await runSql(countSql, source);
     });
   }
@@ -4336,7 +3949,9 @@ export function initHome({ api }) {
 
   if (pagePrevBtn) {
     pagePrevBtn.addEventListener("click", async () => {
-      const active = tableView ? tableView.getActive() : null;
+      const active = editorSqlState.tableView
+        ? editorSqlState.tableView.getActive()
+        : null;
       const pagination = normalizeSnapshotPagination(
         active && active.pagination,
       );
@@ -4350,7 +3965,9 @@ export function initHome({ api }) {
 
   if (pageNextBtn) {
     pageNextBtn.addEventListener("click", async () => {
-      const active = tableView ? tableView.getActive() : null;
+      const active = editorSqlState.tableView
+        ? editorSqlState.tableView.getActive()
+        : null;
       const pagination = normalizeSnapshotPagination(
         active && active.pagination,
       );
@@ -4364,7 +3981,9 @@ export function initHome({ api }) {
 
   if (limitSelect) {
     limitSelect.addEventListener("change", async () => {
-      const active = tableView ? tableView.getActive() : null;
+      const active = editorSqlState.tableView
+        ? editorSqlState.tableView.getActive()
+        : null;
       const pagination = normalizeSnapshotPagination(
         active && active.pagination,
       );
@@ -4405,7 +4024,7 @@ export function initHome({ api }) {
       updateQueryFilterClearVisibility();
       persistActiveTableFilter("");
       if (hadFilter) {
-        lastSort = null;
+        editorSqlState.lastSort = null;
         await applyTableFilter();
       }
     });
@@ -4422,10 +4041,11 @@ export function initHome({ api }) {
 
   if (refreshSchemaBtn) {
     refreshSchemaBtn.addEventListener("click", async () => {
-      if (treeView) {
+      if (editorSqlState.treeView) {
         setGlobalLoading(true, "Refreshing schema...");
-        const tables = await treeView.refresh();
-        if (sqlAutocomplete && tables) sqlAutocomplete.setTables(tables);
+        const tables = await editorSqlState.treeView.refresh();
+        if (editorSqlState.sqlAutocomplete && tables)
+          editorSqlState.sqlAutocomplete.setTables(tables);
         setGlobalLoading(false);
       }
     });
@@ -4441,15 +4061,13 @@ export function initHome({ api }) {
   applyConnectionTimeoutsToSettingsInputs(readStoredConnectionTimeouts());
   applyQueryDefaultsToEditorControls(readStoredQueryDefaults());
   void loadEnvironmentPolicySettings({ silent: true });
-  updateToggleEditorButtonState(true);
   // Theme loading now handled by themeManager.init()
-  loadEditorFontSize();
   loadSidebarWidth();
   loadEditorHeight();
   initSidebarResizer();
   initEditorResizer();
   bindTabShortcuts();
-  treeView = createTreeView({
+  editorSqlState.treeView = createTreeView({
     tableList,
     tableSearch,
     tableSearchModeBtn,
@@ -4460,92 +4078,116 @@ export function initHome({ api }) {
     onOpenView: async (schema, name) => {
       await openViewDefinition(schema, name);
     },
-    onToast: (message, duration, type) => showToast(message, duration, type),
+    onToast: (message, duration, type) =>
+      editorSqlState.showToast(message, duration, type),
   });
-  codeEditor = createCodeEditor({ textarea: query });
-  codeEditor.init();
-  themeManagerComponent.registerCodeEditor(codeEditor);
-  if (sqlAutocomplete) {
-    codeEditor.setHintProvider({
-      getHintOptions: () => sqlAutocomplete.getHintOptions(),
-      prefetch: (editor) => sqlAutocomplete.prefetch(editor),
+  editorSqlState.codeEditor = createSqlEditor({
+    textarea: query,
+    api: safeApi,
+    runSql,
+    getActiveConnection,
+    getCurrentHistoryKey,
+    openSnippetModal: (payload) => {
+      if (
+        editorSqlState.snippetsManager &&
+        typeof editorSqlState.snippetsManager.openSnippetModal === "function"
+      ) {
+        editorSqlState.snippetsManager.openSnippetModal(payload);
+      }
+    },
+    stopQueryProgress,
+    setQueryStatus,
+    onBeforeExecute: () => {
+      editorSqlState.lastSort = null;
+    },
+    onToggleEditor: (nextVisible) => {
+      setEditorVisible(nextVisible);
+    },
+  });
+  editorSqlState.codeEditor.init();
+  themeManagerComponent.registerCodeEditor(editorSqlState.codeEditor);
+  updateToggleEditorButtonState(true);
+  if (editorSqlState.sqlAutocomplete) {
+    editorSqlState.codeEditor.setHintProvider({
+      getHintOptions: () => editorSqlState.sqlAutocomplete.getHintOptions(),
+      prefetch: (editor) => editorSqlState.sqlAutocomplete.prefetch(editor),
     });
   }
   if (snippetQueryInput) {
-    snippetEditor = createCodeEditor({
+    editorSqlState.snippetEditor = createCodeEditor({
       textarea: snippetQueryInput,
       lineWrapping: true,
     });
-    snippetEditor.init();
-    themeManagerComponent.registerCodeEditor(snippetEditor);
-    if (sqlAutocomplete) {
-      snippetEditor.setHintProvider({
-        getHintOptions: () => sqlAutocomplete.getHintOptions(),
-        prefetch: (editor) => sqlAutocomplete.prefetch(editor),
+    editorSqlState.snippetEditor.init();
+    themeManagerComponent.registerCodeEditor(editorSqlState.snippetEditor);
+    if (editorSqlState.sqlAutocomplete) {
+      editorSqlState.snippetEditor.setHintProvider({
+        getHintOptions: () => editorSqlState.sqlAutocomplete.getHintOptions(),
+        prefetch: (editor) => editorSqlState.sqlAutocomplete.prefetch(editor),
       });
     }
   }
   if (definitionQueryInput) {
-    definitionEditor = createCodeEditor({ textarea: definitionQueryInput });
-    definitionEditor.init();
-    themeManagerComponent.registerCodeEditor(definitionEditor);
-    definitionEditor.onChange(() => {
+    editorSqlState.definitionEditor = createCodeEditor({
+      textarea: definitionQueryInput,
+    });
+    editorSqlState.definitionEditor.init();
+    themeManagerComponent.registerCodeEditor(editorSqlState.definitionEditor);
+    editorSqlState.definitionEditor.onChange(() => {
       syncDefinitionSaveState();
     });
-    if (sqlAutocomplete) {
-      definitionEditor.setHintProvider({
-        getHintOptions: () => sqlAutocomplete.getHintOptions(),
-        prefetch: (editor) => sqlAutocomplete.prefetch(editor),
+    if (editorSqlState.sqlAutocomplete) {
+      editorSqlState.definitionEditor.setHintProvider({
+        getHintOptions: () => editorSqlState.sqlAutocomplete.getHintOptions(),
+        prefetch: (editor) => editorSqlState.sqlAutocomplete.prefetch(editor),
       });
     }
   }
   syncDefinitionSaveState();
-  codeEditor.setHandlers({
-    run: () => handleRun(),
-    runSelection: () => handleRunSelection(),
-  });
-  codeEditor.onSelectionChange(() => {
-    updateRunAvailability();
-  });
   updateRunAvailability();
-  tabTablesView = createTabTables({
+  editorSqlState.tabTablesView = createTabTables({
     tabBar,
     newTabBtn,
     queryInput: query,
     getValue: () =>
-      codeEditor ? codeEditor.getValue() : query ? query.value : "",
+      editorSqlState.codeEditor
+        ? editorSqlState.codeEditor.getValue()
+        : query
+          ? query.value
+          : "",
     setValue: (value) => {
-      if (codeEditor) codeEditor.setValue(value || "");
+      if (editorSqlState.codeEditor)
+        editorSqlState.codeEditor.setValue(value || "");
       else if (query) query.value = value || "";
       refreshEditor();
     },
     getCurrentDatabase: () =>
       dbSelect ? String(dbSelect.value || "").trim() : "",
     onInput: (handler) => {
-      if (codeEditor)
-        codeEditor.onChange(() => {
+      if (editorSqlState.codeEditor)
+        editorSqlState.codeEditor.onChange(() => {
           handler();
           updateRunAvailability();
         });
     },
     onChange: () => {
-      if (!tabConnectionsView) return;
-      const key = tabConnectionsView.getActiveKey();
+      if (!editorSqlState.tabConnectionsView) return;
+      const key = editorSqlState.tabConnectionsView.getActiveKey();
       if (key) saveTabsForKey(key);
-      if (tabTablesView) {
-        const state = tabTablesView.getState();
-        const ids = new Set((state.tabs || []).map((t) => t.id));
-        for (const id of resultsByTabId.keys()) {
-          if (!ids.has(id)) resultsByTabId.delete(id);
+      if (editorSqlState.tabTablesView) {
+        const tabsState = editorSqlState.tabTablesView.getState();
+        const ids = new Set((tabsState.tabs || []).map((t) => t.id));
+        for (const id of editorSqlState.resultsByTabId.keys()) {
+          if (!ids.has(id)) editorSqlState.resultsByTabId.delete(id);
         }
-        for (const id of outputByTabId.keys()) {
-          if (!ids.has(id)) outputByTabId.delete(id);
+        for (const id of editorSqlState.outputByTabId.keys()) {
+          if (!ids.has(id)) editorSqlState.outputByTabId.delete(id);
         }
-        for (const id of tableFilterByTabId.keys()) {
-          if (!ids.has(id)) tableFilterByTabId.delete(id);
+        for (const id of editorSqlState.tableFilterByTabId.keys()) {
+          if (!ids.has(id)) editorSqlState.tableFilterByTabId.delete(id);
         }
-        for (const id of objectContextByTabId.keys()) {
-          if (!ids.has(id)) objectContextByTabId.delete(id);
+        for (const id of editorSqlState.objectContextByTabId.keys()) {
+          if (!ids.has(id)) editorSqlState.objectContextByTabId.delete(id);
         }
       }
     },
@@ -4557,7 +4199,9 @@ export function initHome({ api }) {
         updateQueryFilterClearVisibility();
         return;
       }
-      const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+      const activeTab = editorSqlState.tabTablesView
+        ? editorSqlState.tabTablesView.getActiveTab()
+        : null;
       if (activeTab) {
         const visible = resolveEditorVisibility();
         activeTab.editorVisible = visible;
@@ -4565,7 +4209,7 @@ export function initHome({ api }) {
       } else {
         setEditorVisible(true, { persist: false });
       }
-      const snapshot = resultsByTabId.get(id) || null;
+      const snapshot = editorSqlState.resultsByTabId.get(id) || null;
       const objectContext = getObjectContextForTab(id);
       applyResultsPanelState({ snapshot, objectContext });
       if (queryFilter) queryFilter.value = readActiveTableFilter();
@@ -4579,28 +4223,35 @@ export function initHome({ api }) {
       setEditorVisible(true);
     });
   }
-  historyManager = createQueryHistory({
+  editorSqlState.historyManager = createQueryHistory({
     historyList,
     getCurrentHistoryKey,
-    getActiveTab: () => (tabTablesView ? tabTablesView.getActiveTab() : null),
+    getActiveTab: () =>
+      editorSqlState.tabTablesView
+        ? editorSqlState.tabTablesView.getActiveTab()
+        : null,
     isTableTab: () => false,
     isTableEditor: () => true,
     createNewQueryTab: (sql) => {
-      if (!tabTablesView) return;
-      tabTablesView.create();
+      if (!editorSqlState.tabTablesView) return;
+      editorSqlState.tabTablesView.create();
       setEditorVisible(true);
-      if (codeEditor) codeEditor.setValue(sql || "");
-      if (tabTablesView) tabTablesView.syncActiveTabContent();
+      if (editorSqlState.codeEditor)
+        editorSqlState.codeEditor.setValue(sql || "");
+      if (editorSqlState.tabTablesView)
+        editorSqlState.tabTablesView.syncActiveTabContent();
     },
     setQueryValue: (sql) => {
-      if (codeEditor) codeEditor.setValue(sql || "");
-      if (tabTablesView) tabTablesView.syncActiveTabContent();
+      if (editorSqlState.codeEditor)
+        editorSqlState.codeEditor.setValue(sql || "");
+      if (editorSqlState.tabTablesView)
+        editorSqlState.tabTablesView.syncActiveTabContent();
     },
     listHistory: (payload) => historyApi.listHistory(payload),
     recordHistory: (payload) => historyApi.recordHistory(payload),
     showError: safeApi.showError,
   });
-  snippetsManager = createSnippetsManager({
+  editorSqlState.snippetsManager = createSnippetsManager({
     snippetsList,
     addSnippetBtn,
     snippetModal,
@@ -4611,37 +4262,42 @@ export function initHome({ api }) {
     snippetNameInput,
     snippetQueryInput,
     getSnippetValue: () =>
-      snippetEditor
-        ? snippetEditor.getValue()
+      editorSqlState.snippetEditor
+        ? editorSqlState.snippetEditor.getValue()
         : snippetQueryInput
           ? snippetQueryInput.value
           : "",
     setSnippetValue: (value) => {
-      if (snippetEditor) {
-        snippetEditor.setValue(value || "");
-        snippetEditor.refresh();
+      if (editorSqlState.snippetEditor) {
+        editorSqlState.snippetEditor.setValue(value || "");
+        editorSqlState.snippetEditor.refresh();
       } else if (snippetQueryInput) {
         snippetQueryInput.value = value || "";
       }
     },
     getCurrentHistoryKey,
     setQueryValue: (sql) => {
-      if (codeEditor) codeEditor.setValue(sql || "");
-      if (tabTablesView) tabTablesView.syncActiveTabContent();
+      if (editorSqlState.codeEditor)
+        editorSqlState.codeEditor.setValue(sql || "");
+      if (editorSqlState.tabTablesView)
+        editorSqlState.tabTablesView.syncActiveTabContent();
     },
     createNewQueryTab: (sql) => {
-      if (!tabTablesView) return;
-      tabTablesView.create();
+      if (!editorSqlState.tabTablesView) return;
+      editorSqlState.tabTablesView.create();
       setEditorVisible(true);
-      if (codeEditor) codeEditor.setValue(sql || "");
-      if (tabTablesView) tabTablesView.syncActiveTabContent();
+      if (editorSqlState.codeEditor)
+        editorSqlState.codeEditor.setValue(sql || "");
+      if (editorSqlState.tabTablesView)
+        editorSqlState.tabTablesView.syncActiveTabContent();
     },
     runSnippet: async (sql) => {
       const text = String(sql || "").trim();
       if (!text) return;
-      if (codeEditor) codeEditor.setValue(text);
-      if (tabTablesView) tabTablesView.syncActiveTabContent();
-      lastSort = null;
+      if (editorSqlState.codeEditor) editorSqlState.codeEditor.setValue(text);
+      if (editorSqlState.tabTablesView)
+        editorSqlState.tabTablesView.syncActiveTabContent();
+      editorSqlState.lastSort = null;
       await runSql(text);
     },
     listSnippets: (payload) => snippetsApi.listSnippets(payload),
@@ -4681,20 +4337,20 @@ export function initHome({ api }) {
   const rerunSortedQuery = async (column, active) => {
     const base = active && active.baseSql ? active.baseSql : "";
     if (!base) return;
-    if (lastSort && lastSort.column === column) {
-      if (lastSort.direction === "asc") {
-        lastSort = { column, direction: "desc" };
+    if (editorSqlState.lastSort && editorSqlState.lastSort.column === column) {
+      if (editorSqlState.lastSort.direction === "asc") {
+        editorSqlState.lastSort = { column, direction: "desc" };
         const orderSql = buildOrderBy(base, column, "desc");
         if (orderSql) await runSql(orderSql);
         return;
       }
-      if (lastSort.direction === "desc") {
-        lastSort = null;
+      if (editorSqlState.lastSort.direction === "desc") {
+        editorSqlState.lastSort = null;
         await runSql(base);
         return;
       }
     }
-    lastSort = { column, direction: "asc" };
+    editorSqlState.lastSort = { column, direction: "asc" };
     const orderSql = buildOrderBy(base, column, "asc");
     if (!orderSql) return;
     await runSql(orderSql);
@@ -4716,7 +4372,9 @@ export function initHome({ api }) {
 
     if (!selectedRef || !selectedRef.refTable) return;
 
-    const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    const activeTab = editorSqlState.tabTablesView
+      ? editorSqlState.tabTablesView.getActiveTab()
+      : null;
     const context =
       activeTab && activeTab.id ? getObjectContextForTab(activeTab.id) : null;
     const sourceSchema = context ? context.schema : "";
@@ -4734,7 +4392,7 @@ export function initHome({ api }) {
     });
   };
 
-  tableView = createTableView({
+  editorSqlState.tableView = createTableView({
     resultsTable,
     resultsEmptyState,
     tableActionsBar,
@@ -4745,11 +4403,11 @@ export function initHome({ api }) {
     exportCsvBtn,
     exportJsonBtn,
     onShowError: safeApi.showError,
-    onToast: (message) => showToast(message),
+    onToast: (message) => editorSqlState.showToast(message),
     onSort: rerunSortedQuery,
     onOpenForeignKey: openForeignKeyLookup,
   });
-  tableObjectTabsView = createTableObjectTabs({
+  editorSqlState.tableObjectTabsView = createTableObjectTabs({
     container: tableObjectTabs,
     detailsContainer: objectDetailsPanel,
     resultsToolbar: tableActionsBar,
@@ -4768,20 +4426,21 @@ export function initHome({ api }) {
     buildQualifiedTableRef: (schema, table) =>
       buildQualifiedTableRef(schema, table),
     onShowError: safeApi.showError,
-    onToast: (message) => showToast(message),
+    onToast: (message) => editorSqlState.showToast(message),
   });
-  tabConnectionsView = createTabConnections({
+  editorSqlState.tabConnectionsView = createTabConnections({
     container: tabConnections,
     getTitle: (entry) => connectionTitle(entry),
     onSelect: (_key, entry, previousKey) => {
       activateConnection(entry, previousKey);
     },
     onClose: async (key) => {
-      if (!tabConnectionsView) return;
-      const wasActive = tabConnectionsView.getActiveKey() === key;
-      tabConnectionsView.remove(key);
+      if (!editorSqlState.tabConnectionsView) return;
+      const wasActive =
+        editorSqlState.tabConnectionsView.getActiveKey() === key;
+      editorSqlState.tabConnectionsView.remove(key);
       renderConnectionTabs();
-      if (tabConnectionsView.size() === 0) {
+      if (editorSqlState.tabConnectionsView.size() === 0) {
         try {
           await safeApi.disconnect();
         } catch (_) {}
@@ -4790,7 +4449,7 @@ export function initHome({ api }) {
         return;
       }
       if (wasActive) {
-        const next = tabConnectionsView.getFirstEntry();
+        const next = editorSqlState.tabConnectionsView.getFirstEntry();
         if (next) {
           await activateConnection(next);
         }

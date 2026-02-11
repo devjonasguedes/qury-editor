@@ -7,28 +7,32 @@ export function createTabTables({
   getCurrentDatabase,
   onInput,
   onChange,
-  onActiveChange
+  onActiveChange,
 }) {
   let activeTabId = null;
   let tabCounter = 1;
   const tabs = [];
   const MAX_TAB_DATABASE_LABEL_LENGTH = 18;
-  const tabsContainer = tabBar ? (tabBar.querySelector('.tab-scroll') || tabBar) : null;
+  const tabsContainer = tabBar
+    ? tabBar.querySelector(".tab-scroll") || tabBar
+    : null;
 
   const getActiveTab = () => tabs.find((tab) => tab.id === activeTabId) || null;
 
-  const readValue = typeof getValue === 'function'
-    ? getValue
-    : () => (queryInput ? queryInput.value || '' : '');
+  const readValue =
+    typeof getValue === "function"
+      ? getValue
+      : () => (queryInput ? queryInput.value || "" : "");
 
-  const resolveCurrentDatabase = typeof getCurrentDatabase === 'function'
-    ? () => String(getCurrentDatabase() || '').trim()
-    : () => '';
+  const resolveCurrentDatabase =
+    typeof getCurrentDatabase === "function"
+      ? () => String(getCurrentDatabase() || "").trim()
+      : () => "";
 
-  const normalizeDatabase = (value) => String(value || '').trim();
+  const normalizeDatabase = (value) => String(value || "").trim();
 
   const truncateLabel = (value, maxLength = MAX_TAB_DATABASE_LABEL_LENGTH) => {
-    const text = String(value || '');
+    const text = String(value || "");
     if (!text || !Number.isFinite(maxLength) || maxLength <= 3) return text;
     if (text.length <= maxLength) return text;
     return `${text.slice(0, maxLength - 3)}...`;
@@ -43,8 +47,8 @@ export function createTabTables({
 
   const formatTabLabel = (tab, options = {}) => {
     const truncateDatabase = options.truncateDatabase !== false;
-    const baseTitle = tab && tab.title ? String(tab.title) : '';
-    const database = normalizeDatabase(tab && tab.database ? tab.database : '');
+    const baseTitle = tab && tab.title ? String(tab.title) : "";
+    const database = normalizeDatabase(tab && tab.database ? tab.database : "");
     const currentDatabase = normalizeDatabase(resolveCurrentDatabase());
     if (!database || isSameDatabase(database, currentDatabase)) return baseTitle;
     const databaseLabel = truncateDatabase ? truncateLabel(database) : database;
@@ -52,30 +56,31 @@ export function createTabTables({
   };
 
   const inferDatabaseFromSql = (sql) => {
-    const source = String(sql || '');
-    if (!source.trim()) return '';
+    const source = String(sql || "");
+    if (!source.trim()) return "";
     const patterns = [
       /(?:from|join|update|into|table|call)\s+`([^`]+)`\s*\./i,
       /(?:from|join|update|into|table|call)\s+"([^"]+)"\s*\./i,
-      /(?:from|join|update|into|table|call)\s+([A-Za-z0-9_]+)\s*\./i
+      /(?:from|join|update|into|table|call)\s+([A-Za-z0-9_]+)\s*\./i,
     ];
     for (const pattern of patterns) {
       const match = source.match(pattern);
       if (match && match[1]) return normalizeDatabase(match[1]);
     }
-    return '';
+    return "";
   };
 
-  const writeValue = typeof setValue === 'function'
-    ? setValue
-    : (value) => {
-      if (queryInput) queryInput.value = value || '';
-    };
+  const writeValue =
+    typeof setValue === "function"
+      ? setValue
+      : (value) => {
+          if (queryInput) queryInput.value = value || "";
+        };
 
   const syncActiveTabContent = () => {
     const tab = getActiveTab();
     if (!tab) return;
-    tab.query = readValue() || '';
+    tab.query = readValue() || "";
   };
 
   const getState = () => ({
@@ -84,24 +89,26 @@ export function createTabTables({
       title: tab.title,
       database: normalizeDatabase(tab.database),
       query: tab.query,
-      editorVisible: tab.editorVisible !== false
+      editorVisible: tab.editorVisible !== false,
     })),
     activeTabId,
-    tabCounter
+    tabCounter,
   });
 
   const ensureActiveTabVisible = () => {
     if (!tabsContainer || !activeTabId) return;
     requestAnimationFrame(() => {
-      const activeEl = tabsContainer.querySelector(`.tab[data-tab-id="${activeTabId}"]`);
+      const activeEl = tabsContainer.querySelector(
+        `.tab[data-tab-id="${activeTabId}"]`,
+      );
       if (!activeEl) return;
-      activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      activeEl.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
   };
 
   const render = () => {
     if (!tabsContainer) return;
-    tabsContainer.querySelectorAll('.tab').forEach((el) => el.remove());
+    tabsContainer.querySelectorAll(".tab").forEach((el) => el.remove());
     let didBackfillDatabase = false;
     tabs.forEach((tab) => {
       if (!normalizeDatabase(tab.database)) {
@@ -111,15 +118,15 @@ export function createTabTables({
           didBackfillDatabase = true;
         }
       }
-      const el = document.createElement('div');
-      el.className = 'tab';
+      const el = document.createElement("div");
+      el.className = "tab";
       el.dataset.tabId = tab.id;
-      if (tab.id === activeTabId) el.classList.add('active');
+      if (tab.id === activeTabId) el.classList.add("active");
 
-      const label = document.createElement('span');
+      const label = document.createElement("span");
       label.textContent = formatTabLabel(tab);
       label.title = formatTabLabel(tab, { truncateDatabase: false });
-      label.addEventListener('click', () => {
+      label.addEventListener("click", () => {
         syncActiveTabContent();
         activeTabId = tab.id;
         render();
@@ -128,10 +135,10 @@ export function createTabTables({
         writeValue(tab.query);
       });
 
-      const close = document.createElement('button');
-      close.className = 'tab-close';
+      const close = document.createElement("button");
+      close.className = "tab-close";
       close.innerHTML = '<i class="bi bi-x"></i>';
-      close.addEventListener('click', (event) => {
+      close.addEventListener("click", (event) => {
         event.stopPropagation();
         closeTab(tab.id);
       });
@@ -151,15 +158,15 @@ export function createTabTables({
       id,
       title: name,
       database: resolveCurrentDatabase(),
-      query: '',
-      editorVisible: true
+      query: "",
+      editorVisible: true,
     };
     tabs.push(tab);
     activeTabId = id;
     render();
     if (onChange) onChange(getState());
     if (onActiveChange) onActiveChange(id, tab);
-    writeValue('');
+    writeValue("");
     return tab;
   };
 
@@ -167,7 +174,7 @@ export function createTabTables({
     const tab = create(title);
     const nextDb = normalizeDatabase(options.database) || inferDatabaseFromSql(sql);
     if (nextDb) tab.database = nextDb;
-    tab.query = sql || '';
+    tab.query = sql || "";
     writeValue(tab.query);
     render();
     if (onChange) onChange(getState());
@@ -186,10 +193,10 @@ export function createTabTables({
       activeTabId = tabs.length ? tabs[Math.max(0, idx - 1)].id : null;
       if (activeTabId) {
         const next = getActiveTab();
-        writeValue(next ? next.query : '');
+        writeValue(next ? next.query : "");
         if (onActiveChange) onActiveChange(activeTabId, next);
       } else {
-        writeValue('');
+        writeValue("");
         if (onActiveChange) onActiveChange(null, null);
       }
     }
@@ -215,23 +222,29 @@ export function createTabTables({
           id: tab.id,
           title: tab.title || `Query ${tabCounter++}`,
           database:
-            normalizeDatabase(tab.database)
-            || inferDatabaseFromSql(tab.query)
-            || resolveCurrentDatabase(),
-          query: tab.query || '',
-          editorVisible: tab.editorVisible !== false
+            normalizeDatabase(tab.database) ||
+            inferDatabaseFromSql(tab.query) ||
+            resolveCurrentDatabase(),
+          query: tab.query || "",
+          editorVisible: tab.editorVisible !== false,
         });
       });
     }
-    tabCounter = state && Number.isFinite(state.tabCounter) ? state.tabCounter : tabCounter;
-    activeTabId = state && state.activeTabId ? state.activeTabId : (tabs[0] ? tabs[0].id : null);
+    tabCounter =
+      state && Number.isFinite(state.tabCounter) ? state.tabCounter : tabCounter;
+    activeTabId =
+      state && state.activeTabId
+        ? state.activeTabId
+        : tabs[0]
+          ? tabs[0].id
+          : null;
     render();
     if (activeTabId) {
       const active = getActiveTab();
-      writeValue(active ? active.query : '');
+      writeValue(active ? active.query : "");
       if (onActiveChange) onActiveChange(activeTabId, active);
     } else {
-      writeValue('');
+      writeValue("");
       if (onActiveChange) onActiveChange(null, null);
     }
     if (onChange) onChange(getState());
@@ -249,19 +262,19 @@ export function createTabTables({
 
   const bind = () => {
     if (newTabBtn) {
-      newTabBtn.addEventListener('click', () => {
+      newTabBtn.addEventListener("click", () => {
         syncActiveTabContent();
         create();
       });
     }
 
-    if (typeof onInput === 'function') {
+    if (typeof onInput === "function") {
       onInput(() => {
         syncActiveTabContent();
         if (onChange) onChange(getState());
       });
     } else if (queryInput) {
-      queryInput.addEventListener('input', () => {
+      queryInput.addEventListener("input", () => {
         syncActiveTabContent();
         if (onChange) onChange(getState());
       });
@@ -281,6 +294,6 @@ export function createTabTables({
     getState,
     setState,
     syncActiveTabContent,
-    setActiveTabDatabase
+    setActiveTabDatabase,
   };
 }

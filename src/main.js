@@ -2366,6 +2366,22 @@ ipcMain.handle("app:setProgressBar", async (_evt, value) => {
   return { ok: true };
 });
 
+ipcMain.handle("app:openExternal", async (_evt, url) => {
+  if (!url || typeof url !== "string") {
+    return { ok: false, error: "Invalid URL." };
+  }
+  if (!/^https?:/i.test(url)) {
+    return { ok: false, error: "Unsupported URL scheme." };
+  }
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    console.error("[main] openExternal failed:", err);
+    return { ok: false, error: "Failed to open URL." };
+  }
+});
+
 ipcMain.handle("system:getNativeTheme", async () => {
   return { ok: true, ...getNativeThemeSnapshot() };
 });

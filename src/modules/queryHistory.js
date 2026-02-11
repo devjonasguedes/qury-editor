@@ -65,14 +65,11 @@ export function createQueryHistory({
       item.addEventListener('click', () => {
         const sql = entry.sql || '';
         if (!sql) return;
-        const tab = getActiveTab ? getActiveTab() : null;
-        if (!tab || (isTableTab && isTableTab(tab) && isTableEditor && !isTableEditor(tab))) {
-          if (createNewQueryTab) createNewQueryTab(sql);
-          if (setQueryValue) setQueryValue(sql);
+        if (createNewQueryTab) {
+          createNewQueryTab(sql);
           return;
         }
         if (setQueryValue) setQueryValue(sql);
-        if (tab) tab.query = sql;
       });
 
       historyList.appendChild(item);

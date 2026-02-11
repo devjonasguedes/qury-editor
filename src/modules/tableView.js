@@ -6,6 +6,8 @@ export function createTableView({
   tableActionsBar,
   copyCellBtn,
   copyRowBtn,
+  exportToggle,
+  exportMenu,
   exportCsvBtn,
   exportJsonBtn,
   onShowError,
@@ -28,10 +30,18 @@ export function createTableView({
     if (resultsTable) resultsTable.classList.toggle('hidden', !!visible);
   };
 
+  const setExportMenuOpen = (open) => {
+    if (!exportMenu || !exportToggle) return;
+    exportMenu.classList.toggle('hidden', !open);
+    exportToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+
   const resultsRenderer = createResultsRenderer({
     resultsTable,
     copyCellBtn,
     copyRowBtn,
+    exportToggle,
+    exportMenu,
     exportCsvBtn,
     exportJsonBtn,
     getActiveTab: () => ({ rows: activeResults.rows }),
@@ -41,7 +51,36 @@ export function createTableView({
     },
     showError: onShowError,
     onToast,
-    maxRows: 2000
+    maxRows: 2000,
+    onExportAvailabilityChange: (hasRows) => {
+      if (exportToggle) exportToggle.disabled = !hasRows;
+      if (!hasRows) setExportMenuOpen(false);
+    }
+  });
+
+  if (exportToggle) {
+    exportToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (exportToggle.disabled) return;
+      const isOpen = exportMenu && !exportMenu.classList.contains('hidden');
+      setExportMenuOpen(!isOpen);
+    });
+  }
+
+  if (exportMenu) {
+    exportMenu.addEventListener('click', (event) => {
+      const item = event.target.closest('button');
+      if (!item) return;
+      setExportMenuOpen(false);
+    });
+  }
+
+  document.addEventListener('click', (event) => {
+    if (!exportMenu || !exportToggle) return;
+    if (exportMenu.classList.contains('hidden')) return;
+    if (event.target === exportToggle || exportToggle.contains(event.target)) return;
+    if (event.target === exportMenu || exportMenu.contains(event.target)) return;
+    setExportMenuOpen(false);
   });
 
   const setResults = ({
@@ -68,6 +107,9 @@ export function createTableView({
     }
     setEmptyStateVisible(false);
     if (tableActionsBar) tableActionsBar.classList.remove('hidden');
+    if (exportToggle && exportToggle.disabled) {
+      exportToggle.disabled = false;
+    }
   };
 
   const clear = () => {
@@ -89,6 +131,8 @@ export function createTableView({
       resultsTable.className = '';
     }
     setEmptyStateVisible(true);
+    if (exportToggle) exportToggle.disabled = true;
+    setExportMenuOpen(false);
   };
 
   const clearUi = () => {
@@ -98,6 +142,8 @@ export function createTableView({
       resultsTable.className = '';
     }
     setEmptyStateVisible(true);
+    if (exportToggle) exportToggle.disabled = true;
+    setExportMenuOpen(false);
   };
 
   const getActive = () => activeResults;

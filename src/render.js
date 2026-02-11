@@ -176,8 +176,11 @@ export function initHome({ api }) {
   const pagePrevBtn = byId("pagePrevBtn");
   const pageNextBtn = byId("pageNextBtn");
   const pageInfo = byId("pageInfo");
+  const tableRefreshBtn = byId("tableRefreshBtn");
   const copyCellBtn = byId("copyCellBtn");
   const copyRowBtn = byId("copyRowBtn");
+  const exportToggle = byId("exportToggle");
+  const exportMenu = byId("exportMenu");
   const exportCsvBtn = byId("exportCsvBtn");
   const exportJsonBtn = byId("exportJsonBtn");
   const refreshSchemaBtn = byId("refreshSchemaBtn");
@@ -266,6 +269,7 @@ export function initHome({ api }) {
   let columnKeyMetaByTableKey = new Map();
   let columnKeyMetaRequestSeq = 0;
   let outputByTabId = new Map();
+  let tableFilterByTabId = new Map();
   let currentOutput = null;
   let historyManager = null;
   let snippetsManager = null;
@@ -3248,6 +3252,9 @@ export function initHome({ api }) {
   const applyTableFilter = async () => {
     const filter = queryFilter ? queryFilter.value.trim() : "";
     const active = tableView ? tableView.getActive() : null;
+    const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    const activeContext =
+      activeTab && activeTab.id ? getObjectContextForTab(activeTab.id) : null;
     const base =
       active && (active.sourceSql || active.baseSql)
         ? active.sourceSql || active.baseSql
@@ -3260,7 +3267,17 @@ export function initHome({ api }) {
       await safeApi.showError("Empty query.");
       return;
     }
+    persistActiveTableFilter(filter);
     if (!filter) {
+      if (activeContext && activeContext.table) {
+        const selectAll = buildSelectAllSql(
+          activeContext.schema,
+          activeContext.table,
+        );
+        lastSort = null;
+        await runSql(selectAll, selectAll);
+        return;
+      }
       lastSort = null;
       await runSql(base, base);
       return;
@@ -3271,10 +3288,49 @@ export function initHome({ api }) {
     await runSql(sql, base);
   };
 
+  const refreshActiveTable = async () => {
+    const active = tableView ? tableView.getActive() : null;
+    const pagination = normalizeSnapshotPagination(active && active.pagination);
+    if (pagination) {
+      await runServerPage({
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+      });
+      return;
+    }
+    const base =
+      active && (active.sourceSql || active.baseSql)
+        ? active.sourceSql || active.baseSql
+        : "";
+    if (!base) {
+      await safeApi.showError("Open a table first.");
+      return;
+    }
+    lastSort = null;
+    await runSql(base, base);
+  };
+
   const updateQueryFilterClearVisibility = () => {
     if (!queryFilterClear) return;
     const hasValue = !!(queryFilter && queryFilter.value);
     queryFilterClear.classList.toggle("hidden", !hasValue);
+  };
+
+  const getActiveFilterTabId = () => {
+    const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
+    return activeTab && activeTab.id ? activeTab.id : null;
+  };
+
+  const readActiveTableFilter = () => {
+    const key = getActiveFilterTabId();
+    if (!key) return "";
+    return tableFilterByTabId.get(key) || "";
+  };
+
+  const persistActiveTableFilter = (value) => {
+    const key = getActiveFilterTabId();
+    if (!key) return;
+    tableFilterByTabId.set(key, String(value || ""));
   };
 
   const quoteIdentifier = (name) => {
@@ -3640,6 +3696,7 @@ export function initHome({ api }) {
     columnKeyMetaByTableKey = new Map();
     columnKeyMetaRequestSeq += 1;
     outputByTabId = new Map();
+    tableFilterByTabId = new Map();
     setOutputDisplay(null);
     if (tableObjectTabsView) {
       tableObjectTabsView.resetScopeCache();
@@ -4688,6 +4745,12 @@ export function initHome({ api }) {
     });
   }
 
+  if (tableRefreshBtn) {
+    tableRefreshBtn.addEventListener("click", async () => {
+      await refreshActiveTable();
+    });
+  }
+
   if (pagePrevBtn) {
     pagePrevBtn.addEventListener("click", async () => {
       const active = tableView ? tableView.getActive() : null;
@@ -4739,6 +4802,7 @@ export function initHome({ api }) {
   if (queryFilter) {
     queryFilter.addEventListener("input", () => {
       updateQueryFilterClearVisibility();
+      persistActiveTableFilter(queryFilter.value || "");
     });
     queryFilter.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -4756,6 +4820,7 @@ export function initHome({ api }) {
         queryFilter.focus();
       }
       updateQueryFilterClearVisibility();
+      persistActiveTableFilter("");
       if (hadFilter) {
         lastSort = null;
         await applyTableFilter();
@@ -4894,6 +4959,9 @@ export function initHome({ api }) {
         for (const id of outputByTabId.keys()) {
           if (!ids.has(id)) outputByTabId.delete(id);
         }
+        for (const id of tableFilterByTabId.keys()) {
+          if (!ids.has(id)) tableFilterByTabId.delete(id);
+        }
         for (const id of objectContextByTabId.keys()) {
           if (!ids.has(id)) objectContextByTabId.delete(id);
         }
@@ -4903,6 +4971,8 @@ export function initHome({ api }) {
       if (!id) {
         applyResultsPanelState({ snapshot: null, objectContext: null });
         setOutputDisplay(null);
+        if (queryFilter) queryFilter.value = "";
+        updateQueryFilterClearVisibility();
         return;
       }
       const activeTab = tabTablesView ? tabTablesView.getActiveTab() : null;
@@ -4916,6 +4986,8 @@ export function initHome({ api }) {
       const snapshot = resultsByTabId.get(id) || null;
       const objectContext = getObjectContextForTab(id);
       applyResultsPanelState({ snapshot, objectContext });
+      if (queryFilter) queryFilter.value = readActiveTableFilter();
+      updateQueryFilterClearVisibility();
       updateRunAvailability();
       updateOutputForActiveTab();
     },
@@ -5086,6 +5158,8 @@ export function initHome({ api }) {
     tableActionsBar,
     copyCellBtn,
     copyRowBtn,
+    exportToggle,
+    exportMenu,
     exportCsvBtn,
     exportJsonBtn,
     onShowError: safeApi.showError,

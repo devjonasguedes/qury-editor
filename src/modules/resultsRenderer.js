@@ -2,6 +2,8 @@ export function createResultsRenderer({
   resultsTable,
   copyCellBtn,
   copyRowBtn,
+  exportToggle,
+  exportMenu,
   exportCsvBtn,
   exportJsonBtn,
   getActiveTab,
@@ -9,6 +11,7 @@ export function createResultsRenderer({
   onSort,
   showError,
   onToast,
+  onExportAvailabilityChange,
   maxRows = 2000
 }) {
   let selectedCell = null;
@@ -23,6 +26,12 @@ export function createResultsRenderer({
     if (copyRowBtn) copyRowBtn.disabled = !selectedRow;
     if (exportCsvBtn) exportCsvBtn.disabled = !hasRows;
     if (exportJsonBtn) exportJsonBtn.disabled = !hasRows;
+    if (exportToggle) exportToggle.disabled = !hasRows;
+    if (!hasRows && exportMenu) {
+      exportMenu.classList.add('hidden');
+      if (exportToggle) exportToggle.setAttribute('aria-expanded', 'false');
+    }
+    if (onExportAvailabilityChange) onExportAvailabilityChange(hasRows);
   }
 
   function setSelection(rowIndex, colIndex, cellEl, rowEl, rowData, columns) {

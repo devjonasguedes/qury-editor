@@ -466,22 +466,45 @@
                 >
                   <i class="bi bi-braces"></i>
                 </button>
-                <button
-                  id="exportCsvBtn"
-                  class="icon-btn mini"
-                  title="Export CSV"
-                  disabled
-                >
-                  <i class="bi bi-filetype-csv"></i>
-                </button>
-                <button
-                  id="exportJsonBtn"
-                  class="icon-btn mini"
-                  title="Export JSON"
-                  disabled
-                >
-                  <i class="bi bi-filetype-json"></i>
-                </button>
+                <div class="table-export-control" id="tableExportControl">
+                  <button
+                    id="exportToggle"
+                    class="export-toggle"
+                    title="Export"
+                    aria-haspopup="menu"
+                    aria-expanded="false"
+                    disabled
+                  >
+                    <i class="bi bi-download"></i>
+                    <span>Export</span>
+                    <i class="bi bi-chevron-down"></i>
+                  </button>
+                  <div
+                    id="exportMenu"
+                    class="export-menu hidden"
+                    role="menu"
+                    aria-label="Export"
+                  >
+                    <button
+                      type="button"
+                      id="exportCsvBtn"
+                      class="export-menu-item"
+                      role="menuitem"
+                      disabled
+                    >
+                      CSV
+                    </button>
+                    <button
+                      type="button"
+                      id="exportJsonBtn"
+                      class="export-menu-item"
+                      role="menuitem"
+                      disabled
+                    >
+                      JSON
+                    </button>
+                  </div>
+                </div>
                 <div id="tablePagination" class="table-pagination hidden">
                   <button
                     id="pagePrevBtn"

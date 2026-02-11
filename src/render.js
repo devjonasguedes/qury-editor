@@ -103,14 +103,14 @@ export function initHome({ api }) {
   const queryStatus = byId("queryStatus");
   const snippetQueryInput = byId("snippetQueryInput");
   const definitionQueryInput = byId("definitionQueryInput");
-  const resultsTableWrap = resultsPanel
-    ? resultsPanel.querySelector(".results-table-wrap")
-    : null;
+  const resultsTableWrap = byId("resultsTableWrap") ||
+    (resultsPanel ? resultsPanel.querySelector(".results-table") : null);
   const tableActionsBar = byId("tableActionsBar");
   const queryFilter = byId("queryFilter");
   const queryFilterClear = byId("queryFilterClear");
   const objectDetailsPanel = byId("objectDetailsPanel");
-  const sidebar = byId("sidebar");
+  const sidebar =
+    byId("sidebar") || (mainScreen ? mainScreen.querySelector(".tables") : null);
   const mainLayout = byId("mainLayout");
   const toast = byId("toast");
   const tabBar = byId("tabBar");
@@ -1297,7 +1297,7 @@ export function initHome({ api }) {
   };
 
   const initSidebarResizer = () => {
-    if (!sidebarResizer || !sidebar || !mainLayout) return;
+    if (!sidebarResizer || !sidebar) return;
     let dragging = false;
     let startX = 0;
     let startWidth = 0;
@@ -2268,6 +2268,7 @@ export function initHome({ api }) {
     let lastRenderableSourceStmt = "";
     let policyApprovalToken = "";
     let firstApprovalAction = "";
+    let firstDangerousAction = "";
     let executedStatements = 0;
     let errorCount = 0;
     let lastErrorMessage = "";
@@ -2278,6 +2279,12 @@ export function initHome({ api }) {
     for (let i = 0; i < statements.length; i += 1) {
       const stmt = normalizeSql(statements[i]);
       if (!stmt) continue;
+      if (!firstDangerousAction && isDangerousStatement(stmt)) {
+        const keyword = firstDmlKeyword(stmt);
+        firstDangerousAction = keyword
+          ? `${keyword.toUpperCase()} without WHERE`
+          : "dangerous statement";
+      }
       const classification = classifyStatementByPolicy(stmt);
       if (!classification) continue;
       const policyLabel = String(
@@ -2332,6 +2339,24 @@ export function initHome({ api }) {
       policyApprovalToken = POLICY_APPROVAL_TOKEN;
     }
 
+    if (firstDangerousAction) {
+      const confirmation = await promptPolicyApproval({
+        policyLabel: "Safety check",
+        actionLabel: firstDangerousAction,
+      });
+      if (
+        String(confirmation || "")
+          .trim()
+          .toUpperCase() !== POLICY_APPROVAL_TOKEN
+      ) {
+        setQueryStatus({
+          state: "error",
+          message: "Canceled by safety check",
+        });
+        return false;
+      }
+    }
+
     const overallStart = Date.now();
     if (
       editorSqlState.codeEditor &&
@@ -2379,26 +2404,6 @@ export function initHome({ api }) {
 
         executedStatements += 1;
         lastExecutedStmt = displayStmt;
-        if (isDangerousStatement(stmt)) {
-          const actionLabel = keyword
-            ? `${keyword.toUpperCase()} without WHERE`
-            : "dangerous statement";
-          const confirmation = await promptPolicyApproval({
-            policyLabel: "Safety check",
-            actionLabel,
-          });
-          if (
-            String(confirmation || "")
-              .trim()
-              .toUpperCase() !== POLICY_APPROVAL_TOKEN
-          ) {
-            setQueryStatus({
-              state: "error",
-              message: "Canceled by safety check",
-            });
-            return false;
-          }
-        }
         let sql = applyDefaultLimit ? applyLimitIfSelect(stmt) : stmt;
         if (useServerPagination && paginationBaseSql) {
           sql = buildServerPaginatedSql(

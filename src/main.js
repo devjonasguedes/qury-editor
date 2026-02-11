@@ -1990,6 +1990,7 @@ function createWindow() {
     windowOptions.vibrancy = "header";
     windowOptions.visualEffectState = "active";
     windowOptions.backgroundColor = "#00000000";
+    windowOptions.trafficLightPosition = { x: 12, y: 15 };
   } else if (isWindows || isLinux) {
     windowOptions.frame = true;
   } else {

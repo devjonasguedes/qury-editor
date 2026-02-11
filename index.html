@@ -13,9 +13,13 @@
   <body>
     <div id="app">
       <header class="topbar">
-        <div class="brand-area"> 
+        <div class="brand-area">
           <div class="brand">Qury Editor</div>
-          <button id="homeBtn" class="icon-btn mini hidden" title="Back to home">
+          <button
+            id="homeBtn"
+            class="icon-btn mini hidden"
+            title="Back to home"
+          >
             <i class="bi bi-house"></i>
           </button>
           <div class="conn-tabs hidden" id="tabConnections"></div>
@@ -23,16 +27,21 @@
         <div class="status-area">
           <span id="connectSpinner" class="spinner hidden"></span>
           <div class="theme-control" id="themeControl">
-            <button 
+            <button
               id="themeToggle"
               class="icon-btn"
               title="Theme"
-              aria-haspopup="menu"  
+              aria-haspopup="menu"
               aria-expanded="false"
             >
               <i class="bi bi-circle-half"></i>
             </button>
-            <div id="themeMenu" class="theme-menu hidden" role="menu" aria-label="Theme">
+            <div
+              id="themeMenu"
+              class="theme-menu hidden"
+              role="menu"
+              aria-label="Theme"
+            >
               <button
                 type="button"
                 class="theme-menu-item"
@@ -83,11 +92,7 @@
             >
               <i class="bi bi-diagram-3"></i>
             </button>
-            <button
-              id="sidebarHistoryBtn"
-              class="sidebar-icon"
-              title="History"
-            >
+            <button id="sidebarHistoryBtn" class="sidebar-icon" title="History">
               <i class="bi bi-clock-history"></i>
             </button>
             <button
@@ -206,11 +211,8 @@
                   <div class="hero-panel-body">
                     <div class="hero-chip">SELECT</div>
                     <div class="hero-query">
-                      SELECT team, deploys, latency_ms
-                      FROM metrics
-                      WHERE env = 'prod'
-                      ORDER BY latency_ms DESC
-                      LIMIT 5;
+                      SELECT team, deploys, latency_ms FROM metrics WHERE env =
+                      'prod' ORDER BY latency_ms DESC LIMIT 5;
                     </div>
                     <div class="hero-results">
                       <div class="hero-row">
@@ -246,30 +248,60 @@
               <div class="onboard-header">
                 <div class="onboard-title-wrap">
                   <div class="connect-title">Saved connections</div>
-                  <div id="savedPolicyFilters" class="saved-policy-filters" role="radiogroup" aria-label="Filter by environment">
+                  <div
+                    id="savedPolicyFilters"
+                    class="saved-policy-filters"
+                    role="radiogroup"
+                    aria-label="Filter by environment"
+                  >
                     <label class="saved-policy-option">
-                      <input type="radio" name="savedPolicyFilter" value="all" checked />
+                      <input
+                        type="radio"
+                        name="savedPolicyFilter"
+                        value="all"
+                        checked
+                      />
                       <span>All</span>
                     </label>
                     <label class="saved-policy-option">
-                      <input type="radio" name="savedPolicyFilter" value="dev" />
+                      <input
+                        type="radio"
+                        name="savedPolicyFilter"
+                        value="dev"
+                      />
                       <span>Dev</span>
                     </label>
                     <label class="saved-policy-option">
-                      <input type="radio" name="savedPolicyFilter" value="staging" />
+                      <input
+                        type="radio"
+                        name="savedPolicyFilter"
+                        value="staging"
+                      />
                       <span>Staging</span>
                     </label>
                     <label class="saved-policy-option">
-                      <input type="radio" name="savedPolicyFilter" value="prod" />
+                      <input
+                        type="radio"
+                        name="savedPolicyFilter"
+                        value="prod"
+                      />
                       <span>Prod</span>
                     </label>
                   </div>
                 </div>
                 <div class="onboard-actions">
-                  <button id="importConnectionsBtn" class="icon-btn mini" title="Import saved connections">
+                  <button
+                    id="importConnectionsBtn"
+                    class="icon-btn mini"
+                    title="Import saved connections"
+                  >
                     <i class="bi bi-upload"></i>
                   </button>
-                  <button id="exportConnectionsBtn" class="icon-btn mini" title="Export saved connections">
+                  <button
+                    id="exportConnectionsBtn"
+                    class="icon-btn mini"
+                    title="Export saved connections"
+                  >
                     <i class="bi bi-download"></i>
                   </button>
                 </div>
@@ -405,10 +437,7 @@
               </div>
             </div>
             <div class="editor-body">
-              <textarea
-                id="query"
-                placeholder="Type your SQL query"
-              ></textarea>
+              <textarea id="query" placeholder="Type your SQL query"></textarea>
             </div>
           </div>
           <div id="editorResizer" class="editor-resizer hidden"></div>
@@ -443,11 +472,7 @@
                 >
                   <i class="bi bi-arrow-clockwise"></i>
                 </button>
-                <button
-                  id="countBtn"
-                  class="icon-btn mini"
-                  title="Count rows"
-                >
+                <button id="countBtn" class="icon-btn mini" title="Count rows">
                   <i class="bi bi-123"></i>
                 </button>
                 <button
@@ -529,7 +554,9 @@
             <div id="objectDetailsPanel" class="object-details hidden"></div>
             <div class="results-table" id="resultsTableWrap">
               <div id="resultsEmptyState" class="results-empty-state">
-                <div class="results-empty-icon"><i class="bi bi-table"></i></div>
+                <div class="results-empty-icon">
+                  <i class="bi bi-table"></i>
+                </div>
                 <div class="results-empty-title">No results yet</div>
                 <div class="results-empty-subtitle">
                   Run a query or open a table and execute it to see data here.
@@ -576,7 +603,12 @@
               </button>
             </div>
             <div class="connect-form">
-              <div class="connect-settings-tabs" id="connectSettingsTabs" role="tablist" aria-label="Connection tabs">
+              <div
+                class="connect-settings-tabs"
+                id="connectSettingsTabs"
+                role="tablist"
+                aria-label="Connection tabs"
+              >
                 <button
                   type="button"
                   class="connect-settings-tab active"
@@ -610,7 +642,10 @@
                     </select>
                   </div>
 
-                  <div id="sqliteFields" class="field span-2 sqlite-fields hidden">
+                  <div
+                    id="sqliteFields"
+                    class="field span-2 sqlite-fields hidden"
+                  >
                     <label>SQLite database</label>
                     <div class="sqlite-mode-options">
                       <label class="sqlite-mode-option">
@@ -634,11 +669,22 @@
                       </label>
                     </div>
                     <div class="sqlite-path-input">
-                      <input id="sqlitePath" placeholder="Select a database file..." readonly />
-                      <button id="sqliteBrowseBtn" type="button" class="secondary">Browse</button>
+                      <input
+                        id="sqlitePath"
+                        placeholder="Select a database file..."
+                        readonly
+                      />
+                      <button
+                        id="sqliteBrowseBtn"
+                        type="button"
+                        class="secondary"
+                      >
+                        Browse
+                      </button>
                     </div>
                     <div class="field-hint">
-                      SQLite uses a local file. Choose where to create or select an existing database.
+                      SQLite uses a local file. Choose where to create or select
+                      an existing database.
                     </div>
                   </div>
 
@@ -669,7 +715,10 @@
 
                   <div class="field span-2 connection-url-field">
                     <label>URL</label>
-                    <input id="connectionUrl" placeholder="postgresql://user:password@host:5432/database" />
+                    <input
+                      id="connectionUrl"
+                      placeholder="postgresql://user:password@host:5432/database"
+                    />
                     <div class="field-hint">URL overrides settings above.</div>
                   </div>
                 </div>
@@ -700,23 +749,32 @@
                         <input id="readOnly" type="checkbox" />
                         Block writes and DDL
                       </label>
-                      <div class="field-hint">Recommended for production credentials.</div>
+                      <div class="field-hint">
+                        Recommended for production credentials.
+                      </div>
                     </div>
                     <div class="access-control access-policy">
-                      <label class="access-control-title" for="policyMode">Environment policy</label>
+                      <label class="access-control-title" for="policyMode"
+                        >Environment policy</label
+                      >
                       <select id="policyMode">
                         <option value="dev">Dev</option>
                         <option value="staging">Staging</option>
                         <option value="prod">Prod</option>
                       </select>
-                      <div class="field-hint">Defines default execution safety for this connection.</div>
+                      <div class="field-hint">
+                        Defines default execution safety for this connection.
+                      </div>
                     </div>
                   </div>
 
                   <div id="sshFields" class="ssh-fields hidden">
                     <div class="field">
                       <label>SSH Host</label>
-                      <input id="sshHost" placeholder="ex: bastion.company.com" />
+                      <input
+                        id="sshHost"
+                        placeholder="ex: bastion.company.com"
+                      />
                     </div>
 
                     <div class="field">
@@ -756,7 +814,10 @@
                 </div>
               </section>
 
-              <section id="connectSectionSave" class="connect-section save-only save-settings hidden">
+              <section
+                id="connectSectionSave"
+                class="connect-section save-only save-settings hidden"
+              >
                 <div class="connect-section-title">Save</div>
                 <div class="field">
                   <label>Connection name</label>
@@ -828,7 +889,9 @@
               </div>
 
               <div class="actions end">
-                <button id="credentialCancelBtn" class="secondary">Cancel</button>
+                <button id="credentialCancelBtn" class="secondary">
+                  Cancel
+                </button>
                 <button id="credentialConfirmBtn">Connect</button>
               </div>
             </div>
@@ -849,7 +912,11 @@
                   Type PROCEED to continue.
                 </div>
               </div>
-              <button id="policyApprovalCloseBtn" class="icon-btn" title="Close">
+              <button
+                id="policyApprovalCloseBtn"
+                class="icon-btn"
+                title="Close"
+              >
                 <i class="bi bi-x"></i>
               </button>
             </div>
@@ -865,7 +932,9 @@
                 />
               </div>
               <div class="actions end">
-                <button id="policyApprovalCancelBtn" class="secondary">Cancel</button>
+                <button id="policyApprovalCancelBtn" class="secondary">
+                  Cancel
+                </button>
                 <button id="policyApprovalConfirmBtn">Continue</button>
               </div>
             </div>
@@ -890,10 +959,7 @@
             </div>
             <div class="field">
               <label>Snippet name</label>
-              <input
-                id="snippetNameInput"
-                placeholder="e.g. Pending orders"
-              />
+              <input id="snippetNameInput" placeholder="e.g. Pending orders" />
             </div>
             <div class="field">
               <label>Query</label>
@@ -927,7 +993,12 @@
               </button>
             </div>
 
-            <div class="settings-tabs" id="settingsTabs" role="tablist" aria-label="Settings tabs">
+            <div
+              class="settings-tabs"
+              id="settingsTabs"
+              role="tablist"
+              aria-label="Settings tabs"
+            >
               <button
                 type="button"
                 class="settings-tab active"
@@ -970,7 +1041,10 @@
                 </div>
                 <div class="field">
                   <label for="settingsSessionTimezone">Timezone</label>
-                  <div id="settingsSessionTimezoneCombobox" class="timezone-combobox">
+                  <div
+                    id="settingsSessionTimezoneCombobox"
+                    class="timezone-combobox"
+                  >
                     <input
                       id="settingsSessionTimezone"
                       placeholder="UTC or America/Barbados"
@@ -990,13 +1064,21 @@
                     >
                       <i class="bi bi-chevron-down"></i>
                     </button>
-                    <div id="settingsSessionTimezoneMenu" class="timezone-menu hidden">
-                      <div id="settingsSessionTimezoneOptions" class="timezone-options" role="listbox"></div>
+                    <div
+                      id="settingsSessionTimezoneMenu"
+                      class="timezone-menu hidden"
+                    >
+                      <div
+                        id="settingsSessionTimezoneOptions"
+                        class="timezone-options"
+                        role="listbox"
+                      ></div>
                     </div>
                   </div>
                 </div>
                 <div class="settings-note">
-                  Type an IANA timezone (example: America/Barbados) or choose from the list.
+                  Type an IANA timezone (example: America/Barbados) or choose
+                  from the list.
                 </div>
               </div>
             </div>
@@ -1010,10 +1092,15 @@
               <div class="settings-section">
                 <div class="settings-section-title">Error handling</div>
                 <div class="settings-note">
-                  Controls how SQL execution errors are displayed and handled when running multiple statements.
+                  Controls how SQL execution errors are displayed and handled
+                  when running multiple statements.
                 </div>
                 <label class="settings-option">
-                  <input id="settingsErrorStopOnFirst" type="checkbox" checked />
+                  <input
+                    id="settingsErrorStopOnFirst"
+                    type="checkbox"
+                    checked
+                  />
                   <span>Stop on first error</span>
                 </label>
                 <label class="settings-option">
@@ -1021,15 +1108,29 @@
                   <span>Continue on error</span>
                 </label>
                 <label class="settings-option">
-                  <input id="settingsErrorAutoOpenOutput" type="checkbox" checked />
+                  <input
+                    id="settingsErrorAutoOpenOutput"
+                    type="checkbox"
+                    checked
+                  />
                   <span>Auto-open output log on error</span>
                 </label>
                 <label class="settings-option">
-                  <input id="settingsErrorShowDetailedCode" type="checkbox" checked />
-                  <span>Show detailed DB error code (SQLSTATE/vendor code)</span>
+                  <input
+                    id="settingsErrorShowDetailedCode"
+                    type="checkbox"
+                    checked
+                  />
+                  <span
+                    >Show detailed DB error code (SQLSTATE/vendor code)</span
+                  >
                 </label>
                 <label class="settings-option">
-                  <input id="settingsErrorHideSensitive" type="checkbox" checked />
+                  <input
+                    id="settingsErrorHideSensitive"
+                    type="checkbox"
+                    checked
+                  />
                   <span>Hide sensitive values in errors</span>
                 </label>
                 <label class="settings-option">
@@ -1040,27 +1141,53 @@
               <div class="settings-section">
                 <div class="settings-section-title">Connection timeouts</div>
                 <div class="settings-note">
-                  Timeouts in milliseconds. Use <code>0</code> to disable connection open timeout.
+                  Timeouts in milliseconds. Use <code>0</code> to disable
+                  connection open timeout.
                 </div>
                 <div class="settings-timeout-grid">
                   <div class="field">
-                    <label for="settingsConnectionOpenTimeout">Connection open (ms)</label>
-                    <input id="settingsConnectionOpenTimeout" type="number" min="0" step="100" inputmode="numeric" />
+                    <label for="settingsConnectionOpenTimeout"
+                      >Connection open (ms)</label
+                    >
+                    <input
+                      id="settingsConnectionOpenTimeout"
+                      type="number"
+                      min="0"
+                      step="100"
+                      inputmode="numeric"
+                    />
                   </div>
                   <div class="field">
-                    <label for="settingsConnectionCloseTimeout">Connection close (ms)</label>
-                    <input id="settingsConnectionCloseTimeout" type="number" min="0" step="100" inputmode="numeric" />
+                    <label for="settingsConnectionCloseTimeout"
+                      >Connection close (ms)</label
+                    >
+                    <input
+                      id="settingsConnectionCloseTimeout"
+                      type="number"
+                      min="0"
+                      step="100"
+                      inputmode="numeric"
+                    />
                   </div>
                   <div class="field">
-                    <label for="settingsConnectionValidationTimeout">Connection validation (ms)</label>
-                    <input id="settingsConnectionValidationTimeout" type="number" min="0" step="100" inputmode="numeric" />
+                    <label for="settingsConnectionValidationTimeout"
+                      >Connection validation (ms)</label
+                    >
+                    <input
+                      id="settingsConnectionValidationTimeout"
+                      type="number"
+                      min="0"
+                      step="100"
+                      inputmode="numeric"
+                    />
                   </div>
                 </div>
               </div>
               <div class="settings-section">
                 <div class="settings-section-title">Query defaults</div>
                 <div class="settings-note">
-                  Choose default LIMIT and timeout values used in the SQL editor.
+                  Choose default LIMIT and timeout values used in the SQL
+                  editor.
                 </div>
                 <div class="settings-general-grid">
                   <div class="field">
@@ -1100,7 +1227,9 @@
                   <div class="env-policy-header">Environment</div>
                   <div class="env-policy-header">Allow write (DML)</div>
                   <div class="env-policy-header">Allow DDL/Admin</div>
-                  <div class="env-policy-header">Require typed confirmation</div>
+                  <div class="env-policy-header">
+                    Require typed confirmation
+                  </div>
 
                   <div class="env-policy-label">Dev</div>
                   <label class="env-policy-toggle">
@@ -1126,7 +1255,10 @@
                     <span>Enabled</span>
                   </label>
                   <label class="env-policy-toggle">
-                    <input id="envPolicyStagingRequireApproval" type="checkbox" />
+                    <input
+                      id="envPolicyStagingRequireApproval"
+                      type="checkbox"
+                    />
                     <span>PROCEED</span>
                   </label>
 
@@ -1149,7 +1281,9 @@
 
             <div class="actions end">
               <button id="settingsCancelBtn" class="secondary">Cancel</button>
-              <button id="settingsResetDefaultsBtn" class="secondary">Reset defaults</button>
+              <button id="settingsResetDefaultsBtn" class="secondary">
+                Reset defaults
+              </button>
               <button id="settingsSaveBtn">Save</button>
             </div>
           </div>
@@ -1207,7 +1341,11 @@
               </button>
             </div>
             <div class="definition-toolbar">
-              <button id="definitionFormatBtn" class="secondary" title="Format SQL">
+              <button
+                id="definitionFormatBtn"
+                class="secondary"
+                title="Format SQL"
+              >
                 <i class="bi bi-braces"></i>
                 Format
               </button>
@@ -1221,13 +1359,21 @@
               </button>
             </div>
             <div class="definition-editor">
-              <textarea id="definitionQueryInput" placeholder="SQL definition"></textarea>
+              <textarea
+                id="definitionQueryInput"
+                placeholder="SQL definition"
+              ></textarea>
             </div>
           </div>
         </div>
       </div>
 
-      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+      <div
+        id="toast"
+        class="toast hidden"
+        role="status"
+        aria-live="polite"
+      ></div>
     </div>
 
     <script type="module" src="/src/app.js"></script>

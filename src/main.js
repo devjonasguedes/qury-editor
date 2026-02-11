@@ -1987,6 +1987,9 @@ function createWindow() {
   };
   if (isMac) {
     windowOptions.titleBarStyle = "hiddenInset";
+    windowOptions.vibrancy = "header";
+    windowOptions.visualEffectState = "active";
+    windowOptions.backgroundColor = "#00000000";
   } else if (isWindows || isLinux) {
     windowOptions.frame = true;
   } else {

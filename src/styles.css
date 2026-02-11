@@ -190,6 +190,25 @@ body {
   color: var(--text);
 }
 
+:root[data-platform="darwin"] body {
+  background: transparent;
+}
+
+:root[data-platform="darwin"] #app {
+  background: transparent;
+}
+
+:root[data-platform="darwin"] .main {
+  background: var(--bg);
+}
+
+:root[data-platform="darwin"] .topbar {
+  background: rgba(28, 28, 30, 0.50);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
 ::selection {
   background: var(--selection);
   color: var(--selected-text);
@@ -203,6 +222,11 @@ body {
 body.theme-light .topbar {
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
+}
+
+:root[data-platform="darwin"] body.theme-light .topbar {
+  background: rgba(255, 255, 255, 0.68);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.12);
 }
 
 body.theme-light .conn-status {

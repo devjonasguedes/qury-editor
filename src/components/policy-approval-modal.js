@@ -1,6 +1,7 @@
 // Policy approval modal - requires confirmation for dangerous operations in production
 
-export const POLICY_APPROVAL_TOKEN = 'PROCEED';
+import { POLICY_APPROVAL_TOKEN } from '../constants/policyApproval.js';
+export { POLICY_APPROVAL_TOKEN };
 
 export function createPolicyApprovalModal() {
   const modal = document.getElementById('policyApprovalModal');

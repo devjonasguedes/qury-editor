@@ -15,6 +15,13 @@ export function createSavedConnections({
   const importConnectionsBtn = document.getElementById("importConnectionsBtn");
   const exportConnectionsBtn = document.getElementById("exportConnectionsBtn");
 
+  const setLoading = (loading) => {
+    const isLoading = !!loading;
+    if (importConnectionsBtn) importConnectionsBtn.disabled = isLoading;
+    if (exportConnectionsBtn) exportConnectionsBtn.disabled = isLoading;
+    if (savedList) savedList.classList.toggle("is-connecting", isLoading);
+  };
+
   const renderSavedList = async () => {
     if (!savedList) return;
     let entries = [];
@@ -160,7 +167,17 @@ export function createSavedConnections({
         if (res?.canceled) return;
         if (showToast) showToast(`Exported ${res?.count || 0} connection(s)`);
       } catch (err) {
+        const message = err && err.message ? err.message : "";
         console.error("Failed to export", err);
+        if (
+          message.includes("No handler registered for 'connections:export'")
+        ) {
+          if (showError)
+            showError(
+              "Export unavailable in this running process. Restart the app and try again.",
+            );
+          return;
+        }
         if (showError) showError("Failed to export saved connections.");
       }
     });
@@ -169,12 +186,36 @@ export function createSavedConnections({
   if (importConnectionsBtn) {
     importConnectionsBtn.addEventListener("click", async () => {
       try {
+        const confirmed = confirm(
+          "Importar conexoes pode atualizar conexoes existentes com o mesmo nome ou configuracao similar. Deseja continuar?",
+        );
+        if (!confirmed) return;
         const res = await connectionsApi.importConnections();
         if (res?.canceled) return;
-        if (showToast) showToast(`Imported ${res?.count || 0} connection(s)`);
+        if (showToast) {
+          const added = Number(res?.added);
+          const updated = Number(res?.updated);
+          if (Number.isFinite(added) || Number.isFinite(updated)) {
+            showToast(
+              `Imported ${Number.isFinite(added) ? added : 0} new, updated ${Number.isFinite(updated) ? updated : 0}`,
+            );
+          } else {
+            showToast(`Imported ${res?.count || 0} connection(s)`);
+          }
+        }
         await renderSavedList();
       } catch (err) {
+        const message = err && err.message ? err.message : "";
         console.error("Failed to import", err);
+        if (
+          message.includes("No handler registered for 'connections:import'")
+        ) {
+          if (showError)
+            showError(
+              "Import unavailable in this running process. Restart the app and try again.",
+            );
+          return;
+        }
         if (showError) showError("Failed to import saved connections.");
       }
     });
@@ -182,5 +223,6 @@ export function createSavedConnections({
 
   return {
     renderSavedList,
+    setLoading,
   };
 }

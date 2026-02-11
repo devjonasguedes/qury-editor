@@ -1,41 +1,59 @@
 import { format as formatSql } from "sql-formatter";
 
+import { createConnectModal } from "./components/connect-modal.js";
+import { createCredentialModal } from "./components/credential-modal.js";
+import { createPolicyApprovalModal } from "./components/policy-approval-modal.js";
+import { POLICY_APPROVAL_TOKEN } from "./constants/policyApproval.js";
+import { createQuickConnect } from "./components/quick-connect.js";
+import { createSavedConnections } from "./components/saved-connections.js";
+import { createSettingsModal } from "./components/settings-modal.js";
+import { createCodeEditor } from "./modules/codeEditor.js";
 import {
-  getConnectionScopeKey,
   connectionTitle,
-  getEntrySshConfig,
+  getConnectionScopeKey,
   getEntryPolicyMode,
+  getEntrySshConfig,
   isEntryReadOnly,
   isEntrySsh,
 } from "./modules/connectionUtils.js";
-import { readJson, writeJson } from "./modules/storage.js";
-import { createTreeView } from "./modules/treeView.js";
-import { createTabConnections } from "./modules/tabConnections.js";
-import { createTabTables } from "./modules/tabTables.js";
-import { createCodeEditor } from "./modules/codeEditor.js";
-import { createTableView } from "./modules/tableView.js";
-import { createTableObjectTabs } from "./modules/tableObjectTabs.js";
 import { createQueryHistory } from "./modules/queryHistory.js";
 import { createSnippetsManager } from "./modules/snippets.js";
 import { createSqlAutocomplete } from "./modules/sqlAutocomplete.js";
-import { createSavedConnections } from "./components/saved-connections.js";
-import { createConnectModal } from "./components/connect-modal.js";
-import { createQuickConnect } from "./components/quick-connect.js";
-import { createCredentialModal } from "./components/credential-modal.js";
-import { createSettingsModal } from "./components/settings-modal.js";
-import { createPolicyApprovalModal } from "./components/policy-approval-modal.js";
-import { createThemeManager } from "./services/themeManager.js";
-import { POLICY_APPROVAL_TOKEN } from "./components/policy-approval-modal.js";
+import { readJson, writeJson } from "./modules/storage.js";
+import { createTabConnections } from "./modules/tabConnections.js";
+import { createTableObjectTabs } from "./modules/tableObjectTabs.js";
+import { createTableView } from "./modules/tableView.js";
+import { createTabTables } from "./modules/tabTables.js";
+import { createTreeView } from "./modules/treeView.js";
 import {
-  POLICY_MODE_DEV,
-  POLICY_MODE_STAGING,
-  POLICY_MODE_PROD,
+  SESSION_TIMEZONE_ITEMS,
+  SESSION_TIMEZONE_ITEM_BY_ID,
+  SESSION_TIMEZONE_VALUES,
+} from "./constants/sessionTimezones.js";
+import {
+  CONNECTION_TIMEOUT_DEFAULTS,
+  DEFAULT_SESSION_TIMEZONE,
+  EDITOR_FONT_SIZE_DEFAULTS,
+  ERROR_HANDLING_DEFAULTS,
+  QUERY_DEFAULTS,
+  QUERY_PROGRESS_SHOW_DELAY_MS,
+  SERVER_PAGE_SIZE_DEFAULT,
+  SERVER_PAGE_SIZE_MAX,
+  SESSION_TIMEZONE_SYSTEM,
+  SESSION_TIMEZONE_SYSTEM_LABEL,
+  STORAGE_KEYS,
+} from "./constants/appDefaults.js";
+import {
   ENVIRONMENT_POLICY_DEFAULTS,
+  POLICY_MODE_DEV,
+  POLICY_MODE_PROD,
+  POLICY_MODE_STAGING,
+  classifyStatementByPolicy,
   cloneEnvironmentPolicyRules,
   normalizeEnvironmentPolicyRules,
   resolveEnvironmentPoliciesPayload,
-  classifyStatementByPolicy,
 } from "./services/policyManager.js";
+import { createThemeManager } from "./services/themeManager.js";
 import {
   firstDmlKeyword,
   insertWhere,
@@ -44,205 +62,6 @@ import {
   splitStatementsWithRanges,
   stripLeadingComments,
 } from "./sql.js";
-
-
-const SIDEBAR_KEY = "sqlEditor.sidebarWidth";
-const EDITOR_HEIGHT_KEY = "sqlEditor.editorHeight";
-const EDITOR_FONT_SIZE_KEY = "sqlEditor.editorFontSize";
-const EDITOR_COLLAPSED_KEY_PREFIX = "sqlEditor.editorCollapsed";
-const QUERY_DEFAULT_LIMIT_KEY = "sqlEditor.defaultLimit";
-const QUERY_DEFAULT_TIMEOUT_KEY = "sqlEditor.defaultTimeout";
-const SESSION_TIMEZONE_KEY = "sqlEditor.sessionTimezone";
-const CONNECTION_OPEN_TIMEOUT_KEY = "sqlEditor.connectionOpenTimeoutMs";
-const CONNECTION_CLOSE_TIMEOUT_KEY = "sqlEditor.connectionCloseTimeoutMs";
-const CONNECTION_VALIDATION_TIMEOUT_KEY =
-  "sqlEditor.connectionValidationTimeoutMs";
-const ERROR_STOP_ON_FIRST_KEY = "sqlEditor.errorStopOnFirst";
-const ERROR_CONTINUE_ON_ERROR_KEY = "sqlEditor.errorContinueOnError";
-const ERROR_AUTO_OPEN_OUTPUT_KEY = "sqlEditor.errorAutoOpenOutput";
-const ERROR_SHOW_DETAILED_CODE_KEY = "sqlEditor.errorShowDetailedCode";
-const ERROR_HIDE_SENSITIVE_KEY = "sqlEditor.errorHideSensitive";
-const ERROR_RETRY_TRANSIENT_KEY = "sqlEditor.errorRetryTransient";
-const QUERY_DEFAULTS = Object.freeze({
-  limit: "100",
-  timeoutMs: "30000",
-});
-const CONNECTION_TIMEOUT_DEFAULTS = Object.freeze({
-  openMs: "10000",
-  closeMs: "5000",
-  validationMs: "10000",
-});
-const ERROR_HANDLING_DEFAULTS = Object.freeze({
-  stopOnFirstError: true,
-  continueOnError: false,
-  autoOpenOutputOnError: true,
-  showDetailedDbErrorCode: true,
-  hideSensitiveValuesInErrors: true,
-  retryTransientSelectErrors: false,
-});
-const DEFAULT_SESSION_TIMEZONE = "UTC";
-const SESSION_TIMEZONE_SYSTEM = "SYSTEM";
-const SESSION_TIMEZONE_SYSTEM_LABEL = "Use system timezone";
-const SESSION_TIMEZONE_ITEMS = Object.freeze([
-  { id: "UTC", label: "UTC", offset: 0, gmt: "GMT+00:00" },
-
-  {
-    id: "America/Sao_Paulo",
-    label: "Brasilia / Sao Paulo",
-    offset: -180,
-    gmt: "GMT-03:00",
-  },
-  { id: "America/Manaus", label: "Manaus", offset: -240, gmt: "GMT-04:00" },
-  { id: "America/Cuiaba", label: "Cuiaba", offset: -240, gmt: "GMT-04:00" },
-  { id: "America/Belem", label: "Belem", offset: -180, gmt: "GMT-03:00" },
-  {
-    id: "America/Porto_Velho",
-    label: "Porto Velho",
-    offset: -240,
-    gmt: "GMT-04:00",
-  },
-  {
-    id: "America/Rio_Branco",
-    label: "Rio Branco",
-    offset: -300,
-    gmt: "GMT-05:00",
-  },
-  {
-    id: "America/Noronha",
-    label: "Fernando de Noronha",
-    offset: -120,
-    gmt: "GMT-02:00",
-  },
-
-  {
-    id: "America/New_York",
-    label: "New York (ET)",
-    offset: -300,
-    gmt: "GMT-05:00",
-  },
-  {
-    id: "America/Chicago",
-    label: "Chicago (CT)",
-    offset: -360,
-    gmt: "GMT-06:00",
-  },
-  {
-    id: "America/Denver",
-    label: "Denver (MT)",
-    offset: -420,
-    gmt: "GMT-07:00",
-  },
-  {
-    id: "America/Los_Angeles",
-    label: "Los Angeles (PT)",
-    offset: -480,
-    gmt: "GMT-08:00",
-  },
-  { id: "America/Phoenix", label: "Phoenix", offset: -420, gmt: "GMT-07:00" },
-  { id: "America/Toronto", label: "Toronto", offset: -300, gmt: "GMT-05:00" },
-  {
-    id: "America/Vancouver",
-    label: "Vancouver",
-    offset: -480,
-    gmt: "GMT-08:00",
-  },
-
-  {
-    id: "America/Mexico_City",
-    label: "Mexico City",
-    offset: -360,
-    gmt: "GMT-06:00",
-  },
-  { id: "America/Bogota", label: "Bogota", offset: -300, gmt: "GMT-05:00" },
-  { id: "America/Lima", label: "Lima", offset: -300, gmt: "GMT-05:00" },
-  { id: "America/Santiago", label: "Santiago", offset: -240, gmt: "GMT-04:00" },
-  {
-    id: "America/Buenos_Aires",
-    label: "Buenos Aires",
-    offset: -180,
-    gmt: "GMT-03:00",
-  },
-  {
-    id: "America/Montevideo",
-    label: "Montevideo",
-    offset: -180,
-    gmt: "GMT-03:00",
-  },
-  { id: "America/Asuncion", label: "Asuncion", offset: -240, gmt: "GMT-04:00" },
-  { id: "America/Caracas", label: "Caracas", offset: -240, gmt: "GMT-04:00" },
-
-  { id: "Europe/London", label: "London", offset: 0, gmt: "GMT+00:00" },
-  { id: "Europe/Dublin", label: "Dublin", offset: 0, gmt: "GMT+00:00" },
-  { id: "Europe/Lisbon", label: "Lisbon", offset: 0, gmt: "GMT+00:00" },
-  { id: "Europe/Paris", label: "Paris", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Madrid", label: "Madrid", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Berlin", label: "Berlin", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Rome", label: "Rome", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Amsterdam", label: "Amsterdam", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Brussels", label: "Brussels", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Zurich", label: "Zurich", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Vienna", label: "Vienna", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Stockholm", label: "Stockholm", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Warsaw", label: "Warsaw", offset: 60, gmt: "GMT+01:00" },
-  { id: "Europe/Athens", label: "Athens", offset: 120, gmt: "GMT+02:00" },
-  { id: "Europe/Helsinki", label: "Helsinki", offset: 120, gmt: "GMT+02:00" },
-  { id: "Europe/Istanbul", label: "Istanbul", offset: 180, gmt: "GMT+03:00" },
-  { id: "Europe/Moscow", label: "Moscow", offset: 180, gmt: "GMT+03:00" },
-
-  {
-    id: "Africa/Johannesburg",
-    label: "Johannesburg",
-    offset: 120,
-    gmt: "GMT+02:00",
-  },
-  { id: "Africa/Cairo", label: "Cairo", offset: 120, gmt: "GMT+02:00" },
-  { id: "Africa/Nairobi", label: "Nairobi", offset: 180, gmt: "GMT+03:00" },
-  { id: "Africa/Lagos", label: "Lagos", offset: 60, gmt: "GMT+01:00" },
-  {
-    id: "Africa/Casablanca",
-    label: "Casablanca",
-    offset: 60,
-    gmt: "GMT+01:00",
-  },
-
-  { id: "Asia/Dubai", label: "Dubai", offset: 240, gmt: "GMT+04:00" },
-  { id: "Asia/Riyadh", label: "Riyadh", offset: 180, gmt: "GMT+03:00" },
-  { id: "Asia/Kolkata", label: "Kolkata", offset: 330, gmt: "GMT+05:30" },
-  { id: "Asia/Bangkok", label: "Bangkok", offset: 420, gmt: "GMT+07:00" },
-  { id: "Asia/Singapore", label: "Singapore", offset: 480, gmt: "GMT+08:00" },
-  { id: "Asia/Hong_Kong", label: "Hong Kong", offset: 480, gmt: "GMT+08:00" },
-  { id: "Asia/Shanghai", label: "Shanghai", offset: 480, gmt: "GMT+08:00" },
-  { id: "Asia/Taipei", label: "Taipei", offset: 480, gmt: "GMT+08:00" },
-  { id: "Asia/Seoul", label: "Seoul", offset: 540, gmt: "GMT+09:00" },
-  { id: "Asia/Tokyo", label: "Tokyo", offset: 540, gmt: "GMT+09:00" },
-  { id: "Asia/Jakarta", label: "Jakarta", offset: 420, gmt: "GMT+07:00" },
-  { id: "Asia/Manila", label: "Manila", offset: 480, gmt: "GMT+08:00" },
-
-  { id: "Australia/Sydney", label: "Sydney", offset: 600, gmt: "GMT+10:00" },
-  {
-    id: "Australia/Melbourne",
-    label: "Melbourne",
-    offset: 600,
-    gmt: "GMT+10:00",
-  },
-  {
-    id: "Australia/Brisbane",
-    label: "Brisbane",
-    offset: 600,
-    gmt: "GMT+10:00",
-  },
-  { id: "Australia/Perth", label: "Perth", offset: 480, gmt: "GMT+08:00" },
-  { id: "Pacific/Auckland", label: "Auckland", offset: 720, gmt: "GMT+12:00" },
-]);
-const SESSION_TIMEZONE_VALUES = new Set(
-  SESSION_TIMEZONE_ITEMS.map((item) => item.id),
-);
-const SESSION_TIMEZONE_ITEM_BY_ID = new Map(
-  SESSION_TIMEZONE_ITEMS.map((item) => [item.id, item]),
-);
-const QUERY_PROGRESS_SHOW_DELAY_MS = 5000;
-const SERVER_PAGE_SIZE_DEFAULT = 100;
-const SERVER_PAGE_SIZE_MAX = 1000;
 
 
 export function initHome({ api }) {
@@ -414,21 +233,7 @@ export function initHome({ api }) {
   const settingsSessionTimezoneCombobox = byId(
     "settingsSessionTimezoneCombobox",
   );
-  const settingsSessionTimezone = byId("settingsSessionTimezone");
-  const settingsSessionTimezoneToggle = byId("settingsSessionTimezoneToggle");
-  const settingsSessionTimezoneMenu = byId("settingsSessionTimezoneMenu");
-  const settingsSessionTimezoneOptions = byId("settingsSessionTimezoneOptions");
-  const settingsConnectionOpenTimeout = byId("settingsConnectionOpenTimeout");
-  const settingsConnectionCloseTimeout = byId("settingsConnectionCloseTimeout");
-  const settingsConnectionValidationTimeout = byId(
-    "settingsConnectionValidationTimeout",
-  );
-  const settingsErrorStopOnFirst = byId("settingsErrorStopOnFirst");
-  const settingsErrorContinueOnError = byId("settingsErrorContinueOnError");
-  const settingsErrorAutoOpenOutput = byId("settingsErrorAutoOpenOutput");
-  const settingsErrorShowDetailedCode = byId("settingsErrorShowDetailedCode");
-  const settingsErrorHideSensitive = byId("settingsErrorHideSensitive");
-  const settingsErrorRetryTransient = byId("settingsErrorRetryTransient");
+
   const settingsDefaultLimit = byId("settingsDefaultLimit");
   const settingsDefaultTimeout = byId("settingsDefaultTimeout");
   const envPolicyDevAllowWrite = byId("envPolicyDevAllowWrite");
@@ -470,16 +275,17 @@ export function initHome({ api }) {
   let queryProgressStartedAt = 0;
   let editingConnectionSeed = null;
   let environmentPolicyRules = null;
-  let activeSettingsTab = "general";
+  let settingsModalComponent = null;
+  let connectModalComponent = null;
   let activeConnectSettingsTab = "connection";
   let activeConnectMode = "full";
   let sessionTimezoneOptionItems = [];
   let sessionTimezoneVisibleItems = [];
   let sessionTimezoneHighlightedIndex = -1;
   let sessionTimezoneMenuOpen = false;
-  const DEFAULT_EDITOR_FONT_SIZE = 14;
-  const MIN_EDITOR_FONT_SIZE = 12;
-  const MAX_EDITOR_FONT_SIZE = 16;
+  const DEFAULT_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.DEFAULT;
+  const MIN_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.MIN;
+  const MAX_EDITOR_FONT_SIZE = EDITOR_FONT_SIZE_DEFAULTS.MAX;
 
   const dbApi =
     typeof window !== "undefined" && window.api && window.api.db
@@ -564,11 +370,7 @@ export function initHome({ api }) {
     }
   };
 
-
-
   // applyTheme, updateThemeUi, setThemeMode, setThemeMenuOpen, loadThemeMode, and theme management now in themeManager
-
-
 
   const setEnvironmentPolicyRules = (rules) => {
     environmentPolicyRules = normalizeEnvironmentPolicyRules(
@@ -707,62 +509,24 @@ export function initHome({ api }) {
   const setSessionTimezoneMenuOpen = (open) => {
     const nextOpen = !!open;
     sessionTimezoneMenuOpen = nextOpen;
-    if (settingsSessionTimezoneMenu)
-      settingsSessionTimezoneMenu.classList.toggle("hidden", !nextOpen);
-    if (settingsSessionTimezoneCombobox)
-      settingsSessionTimezoneCombobox.classList.toggle("open", nextOpen);
-    if (settingsSessionTimezone)
-      settingsSessionTimezone.setAttribute(
-        "aria-expanded",
-        nextOpen ? "true" : "false",
-      );
-    if (settingsSessionTimezoneToggle)
-      settingsSessionTimezoneToggle.setAttribute(
-        "aria-expanded",
-        nextOpen ? "true" : "false",
-      );
+    if (settingsModalComponent) {
+      settingsModalComponent.setSessionTimezoneMenuOpen(nextOpen);
+    }
     if (!nextOpen) sessionTimezoneHighlightedIndex = -1;
   };
 
   const renderSessionTimezoneMenu = () => {
-    if (!settingsSessionTimezoneOptions) return;
-    settingsSessionTimezoneOptions.innerHTML = "";
-    if (!sessionTimezoneVisibleItems.length) {
-      const empty = document.createElement("div");
-      empty.className = "timezone-empty";
-      empty.textContent = "No timezones found";
-      settingsSessionTimezoneOptions.appendChild(empty);
-      return;
-    }
-    sessionTimezoneVisibleItems.forEach((item, index) => {
-      const option = document.createElement("button");
-      option.type = "button";
-      option.className = "timezone-option";
-      option.setAttribute("role", "option");
-      option.textContent = item.display;
-      if (index === sessionTimezoneHighlightedIndex)
-        option.classList.add("active");
-      option.addEventListener("mousedown", (event) => {
-        event.preventDefault();
-      });
-      option.addEventListener("click", () => {
-        applySessionTimezoneToSettingsInput(item.timezone);
+    if (!settingsModalComponent) return;
+    settingsModalComponent.renderSessionTimezoneMenu({
+      items: sessionTimezoneVisibleItems,
+      highlightedIndex: sessionTimezoneHighlightedIndex,
+      onSelect: (timezone) => {
+        applySessionTimezoneToSettingsInput(timezone);
         setSessionTimezoneMenuOpen(false);
-        if (settingsSessionTimezone) settingsSessionTimezone.focus();
-      });
-      settingsSessionTimezoneOptions.appendChild(option);
+        if (settingsModalComponent)
+          settingsModalComponent.focusSessionTimezone();
+      },
     });
-  };
-
-  const ensureSessionTimezoneHighlightedVisible = () => {
-    if (!settingsSessionTimezoneOptions) return;
-    if (sessionTimezoneHighlightedIndex < 0) return;
-    const active = settingsSessionTimezoneOptions.querySelector(
-      ".timezone-option.active",
-    );
-    if (active && typeof active.scrollIntoView === "function") {
-      active.scrollIntoView({ block: "nearest" });
-    }
   };
 
   const setSessionTimezoneHighlightedIndex = (index) => {
@@ -777,7 +541,6 @@ export function initHome({ api }) {
     );
     sessionTimezoneHighlightedIndex = next;
     renderSessionTimezoneMenu();
-    ensureSessionTimezoneHighlightedVisible();
   };
 
   const filterSessionTimezoneMenu = (query) => {
@@ -798,7 +561,6 @@ export function initHome({ api }) {
       sessionTimezoneHighlightedIndex = 0;
     }
     renderSessionTimezoneMenu();
-    ensureSessionTimezoneHighlightedVisible();
   };
 
   const renderSessionTimezoneOptions = (
@@ -846,20 +608,24 @@ export function initHome({ api }) {
   const applySessionTimezoneToSettingsInput = (value) => {
     const timezone = normalizeSessionTimezone(value);
     renderSessionTimezoneOptions(timezone);
-    if (settingsSessionTimezone)
-      settingsSessionTimezone.value = buildSessionTimezoneDisplay(timezone);
+    if (settingsModalComponent)
+      settingsModalComponent.setSessionTimezoneValue(
+        buildSessionTimezoneDisplay(timezone),
+      );
     setSessionTimezoneMenuOpen(false);
     return timezone;
   };
 
   const persistSessionTimezone = (value) => {
     const next = normalizeSessionTimezone(value);
-    localStorage.setItem(SESSION_TIMEZONE_KEY, next);
+    localStorage.setItem(STORAGE_KEYS.SESSION_TIMEZONE_KEY, next);
     return next;
   };
 
   const readStoredSessionTimezone = () =>
-    normalizeSessionTimezone(localStorage.getItem(SESSION_TIMEZONE_KEY));
+    normalizeSessionTimezone(
+      localStorage.getItem(STORAGE_KEYS.SESSION_TIMEZONE_KEY),
+    );
 
   const resolveEffectiveSessionTimezone = (value) => {
     const normalized = normalizeSessionTimezone(value);
@@ -870,8 +636,8 @@ export function initHome({ api }) {
 
   const readSessionTimezoneInput = () =>
     normalizeSessionTimezone(
-      settingsSessionTimezone
-        ? settingsSessionTimezone.value
+      settingsModalComponent
+        ? settingsModalComponent.getSessionTimezoneValue()
         : readStoredSessionTimezone(),
     );
 
@@ -912,40 +678,39 @@ export function initHome({ api }) {
 
   const readStoredConnectionTimeouts = () =>
     normalizeConnectionTimeouts({
-      openMs: localStorage.getItem(CONNECTION_OPEN_TIMEOUT_KEY),
-      closeMs: localStorage.getItem(CONNECTION_CLOSE_TIMEOUT_KEY),
-      validationMs: localStorage.getItem(CONNECTION_VALIDATION_TIMEOUT_KEY),
+      openMs: localStorage.getItem(STORAGE_KEYS.CONNECTION_OPEN_TIMEOUT_KEY),
+      closeMs: localStorage.getItem(STORAGE_KEYS.CONNECTION_CLOSE_TIMEOUT_KEY),
+      validationMs: localStorage.getItem(
+        STORAGE_KEYS.CONNECTION_VALIDATION_TIMEOUT_KEY,
+      ),
     });
 
   const applyConnectionTimeoutsToSettingsInputs = (input) => {
     const next = normalizeConnectionTimeouts(input);
-    if (settingsConnectionOpenTimeout)
-      settingsConnectionOpenTimeout.value = next.openMs;
-    if (settingsConnectionCloseTimeout)
-      settingsConnectionCloseTimeout.value = next.closeMs;
-    if (settingsConnectionValidationTimeout)
-      settingsConnectionValidationTimeout.value = next.validationMs;
+    if (settingsModalComponent) {
+      settingsModalComponent.setConnectionTimeoutValues(next);
+    }
     return next;
   };
 
   const readConnectionTimeoutsInputs = () =>
     normalizeConnectionTimeouts({
-      openMs: settingsConnectionOpenTimeout
-        ? settingsConnectionOpenTimeout.value
-        : CONNECTION_TIMEOUT_DEFAULTS.openMs,
-      closeMs: settingsConnectionCloseTimeout
-        ? settingsConnectionCloseTimeout.value
-        : CONNECTION_TIMEOUT_DEFAULTS.closeMs,
-      validationMs: settingsConnectionValidationTimeout
-        ? settingsConnectionValidationTimeout.value
-        : CONNECTION_TIMEOUT_DEFAULTS.validationMs,
+      ...(settingsModalComponent
+        ? settingsModalComponent.getConnectionTimeoutValues()
+        : {}),
     });
 
   const persistConnectionTimeouts = (input) => {
     const next = normalizeConnectionTimeouts(input);
-    localStorage.setItem(CONNECTION_OPEN_TIMEOUT_KEY, next.openMs);
-    localStorage.setItem(CONNECTION_CLOSE_TIMEOUT_KEY, next.closeMs);
-    localStorage.setItem(CONNECTION_VALIDATION_TIMEOUT_KEY, next.validationMs);
+    localStorage.setItem(STORAGE_KEYS.CONNECTION_OPEN_TIMEOUT_KEY, next.openMs);
+    localStorage.setItem(
+      STORAGE_KEYS.CONNECTION_CLOSE_TIMEOUT_KEY,
+      next.closeMs,
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.CONNECTION_VALIDATION_TIMEOUT_KEY,
+      next.validationMs,
+    );
     return next;
   };
 
@@ -1006,120 +771,69 @@ export function initHome({ api }) {
 
   const readStoredErrorHandlingSettings = () =>
     normalizeErrorHandlingSettings({
-      stopOnFirstError: localStorage.getItem(ERROR_STOP_ON_FIRST_KEY),
-      continueOnError: localStorage.getItem(ERROR_CONTINUE_ON_ERROR_KEY),
-      autoOpenOutputOnError: localStorage.getItem(ERROR_AUTO_OPEN_OUTPUT_KEY),
+      stopOnFirstError: localStorage.getItem(
+        STORAGE_KEYS.ERROR_STOP_ON_FIRST_KEY,
+      ),
+      continueOnError: localStorage.getItem(
+        STORAGE_KEYS.ERROR_CONTINUE_ON_ERROR_KEY,
+      ),
+      autoOpenOutputOnError: localStorage.getItem(
+        STORAGE_KEYS.ERROR_AUTO_OPEN_OUTPUT_KEY,
+      ),
       showDetailedDbErrorCode: localStorage.getItem(
-        ERROR_SHOW_DETAILED_CODE_KEY,
+        STORAGE_KEYS.ERROR_SHOW_DETAILED_CODE_KEY,
       ),
       hideSensitiveValuesInErrors: localStorage.getItem(
-        ERROR_HIDE_SENSITIVE_KEY,
+        STORAGE_KEYS.ERROR_HIDE_SENSITIVE_KEY,
       ),
       retryTransientSelectErrors: localStorage.getItem(
-        ERROR_RETRY_TRANSIENT_KEY,
+        STORAGE_KEYS.ERROR_RETRY_TRANSIENT_KEY,
       ),
     });
 
-  const syncErrorModeInputs = (source = "") => {
-    if (!settingsErrorStopOnFirst || !settingsErrorContinueOnError) return;
-    if (source === "stop") {
-      settingsErrorContinueOnError.checked = !settingsErrorStopOnFirst.checked;
-      return;
-    }
-    if (source === "continue") {
-      settingsErrorStopOnFirst.checked = !settingsErrorContinueOnError.checked;
-      return;
-    }
-    if (
-      settingsErrorStopOnFirst.checked === settingsErrorContinueOnError.checked
-    ) {
-      settingsErrorContinueOnError.checked = !settingsErrorStopOnFirst.checked;
-    }
-  };
-
   const applyErrorHandlingToSettingsInputs = (input) => {
     const next = normalizeErrorHandlingSettings(input);
-    if (settingsErrorStopOnFirst)
-      settingsErrorStopOnFirst.checked = next.stopOnFirstError;
-    if (settingsErrorContinueOnError)
-      settingsErrorContinueOnError.checked = next.continueOnError;
-    if (settingsErrorAutoOpenOutput)
-      settingsErrorAutoOpenOutput.checked = next.autoOpenOutputOnError;
-    if (settingsErrorShowDetailedCode)
-      settingsErrorShowDetailedCode.checked = next.showDetailedDbErrorCode;
-    if (settingsErrorHideSensitive)
-      settingsErrorHideSensitive.checked = next.hideSensitiveValuesInErrors;
-    if (settingsErrorRetryTransient)
-      settingsErrorRetryTransient.checked = next.retryTransientSelectErrors;
-    syncErrorModeInputs();
+    if (settingsModalComponent) {
+      settingsModalComponent.setErrorHandlingValues(next);
+    }
     return normalizeErrorHandlingSettings({
-      stopOnFirstError: settingsErrorStopOnFirst
-        ? settingsErrorStopOnFirst.checked
-        : next.stopOnFirstError,
-      continueOnError: settingsErrorContinueOnError
-        ? settingsErrorContinueOnError.checked
-        : next.continueOnError,
-      autoOpenOutputOnError: settingsErrorAutoOpenOutput
-        ? settingsErrorAutoOpenOutput.checked
-        : next.autoOpenOutputOnError,
-      showDetailedDbErrorCode: settingsErrorShowDetailedCode
-        ? settingsErrorShowDetailedCode.checked
-        : next.showDetailedDbErrorCode,
-      hideSensitiveValuesInErrors: settingsErrorHideSensitive
-        ? settingsErrorHideSensitive.checked
-        : next.hideSensitiveValuesInErrors,
-      retryTransientSelectErrors: settingsErrorRetryTransient
-        ? settingsErrorRetryTransient.checked
-        : next.retryTransientSelectErrors,
+      ...(settingsModalComponent
+        ? settingsModalComponent.getErrorHandlingValues()
+        : next),
     });
   };
 
   const readErrorHandlingSettingsInputs = () =>
     normalizeErrorHandlingSettings({
-      stopOnFirstError: settingsErrorStopOnFirst
-        ? settingsErrorStopOnFirst.checked
-        : ERROR_HANDLING_DEFAULTS.stopOnFirstError,
-      continueOnError: settingsErrorContinueOnError
-        ? settingsErrorContinueOnError.checked
-        : ERROR_HANDLING_DEFAULTS.continueOnError,
-      autoOpenOutputOnError: settingsErrorAutoOpenOutput
-        ? settingsErrorAutoOpenOutput.checked
-        : ERROR_HANDLING_DEFAULTS.autoOpenOutputOnError,
-      showDetailedDbErrorCode: settingsErrorShowDetailedCode
-        ? settingsErrorShowDetailedCode.checked
-        : ERROR_HANDLING_DEFAULTS.showDetailedDbErrorCode,
-      hideSensitiveValuesInErrors: settingsErrorHideSensitive
-        ? settingsErrorHideSensitive.checked
-        : ERROR_HANDLING_DEFAULTS.hideSensitiveValuesInErrors,
-      retryTransientSelectErrors: settingsErrorRetryTransient
-        ? settingsErrorRetryTransient.checked
-        : ERROR_HANDLING_DEFAULTS.retryTransientSelectErrors,
+      ...(settingsModalComponent
+        ? settingsModalComponent.getErrorHandlingValues()
+        : ERROR_HANDLING_DEFAULTS),
     });
 
   const persistErrorHandlingSettings = (input) => {
     const next = normalizeErrorHandlingSettings(input);
     localStorage.setItem(
-      ERROR_STOP_ON_FIRST_KEY,
+      STORAGE_KEYS.ERROR_STOP_ON_FIRST_KEY,
       next.stopOnFirstError ? "1" : "0",
     );
     localStorage.setItem(
-      ERROR_CONTINUE_ON_ERROR_KEY,
+      STORAGE_KEYS.ERROR_CONTINUE_ON_ERROR_KEY,
       next.continueOnError ? "1" : "0",
     );
     localStorage.setItem(
-      ERROR_AUTO_OPEN_OUTPUT_KEY,
+      STORAGE_KEYS.ERROR_AUTO_OPEN_OUTPUT_KEY,
       next.autoOpenOutputOnError ? "1" : "0",
     );
     localStorage.setItem(
-      ERROR_SHOW_DETAILED_CODE_KEY,
+      STORAGE_KEYS.ERROR_SHOW_DETAILED_CODE_KEY,
       next.showDetailedDbErrorCode ? "1" : "0",
     );
     localStorage.setItem(
-      ERROR_HIDE_SENSITIVE_KEY,
+      STORAGE_KEYS.ERROR_HIDE_SENSITIVE_KEY,
       next.hideSensitiveValuesInErrors ? "1" : "0",
     );
     localStorage.setItem(
-      ERROR_RETRY_TRANSIENT_KEY,
+      STORAGE_KEYS.ERROR_RETRY_TRANSIENT_KEY,
       next.retryTransientSelectErrors ? "1" : "0",
     );
     return next;
@@ -1157,8 +871,8 @@ export function initHome({ api }) {
 
   const readStoredQueryDefaults = () =>
     normalizeQueryDefaults({
-      limit: localStorage.getItem(QUERY_DEFAULT_LIMIT_KEY),
-      timeoutMs: localStorage.getItem(QUERY_DEFAULT_TIMEOUT_KEY),
+      limit: localStorage.getItem(STORAGE_KEYS.QUERY_DEFAULT_LIMIT_KEY),
+      timeoutMs: localStorage.getItem(STORAGE_KEYS.QUERY_DEFAULT_TIMEOUT_KEY),
     });
 
   const applyQueryDefaultsToEditorControls = (input) => {
@@ -1182,41 +896,37 @@ export function initHome({ api }) {
 
   const applyQueryDefaultsToSettingsInputs = (input) => {
     const next = normalizeQueryDefaults(input);
-    if (settingsDefaultLimit) {
-      settingsDefaultLimit.value = normalizeSelectValue(
-        settingsDefaultLimit,
-        next.limit,
-        QUERY_DEFAULTS.limit,
-      );
-    }
-    if (settingsDefaultTimeout) {
-      settingsDefaultTimeout.value = normalizeSelectValue(
-        settingsDefaultTimeout,
-        next.timeoutMs,
-        QUERY_DEFAULTS.timeoutMs,
-      );
+    if (settingsModalComponent) {
+      settingsModalComponent.setQueryDefaultsValues({
+        limit: normalizeSelectValue(
+          settingsDefaultLimit,
+          next.limit,
+          QUERY_DEFAULTS.limit,
+        ),
+        timeoutMs: normalizeSelectValue(
+          settingsDefaultTimeout,
+          next.timeoutMs,
+          QUERY_DEFAULTS.timeoutMs,
+        ),
+      });
     }
     return next;
   };
 
   const readQueryDefaultsInputs = () =>
     normalizeQueryDefaults({
-      limit: settingsDefaultLimit
-        ? settingsDefaultLimit.value
-        : limitSelect
-          ? limitSelect.value
-          : QUERY_DEFAULTS.limit,
-      timeoutMs: settingsDefaultTimeout
-        ? settingsDefaultTimeout.value
-        : timeoutSelect
-          ? timeoutSelect.value
-          : QUERY_DEFAULTS.timeoutMs,
+      ...(settingsModalComponent
+        ? settingsModalComponent.getQueryDefaultsValues()
+        : {}),
     });
 
   const persistQueryDefaults = (input) => {
     const next = normalizeQueryDefaults(input);
-    localStorage.setItem(QUERY_DEFAULT_LIMIT_KEY, next.limit);
-    localStorage.setItem(QUERY_DEFAULT_TIMEOUT_KEY, next.timeoutMs);
+    localStorage.setItem(STORAGE_KEYS.QUERY_DEFAULT_LIMIT_KEY, next.limit);
+    localStorage.setItem(
+      STORAGE_KEYS.QUERY_DEFAULT_TIMEOUT_KEY,
+      next.timeoutMs,
+    );
     return next;
   };
 
@@ -1240,36 +950,35 @@ export function initHome({ api }) {
 
   const applyEnvironmentPolicyInputs = (rules) => {
     const nextRules = normalizeEnvironmentPolicyRules(rules);
-    const inputs = getEnvironmentPolicyInputs();
-    [POLICY_MODE_DEV, POLICY_MODE_STAGING, POLICY_MODE_PROD].forEach((mode) => {
-      const fields = inputs[mode] || {};
-      const rule = nextRules[mode];
-      if (fields.allowWrite) fields.allowWrite.checked = !!rule.allowWrite;
-      if (fields.allowDdlAdmin)
-        fields.allowDdlAdmin.checked = !!rule.allowDdlAdmin;
-      if (fields.requireApproval)
-        fields.requireApproval.checked = !!rule.requireApproval;
-    });
+    if (settingsModalComponent) {
+      settingsModalComponent.setEnvironmentPolicyValues({
+        dev: nextRules[POLICY_MODE_DEV],
+        staging: nextRules[POLICY_MODE_STAGING],
+        prod: nextRules[POLICY_MODE_PROD],
+      });
+    }
   };
 
   const readEnvironmentPolicyInputs = () => {
-    const inputs = getEnvironmentPolicyInputs();
+    const inputs = settingsModalComponent
+      ? settingsModalComponent.getEnvironmentPolicyValues()
+      : {};
     const next = {};
     [POLICY_MODE_DEV, POLICY_MODE_STAGING, POLICY_MODE_PROD].forEach((mode) => {
       const defaults = ENVIRONMENT_POLICY_DEFAULTS[mode];
       const fields = inputs[mode] || {};
       next[mode] = {
         allowWrite:
-          fields.allowWrite && fields.allowWrite.checked !== undefined
-            ? !!fields.allowWrite.checked
+          fields.allowWrite !== undefined
+            ? !!fields.allowWrite
             : !!defaults.allowWrite,
         allowDdlAdmin:
-          fields.allowDdlAdmin && fields.allowDdlAdmin.checked !== undefined
-            ? !!fields.allowDdlAdmin.checked
+          fields.allowDdlAdmin !== undefined
+            ? !!fields.allowDdlAdmin
             : !!defaults.allowDdlAdmin,
         requireApproval:
-          fields.requireApproval && fields.requireApproval.checked !== undefined
-            ? !!fields.requireApproval.checked
+          fields.requireApproval !== undefined
+            ? !!fields.requireApproval
             : !!defaults.requireApproval,
       };
     });
@@ -1392,23 +1101,14 @@ export function initHome({ api }) {
       editingConnectionSeed = null;
       if (saveName) delete saveName.dataset.originalName;
     }
-    if (dbType) {
-      dbType.disabled = !!enabled;
-      if (enabled) {
-        dbType.title =
-          "Type cannot be changed while editing. Create a new connection to change type.";
-      } else {
-        dbType.removeAttribute("title");
-      }
-    }
-    if (cancelEditBtn) cancelEditBtn.classList.toggle("hidden", !enabled);
+    if (connectModalComponent) connectModalComponent.setEditMode(enabled);
   };
 
   const setConnectTab = (tab) => {
     const isSsh = tab === "ssh";
-    if (tabDirectBtn) tabDirectBtn.classList.toggle("active", !isSsh);
-    if (tabSshBtn) tabSshBtn.classList.toggle("active", isSsh);
-    if (sshFields) sshFields.classList.toggle("hidden", !isSsh);
+    if (connectModalComponent) {
+      connectModalComponent.setActiveTab(isSsh ? "ssh" : "direct");
+    }
   };
 
   const entryRemembersSecrets = (entry) => {
@@ -1524,31 +1224,28 @@ export function initHome({ api }) {
   };
 
   const resetConnectionForm = () => {
-    if (dbType) dbType.value = "mysql";
+    if (connectModalComponent) {
+      connectModalComponent.setFormData({
+        type: "mysql",
+        connectionUrl: "",
+        host: "localhost",
+        port: "",
+        user: "",
+        password: "",
+        database: "",
+        name: "",
+        rememberPassword: false,
+        readOnly: false,
+        policyMode: "dev",
+        filePath: "",
+        sqliteMode: "create",
+        ssh: { enabled: false },
+      });
+      connectModalComponent.setActiveTab("direct");
+      connectModalComponent.setSettingsTab("connection");
+    }
     updateConnectionUrlPlaceholder("mysql");
-    if (connectionUrl) connectionUrl.value = "";
-    if (sqliteModeCreate) sqliteModeCreate.checked = true;
-    if (sqliteModeExisting) sqliteModeExisting.checked = false;
-    if (sqlitePath) sqlitePath.value = "";
-    if (host) host.value = "localhost";
-    if (port) port.value = "";
-    if (user) user.value = "";
-    if (password) password.value = "";
-    if (database) database.value = "";
-    if (saveName) saveName.value = "";
     if (saveName) delete saveName.dataset.originalName;
-    if (rememberPassword) rememberPassword.checked = false;
-    if (readOnly) readOnly.checked = false;
-    if (policyMode) policyMode.value = "dev";
-    setConnectTab("direct");
-    if (sshHost) sshHost.value = "";
-    if (sshPort) sshPort.value = "";
-    if (sshUser) sshUser.value = "";
-    if (sshPassword) sshPassword.value = "";
-    if (sshPrivateKey) sshPrivateKey.value = "";
-    if (sshPassphrase) sshPassphrase.value = "";
-    if (sshLocalPort) sshLocalPort.value = "";
-    syncConnectionTypeFields();
   };
 
   const normalizeTypeForForm = (value) => {
@@ -1587,21 +1284,7 @@ export function initHome({ api }) {
     : null;
 
   const syncConnectionTypeFields = () => {
-    const sqlite = isSqliteSelected();
-    if (sqliteFields) sqliteFields.classList.toggle("hidden", !sqlite);
-    if (hostField) hostField.classList.toggle("hidden", sqlite);
-    if (portField) portField.classList.toggle("hidden", sqlite);
-    if (userField) userField.classList.toggle("hidden", sqlite);
-    if (passwordField) passwordField.classList.toggle("hidden", sqlite);
-    if (databaseField) databaseField.classList.toggle("hidden", sqlite);
-    if (connectionUrlField)
-      connectionUrlField.classList.toggle("hidden", sqlite);
-    if (tabSshBtn) tabSshBtn.classList.toggle("hidden", sqlite);
-    if (rememberSecretsField)
-      rememberSecretsField.classList.toggle("hidden", sqlite);
-    if (sqlite && tabSshBtn && tabSshBtn.classList.contains("active")) {
-      setConnectTab("direct");
-    }
+    if (connectModalComponent) connectModalComponent.syncTypeFields();
   };
 
   const resolveConnectionUrlPlaceholder = (typeValue) => {
@@ -1615,9 +1298,11 @@ export function initHome({ api }) {
   };
 
   const updateConnectionUrlPlaceholder = (typeValue) => {
-    if (!connectionUrl) return;
-    connectionUrl.placeholder = resolveConnectionUrlPlaceholder(
-      typeValue || (dbType ? dbType.value : "mysql"),
+    if (!connectModalComponent) return;
+    connectModalComponent.setConnectionUrlPlaceholder(
+      resolveConnectionUrlPlaceholder(
+        typeValue || (dbType ? dbType.value : "mysql"),
+      ),
     );
   };
 
@@ -1783,57 +1468,12 @@ export function initHome({ api }) {
     const requested = normalizeConnectSettingsTab(tab);
     const next = requested;
     activeConnectSettingsTab = next;
-
-    if (connectSettingsTabs) {
-      const items = connectSettingsTabs.querySelectorAll(
-        "[data-connect-settings-tab]",
-      );
-      items.forEach((item) => {
-        const selected =
-          item.getAttribute("data-connect-settings-tab") === next;
-        item.classList.toggle("active", selected);
-        item.setAttribute("aria-selected", selected ? "true" : "false");
-      });
-    }
-
-    if (connectSectionConnection) {
-      connectSectionConnection.classList.toggle(
-        "hidden",
-        next !== "connection",
-      );
-    }
-    if (connectSectionAccess) {
-      connectSectionAccess.classList.toggle("hidden", next !== "access");
-    }
-    if (connectSectionSave) {
-      const showSave = next === "connection" && activeConnectMode !== "quick";
-      connectSectionSave.classList.toggle("hidden", !showSave);
-    }
+    if (connectModalComponent) connectModalComponent.setSettingsTab(next);
   };
 
   const setConnectMode = (mode) => {
     activeConnectMode = mode === "quick" ? "quick" : "full";
-    const panel = connectModal
-      ? connectModal.querySelector(".connect-panel")
-      : null;
-    if (panel) panel.classList.toggle("quick", activeConnectMode === "quick");
-    if (connectModalTitle) {
-      connectModalTitle.textContent =
-        activeConnectMode === "quick" ? "Quick connect" : "New connection";
-    }
-    if (connectModalSubtitle) {
-      connectModalSubtitle.textContent =
-        activeConnectMode === "quick"
-          ? "Connect without saving."
-          : "Fill in the details to connect and save.";
-    }
-    if (connectBtn) {
-      connectBtn.textContent =
-        activeConnectMode === "quick" ? "Quick connect" : "Connect & save";
-    }
-    if (saveBtn) {
-      saveBtn.classList.add("hidden");
-    }
+    if (connectModalComponent) connectModalComponent.setMode(activeConnectMode);
     setConnectSettingsTab(activeConnectSettingsTab || "connection");
   };
 
@@ -1951,7 +1591,7 @@ export function initHome({ api }) {
 
   const tabsStorageKey = (key) => (key ? `sqlEditor.tabs:${key}` : null);
   const editorCollapsedStorageKey = (key) =>
-    key ? `${EDITOR_COLLAPSED_KEY_PREFIX}:${key}` : null;
+    key ? `${STORAGE_KEYS.EDITOR_COLLAPSED_KEY_PREFIX}:${key}` : null;
 
   const readEditorVisibilityForConnection = (key) => {
     const storageKey = editorCollapsedStorageKey(key);
@@ -1996,40 +1636,23 @@ export function initHome({ api }) {
 
   const applyEntryToForm = (entry) => {
     if (!entry) return;
-    if (dbType) dbType.value = normalizeTypeForForm(entry.type);
-    updateConnectionUrlPlaceholder(dbType ? dbType.value : "");
-    if (connectionUrl)
-      connectionUrl.value =
-        entry.connectionUrl || entry.connection_url || entry.url || "";
-    const filePath = entry.filePath || entry.file_path || entry.path || "";
-    if (sqlitePath) sqlitePath.value = filePath;
-    if (sqliteModeExisting) sqliteModeExisting.checked = !!filePath;
-    if (sqliteModeCreate) sqliteModeCreate.checked = !filePath;
-    if (host) host.value = entry.host || "";
-    if (port) port.value = entry.port || "";
-    if (user) user.value = entry.user || "";
-    if (password) password.value = entry.password || "";
-    if (database) database.value = entry.database || "";
-    if (saveName) saveName.value = entry.name || "";
-    if (rememberPassword)
-      rememberPassword.checked = entryRemembersSecrets(entry);
-    if (readOnly) readOnly.checked = isEntryReadOnly(entry);
-    if (policyMode) policyMode.value = getEntryPolicyMode(entry);
-    const ssh = getEntrySshConfig(entry);
-    setConnectTab(ssh.enabled ? "ssh" : "direct");
-    if (sshHost) sshHost.value = ssh.host || "";
-    if (sshPort) sshPort.value = ssh.port || "";
-    if (sshUser) sshUser.value = ssh.user || "";
-    if (sshPassword) sshPassword.value = ssh.password || "";
-    if (sshPrivateKey) sshPrivateKey.value = ssh.privateKey || "";
-    if (sshPassphrase) sshPassphrase.value = ssh.passphrase || "";
-    if (sshLocalPort) sshLocalPort.value = ssh.localPort || "";
-    syncConnectionTypeFields();
+    const type = normalizeTypeForForm(entry.type);
+    if (connectModalComponent) {
+      connectModalComponent.setFormData({
+        ...entry,
+        type,
+        rememberPassword: entryRemembersSecrets(entry),
+        readOnly: isEntryReadOnly(entry),
+        policyMode: getEntryPolicyMode(entry),
+        ssh: getEntrySshConfig(entry),
+      });
+    }
+    updateConnectionUrlPlaceholder(type);
   };
 
   const loadSidebarWidth = () => {
     if (!sidebar) return;
-    const raw = localStorage.getItem(SIDEBAR_KEY);
+    const raw = localStorage.getItem(STORAGE_KEYS.SIDEBAR_KEY);
     const width = Number(raw);
     if (Number.isFinite(width) && width >= 200 && width <= 520) {
       sidebar.style.width = `${width}px`;
@@ -2056,7 +1679,10 @@ export function initHome({ api }) {
       document.body.style.userSelect = "";
       const width = parseFloat(getComputedStyle(sidebar).width);
       if (Number.isFinite(width)) {
-        localStorage.setItem(SIDEBAR_KEY, String(Math.round(width)));
+        localStorage.setItem(
+          STORAGE_KEYS.SIDEBAR_KEY,
+          String(Math.round(width)),
+        );
       }
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
@@ -2150,12 +1776,12 @@ export function initHome({ api }) {
       codeEditor.setSize("100%", next);
     }
     if (save) {
-      localStorage.setItem(EDITOR_HEIGHT_KEY, String(next));
+      localStorage.setItem(STORAGE_KEYS.EDITOR_HEIGHT_KEY, String(next));
     }
   };
 
   const loadEditorHeight = () => {
-    const raw = Number(localStorage.getItem(EDITOR_HEIGHT_KEY));
+    const raw = Number(localStorage.getItem(STORAGE_KEYS.EDITOR_HEIGHT_KEY));
     if (!Number.isFinite(raw) || raw <= 0) return;
     applyEditorBodyHeight(raw, { save: false });
   };
@@ -2175,7 +1801,8 @@ export function initHome({ api }) {
       "--editor-font-size",
       `${next}px`,
     );
-    if (save) localStorage.setItem(EDITOR_FONT_SIZE_KEY, String(next));
+    if (save)
+      localStorage.setItem(STORAGE_KEYS.EDITOR_FONT_SIZE_KEY, String(next));
     if (notify) showToast(`Font: ${next}px`, 900);
   };
 
@@ -2187,7 +1814,9 @@ export function initHome({ api }) {
       10,
     );
     if (Number.isFinite(cssValue)) return cssValue;
-    const saved = Number(localStorage.getItem(EDITOR_FONT_SIZE_KEY));
+    const saved = Number(
+      localStorage.getItem(STORAGE_KEYS.EDITOR_FONT_SIZE_KEY),
+    );
     return Number.isFinite(saved) ? saved : DEFAULT_EDITOR_FONT_SIZE;
   };
 
@@ -2200,7 +1829,9 @@ export function initHome({ api }) {
   };
 
   const loadEditorFontSize = () => {
-    const raw = Number(localStorage.getItem(EDITOR_FONT_SIZE_KEY));
+    const raw = Number(
+      localStorage.getItem(STORAGE_KEYS.EDITOR_FONT_SIZE_KEY),
+    );
     if (!Number.isFinite(raw)) {
       applyEditorFontSize(DEFAULT_EDITOR_FONT_SIZE, {
         save: false,
@@ -2740,8 +2371,6 @@ export function initHome({ api }) {
     }
     applyResultsPanelState({ snapshot, objectContext: context });
   };
-
-
 
   const shouldRefreshSchema = (statementSql) => {
     const clean = normalizeSql(stripLeadingComments(statementSql));
@@ -3856,7 +3485,9 @@ export function initHome({ api }) {
       );
       applyEditorBodyHeight(maxHeight, { save: false });
     } else {
-      const stored = Number(localStorage.getItem(EDITOR_HEIGHT_KEY));
+      const stored = Number(
+        localStorage.getItem(STORAGE_KEYS.EDITOR_HEIGHT_KEY),
+      );
       if (Number.isFinite(stored) && stored > 0) {
         applyEditorBodyHeight(stored, { save: false });
       } else {
@@ -4162,7 +3793,7 @@ export function initHome({ api }) {
     showError: safeApi.showError,
   });
 
-  const connectModalComponent = createConnectModal({
+  connectModalComponent = createConnectModal({
     onConnectSuccess: async (data, { shouldSave }) => {
       let config = {
         ...data,
@@ -4223,7 +3854,7 @@ export function initHome({ api }) {
   const credentialModalComponent = createCredentialModal();
 
   // Settings modal
-  const settingsModalComponent = createSettingsModal({
+  settingsModalComponent = createSettingsModal({
     onOpen: async () => {
       setThemeMenuOpen(false);
       applySessionTimezoneToSettingsInput(readStoredSessionTimezone());
@@ -4284,6 +3915,85 @@ export function initHome({ api }) {
     onClose: () => {
       setSessionTimezoneMenuOpen(false);
     },
+    onTimezoneToggle: () => {
+      if (sessionTimezoneMenuOpen) {
+        setSessionTimezoneMenuOpen(false);
+      } else {
+        filterSessionTimezoneMenu("");
+        setSessionTimezoneMenuOpen(true);
+        if (settingsModalComponent)
+          settingsModalComponent.focusSessionTimezone();
+      }
+    },
+    onTimezoneFocus: () => {
+      filterSessionTimezoneMenu("");
+      setSessionTimezoneMenuOpen(true);
+    },
+    onTimezoneInput: (value) => {
+      filterSessionTimezoneMenu(value);
+      setSessionTimezoneMenuOpen(true);
+    },
+    onTimezoneKeydown: (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
+        if (sessionTimezoneHighlightedIndex < 0) {
+          setSessionTimezoneHighlightedIndex(0);
+        } else {
+          setSessionTimezoneHighlightedIndex(
+            sessionTimezoneHighlightedIndex + 1,
+          );
+        }
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
+        if (sessionTimezoneHighlightedIndex < 0) {
+          setSessionTimezoneHighlightedIndex(
+            sessionTimezoneVisibleItems.length - 1,
+          );
+        } else {
+          setSessionTimezoneHighlightedIndex(
+            sessionTimezoneHighlightedIndex - 1,
+          );
+        }
+        return;
+      }
+      if (event.key === "Enter") {
+        if (!sessionTimezoneMenuOpen) return;
+        event.preventDefault();
+        const target =
+          sessionTimezoneVisibleItems[sessionTimezoneHighlightedIndex];
+        if (target) {
+          applySessionTimezoneToSettingsInput(target.timezone);
+        } else {
+          applySessionTimezoneToSettingsInput(
+            settingsModalComponent
+              ? settingsModalComponent.getSessionTimezoneValue()
+              : "",
+          );
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        if (!sessionTimezoneMenuOpen) return;
+        event.preventDefault();
+        setSessionTimezoneMenuOpen(false);
+      }
+    },
+    onOutsideClick: (event) => {
+      if (
+        sessionTimezoneMenuOpen &&
+        settingsSessionTimezoneCombobox &&
+        !(
+          event.target &&
+          event.target.closest("#settingsSessionTimezoneCombobox")
+        )
+      ) {
+        setSessionTimezoneMenuOpen(false);
+      }
+    },
   });
 
   // Policy approval modal
@@ -4333,7 +4043,7 @@ export function initHome({ api }) {
     return policyApprovalModalComponent.prompt({ policyLabel, actionLabel });
   };
 
-  const closePolicyApprovalPrompt = (result = '') => {
+  const closePolicyApprovalPrompt = (result = "") => {
     policyApprovalModalComponent.close(result);
   };
 
@@ -4351,13 +4061,8 @@ export function initHome({ api }) {
       resetConnectionForm();
       setEditMode(false);
     }
-    if (mode === "quick" && saveName) {
-      saveName.value = "";
-      setEditMode(false);
-    }
-    if (mode === "quick" && rememberPassword) rememberPassword.checked = false;
-    syncConnectionTypeFields();
-    connectModalComponent.open({ mode, keepForm });
+    activeConnectMode = mode === "quick" ? "quick" : "full";
+    if (connectModalComponent) connectModalComponent.open({ mode, keepForm });
   };
 
   const closeConnectModal = () => {
@@ -4366,8 +4071,8 @@ export function initHome({ api }) {
   };
 
   const isSshTabActive = () => {
-    if (!tabSshBtn) return false;
-    return tabSshBtn.classList.contains("active");
+    if (!connectModalComponent) return false;
+    return connectModalComponent.getActiveTab() === "ssh";
   };
 
   const buildSshConfig = () => {
@@ -4387,17 +4092,11 @@ export function initHome({ api }) {
 
   const setConnecting = (loading) => {
     isConnecting = loading;
-    if (connectSpinner) connectSpinner.classList.toggle("hidden", !loading);
-    if (connectBtn) connectBtn.disabled = loading;
-    if (saveBtn) saveBtn.disabled = loading;
-    if (testBtn) testBtn.disabled = loading;
-    if (clearFormBtn) clearFormBtn.disabled = loading;
-    if (cancelEditBtn) cancelEditBtn.disabled = loading;
-    if (importConnectionsBtn) importConnectionsBtn.disabled = loading;
-    if (exportConnectionsBtn) exportConnectionsBtn.disabled = loading;
+    if (connectModalComponent) connectModalComponent.setLoading(loading);
+    if (savedComponent && typeof savedComponent.setLoading === "function") {
+      savedComponent.setLoading(loading);
+    }
     if (quickConnectComponent) quickConnectComponent.setDisabled(loading);
-    if (savedList) savedList.classList.toggle("is-connecting", loading);
-    if (connectModal) connectModal.classList.toggle("is-connecting", loading);
   };
 
   const connectWithLoading = async (config) => {
@@ -4638,29 +4337,6 @@ export function initHome({ api }) {
     alert("Connection OK.");
   };
 
-  if (tabDirectBtn) {
-    tabDirectBtn.addEventListener("click", () => setConnectTab("direct"));
-  }
-  if (tabSshBtn) {
-    tabSshBtn.addEventListener("click", () => setConnectTab("ssh"));
-  }
-  if (connectSettingsTabs) {
-    connectSettingsTabs.addEventListener("click", (event) => {
-      const item = event.target.closest("[data-connect-settings-tab]");
-      if (!item) return;
-      const tab = item.getAttribute("data-connect-settings-tab");
-      setConnectSettingsTab(tab);
-    });
-  }
-
-  if (savedPolicyFilters) {
-    savedPolicyFilters.addEventListener("change", (event) => {
-      const target = event && event.target ? event.target : null;
-      if (!target || target.name !== "savedPolicyFilter") return;
-      void renderSavedList();
-    });
-  }
-
   if (homeBtn) {
     homeBtn.addEventListener("click", () => {
       if (tabConnectionsView) {
@@ -4671,80 +4347,6 @@ export function initHome({ api }) {
       if (tabConnectionsView) tabConnectionsView.clearActive();
       renderConnectionTabs();
       renderSavedList();
-    });
-  }
-
-  if (exportConnectionsBtn) {
-    exportConnectionsBtn.addEventListener("click", async () => {
-      try {
-        if (!safeApi.exportSavedConnections) {
-          await safeApi.showError(
-            "Export API unavailable. Restart the app and try again.",
-          );
-          return;
-        }
-        showToast("Opening save dialog...");
-        const res = await safeApi.exportSavedConnections();
-        if (!res || !res.ok) {
-          if (res && res.canceled) return;
-          await safeApi.showError(
-            (res && res.error) || "Failed to export saved connections.",
-          );
-          return;
-        }
-        showToast(`Exported ${res.count || 0} connection(s)`);
-      } catch (err) {
-        const message = err && err.message ? err.message : "";
-        if (
-          message.includes("No handler registered for 'connections:export'")
-        ) {
-          await safeApi.showError(
-            "Export unavailable in this running process. Restart the app and try again.",
-          );
-          return;
-        }
-        await safeApi.showError("Failed to export saved connections.");
-      }
-    });
-  }
-
-  if (importConnectionsBtn) {
-    importConnectionsBtn.addEventListener("click", async () => {
-      try {
-        if (!safeApi.importSavedConnections) {
-          await safeApi.showError(
-            "Import API unavailable. Restart the app and try again.",
-          );
-          return;
-        }
-        const confirmed = confirm(
-          "Importar conexoes pode atualizar conexoes existentes com o mesmo nome ou configuracao similar. Deseja continuar?",
-        );
-        if (!confirmed) return;
-        showToast("Opening file dialog...");
-        const res = await safeApi.importSavedConnections();
-        if (!res || !res.ok) {
-          if (res && res.canceled) return;
-          await safeApi.showError(
-            (res && res.error) || "Failed to import saved connections.",
-          );
-          return;
-        }
-        await renderSavedList();
-        const label = `Imported ${res.added || 0} new, updated ${res.updated || 0}`;
-        showToast(label);
-      } catch (err) {
-        const message = err && err.message ? err.message : "";
-        if (
-          message.includes("No handler registered for 'connections:import'")
-        ) {
-          await safeApi.showError(
-            "Import unavailable in this running process. Restart the app and try again.",
-          );
-          return;
-        }
-        await safeApi.showError("Failed to import saved connections.");
-      }
     });
   }
 
@@ -4761,10 +4363,6 @@ export function initHome({ api }) {
       }
       window.open(href, "_blank", "noopener,noreferrer");
     });
-  }
-
-  if (connectModalBackdrop) {
-    connectModalBackdrop.addEventListener("click", () => closeConnectModal());
   }
 
   // Credential modal and policy approval modal event listeners now in components
@@ -4906,93 +4504,6 @@ export function initHome({ api }) {
     });
   }
   // Settings modal event listeners (tabs, close, cancel, backdrop, resetDefaults, save) now in component
-  if (settingsErrorStopOnFirst) {
-    settingsErrorStopOnFirst.addEventListener("change", () => {
-      syncErrorModeInputs("stop");
-    });
-  }
-  if (settingsErrorContinueOnError) {
-    settingsErrorContinueOnError.addEventListener("change", () => {
-      syncErrorModeInputs("continue");
-    });
-  }
-  if (settingsSessionTimezoneToggle) {
-    settingsSessionTimezoneToggle.addEventListener("click", () => {
-      if (sessionTimezoneMenuOpen) {
-        setSessionTimezoneMenuOpen(false);
-      } else {
-        filterSessionTimezoneMenu("");
-        setSessionTimezoneMenuOpen(true);
-        if (settingsSessionTimezone) settingsSessionTimezone.focus();
-      }
-    });
-  }
-  if (settingsSessionTimezone) {
-    settingsSessionTimezone.addEventListener("focus", () => {
-      filterSessionTimezoneMenu("");
-      setSessionTimezoneMenuOpen(true);
-    });
-    settingsSessionTimezone.addEventListener("input", () => {
-      filterSessionTimezoneMenu(settingsSessionTimezone.value);
-      setSessionTimezoneMenuOpen(true);
-    });
-    settingsSessionTimezone.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
-        if (sessionTimezoneHighlightedIndex < 0) {
-          setSessionTimezoneHighlightedIndex(0);
-        } else {
-          setSessionTimezoneHighlightedIndex(
-            sessionTimezoneHighlightedIndex + 1,
-          );
-        }
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        if (!sessionTimezoneMenuOpen) setSessionTimezoneMenuOpen(true);
-        if (sessionTimezoneHighlightedIndex < 0) {
-          setSessionTimezoneHighlightedIndex(
-            sessionTimezoneVisibleItems.length - 1,
-          );
-        } else {
-          setSessionTimezoneHighlightedIndex(
-            sessionTimezoneHighlightedIndex - 1,
-          );
-        }
-        return;
-      }
-      if (event.key === "Enter") {
-        if (!sessionTimezoneMenuOpen) return;
-        event.preventDefault();
-        const target =
-          sessionTimezoneVisibleItems[sessionTimezoneHighlightedIndex];
-        if (target) {
-          applySessionTimezoneToSettingsInput(target.timezone);
-        } else {
-          applySessionTimezoneToSettingsInput(settingsSessionTimezone.value);
-        }
-        return;
-      }
-      if (event.key === "Escape") {
-        if (!sessionTimezoneMenuOpen) return;
-        event.preventDefault();
-        setSessionTimezoneMenuOpen(false);
-      }
-    });
-  }
-  document.addEventListener("click", (event) => {
-    if (
-      sessionTimezoneMenuOpen &&
-      settingsSessionTimezoneCombobox &&
-      !(
-        event.target && event.target.closest("#settingsSessionTimezoneCombobox")
-      )
-    ) {
-      setSessionTimezoneMenuOpen(false);
-    }
-  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeSettingsModal();
@@ -5258,13 +4769,6 @@ export function initHome({ api }) {
       const name = dbSelect.value;
       if (!name) return;
       await changeDatabase(name);
-    });
-  }
-
-  if (dbType) {
-    dbType.addEventListener("change", () => {
-      updateConnectionUrlPlaceholder(dbType.value);
-      syncConnectionTypeFields();
     });
   }
 

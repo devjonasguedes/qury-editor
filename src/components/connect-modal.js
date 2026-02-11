@@ -11,13 +11,17 @@ export function createConnectModal({
   onClose,
 }) {
   const modal = document.getElementById('connectModal');
+  const backdrop = document.getElementById('connectModalBackdrop');
   const title = document.getElementById('connectModalTitle');
   const subtitle = document.getElementById('connectModalSubtitle');
   const connectBtn = document.getElementById('connectBtn');
   const saveBtn = document.getElementById('saveBtn');
   const testBtn = document.getElementById('testBtn');
+  const connectSpinner = document.getElementById('connectSpinner');
   const closeBtn = document.getElementById('closeConnectModalBtn');
   const settingsTabs = document.getElementById('connectSettingsTabs');
+  const clearFormBtn = document.getElementById('clearFormBtn');
+  const cancelEditBtn = document.getElementById('cancelEditBtn');
   
   // Form fields
   const dbType = document.getElementById('dbType');
@@ -41,6 +45,7 @@ export function createConnectModal({
   // SSH fields
   const tabDirectBtn = document.getElementById('tabDirectBtn');
   const tabSshBtn = document.getElementById('tabSshBtn');
+  const sshFields = document.getElementById('sshFields');
   const sshHost = document.getElementById('sshHost');
   const sshPort = document.getElementById('sshPort');
   const sshUser = document.getElementById('sshUser');
@@ -49,9 +54,45 @@ export function createConnectModal({
   const sshPassphrase = document.getElementById('sshPassphrase');
   const sshLocalPort = document.getElementById('sshLocalPort');
 
+  const getFieldContainer = (input) => (input ? input.closest('.field') : null);
+  const hostField = getFieldContainer(host);
+  const portField = getFieldContainer(port);
+  const userField = getFieldContainer(user);
+  const passwordField = getFieldContainer(password);
+  const databaseField = getFieldContainer(database);
+  const connectionUrlField = getFieldContainer(connectionUrl);
+  const rememberSecretsField = rememberPassword
+    ? rememberPassword.closest('.save-settings-option')
+    : null;
+
   let activeMode = 'full'; // 'full' | 'quick'
   let activeTab = 'direct'; // 'direct' | 'ssh'
   let activeSettingsTab = 'connection'; // 'connection' | 'access' | 'save'
+
+  const setEditMode = (enabled) => {
+    const next = !!enabled;
+    if (dbType) {
+      dbType.disabled = next;
+      if (next) {
+        dbType.title =
+          'Type cannot be changed while editing. Create a new connection to change type.';
+      } else {
+        dbType.removeAttribute('title');
+      }
+    }
+    if (cancelEditBtn) cancelEditBtn.classList.toggle('hidden', !next);
+  };
+
+  const setLoading = (loading) => {
+    const isLoading = !!loading;
+    if (connectSpinner) connectSpinner.classList.toggle('hidden', !isLoading);
+    if (connectBtn) connectBtn.disabled = isLoading;
+    if (saveBtn) saveBtn.disabled = isLoading;
+    if (testBtn) testBtn.disabled = isLoading;
+    if (clearFormBtn) clearFormBtn.disabled = isLoading;
+    if (cancelEditBtn) cancelEditBtn.disabled = isLoading;
+    if (modal) modal.classList.toggle('is-connecting', isLoading);
+  };
 
   const open = ({ mode = 'full', keepForm = false } = {}) => {
     if (!modal) return;
@@ -101,6 +142,11 @@ export function createConnectModal({
     syncTypeFields();
   };
 
+  const setMode = (mode = 'full') => {
+    activeMode = mode === 'quick' ? 'quick' : 'full';
+    updateUI();
+  };
+
   const updateTabs = () => {
     if (tabDirectBtn) tabDirectBtn.classList.toggle('active', activeTab === 'direct');
     if (tabSshBtn) tabSshBtn.classList.toggle('active', activeTab === 'ssh');
@@ -137,10 +183,57 @@ export function createConnectModal({
     
     if (sqliteFields) sqliteFields.classList.toggle('hidden', !isSqlite);
     if (standardFields) standardFields.classList.toggle('hidden', isSqlite);
+    if (hostField) hostField.classList.toggle('hidden', isSqlite);
+    if (portField) portField.classList.toggle('hidden', isSqlite);
+    if (userField) userField.classList.toggle('hidden', isSqlite);
+    if (passwordField) passwordField.classList.toggle('hidden', isSqlite);
+    if (databaseField) databaseField.classList.toggle('hidden', isSqlite);
+    if (connectionUrlField) connectionUrlField.classList.toggle('hidden', isSqlite);
+    if (tabSshBtn) tabSshBtn.classList.toggle('hidden', isSqlite);
+    if (rememberSecretsField)
+      rememberSecretsField.classList.toggle('hidden', isSqlite);
+    if (isSqlite && activeTab === 'ssh') {
+      activeTab = 'direct';
+      updateTabs();
+    }
+    if (sshFields) sshFields.classList.toggle('hidden', activeTab !== 'ssh');
+    updateConnectionUrlPlaceholder(type);
+  };
+
+  const normalizeTypeForPlaceholder = (value) => {
+    const type = String(value || '')
+      .trim()
+      .toLowerCase();
+    if (!type) return 'mysql';
+    if (type === 'postgresql') return 'postgres';
+    if (type === 'maria' || type === 'maria-db') return 'mariadb';
+    if (type === 'sqlite3') return 'sqlite';
+    if (
+      type === 'postgres' ||
+      type === 'mysql' ||
+      type === 'mariadb' ||
+      type === 'sqlite'
+    )
+      return type;
+    return 'mysql';
+  };
+
+  const resolveConnectionUrlPlaceholder = (typeValue) => {
+    const type = normalizeTypeForPlaceholder(typeValue);
+    if (type === 'postgres')
+      return 'postgresql://user:password@localhost:5432/database';
+    if (type === 'mariadb')
+      return 'mariadb://user:password@localhost:3306/database';
+    if (type === 'sqlite') return 'sqlite:///path/to/database.sqlite';
+    return 'mysql://user:password@localhost:3306/database';
+  };
+
+  const updateConnectionUrlPlaceholder = (typeValue) => {
+    setConnectionUrlPlaceholder(resolveConnectionUrlPlaceholder(typeValue));
   };
 
   const resetForm = () => {
-    if (dbType) dbType.value = 'postgres';
+    if (dbType) dbType.value = 'sqlite';
     if (connectionUrl) connectionUrl.value = '';
     if (host) host.value = '';
     if (port) port.value = '';
@@ -162,6 +255,21 @@ export function createConnectModal({
     if (sshLocalPort) sshLocalPort.value = '';
     activeTab = 'direct';
     activeSettingsTab = 'connection';
+  };
+
+  const setActiveTab = (tab) => {
+    activeTab = tab === 'ssh' ? 'ssh' : 'direct';
+    updateTabs();
+  };
+
+  const setSettingsTab = (tab) => {
+    const normalized = tab === 'access' || tab === 'save' ? tab : 'connection';
+    activeSettingsTab = normalized;
+    updateSettingsTabs();
+  };
+
+  const setConnectionUrlPlaceholder = (value) => {
+    if (connectionUrl) connectionUrl.placeholder = value || '';
   };
 
   const getFormData = ({ includeSaveFields = false } = {}) => {
@@ -211,6 +319,7 @@ export function createConnectModal({
     if (!entry) return;
     
     if (dbType) dbType.value = entry.type || 'postgres';
+    updateConnectionUrlPlaceholder(dbType ? dbType.value : '');
     if (connectionUrl) connectionUrl.value = entry.connectionUrl || entry.connection_url || entry.url || '';
     if (host) host.value = entry.host || '';
     if (port) port.value = entry.port || '';
@@ -333,8 +442,14 @@ export function createConnectModal({
     closeBtn.addEventListener('click', close);
   }
 
+  if (backdrop) {
+    backdrop.addEventListener('click', close);
+  }
+
   if (dbType) {
-    dbType.addEventListener('change', syncTypeFields);
+    dbType.addEventListener('change', () => {
+      syncTypeFields();
+    });
   }
 
   if (tabDirectBtn) {
@@ -364,14 +479,30 @@ export function createConnectModal({
     sqliteBrowseBtn.addEventListener('click', async () => {
       try {
         const db = apiService.db;
-        if (!db.showOpenSqliteDialog) return;
-        
-        const res = await db.showOpenSqliteDialog();
-        if (res?.ok && res?.filePath && sqlitePath) {
-          sqlitePath.value = res.filePath;
+        if (!db.openSqliteFile || !db.saveSqliteFile) {
+          if (onError) onError('SQLite file picker not available.');
+          return;
         }
+
+        const mode = sqliteModeExisting && sqliteModeExisting.checked
+          ? 'existing'
+          : 'create';
+        const res =
+          mode === 'existing'
+            ? await db.openSqliteFile()
+            : await db.saveSqliteFile();
+        if (!res || !res.ok) {
+          if (!res || !res.canceled) {
+            if (onError) {
+              onError(res?.error || 'Failed to choose SQLite file.');
+            }
+          }
+          return;
+        }
+        if (sqlitePath) sqlitePath.value = res.path || '';
       } catch (err) {
         console.error('Failed to open SQLite file dialog', err);
+        if (onError) onError(err?.message || 'Failed to choose SQLite file.');
       }
     });
   }
@@ -379,8 +510,17 @@ export function createConnectModal({
   return {
     open,
     close,
+    setMode,
+    setEditMode,
+    setLoading,
+    setActiveTab,
+    setSettingsTab,
+    setConnectionUrlPlaceholder,
+    syncTypeFields,
     getFormData,
     setFormData,
     resetForm,
+    getMode: () => activeMode,
+    getActiveTab: () => activeTab,
   };
 }

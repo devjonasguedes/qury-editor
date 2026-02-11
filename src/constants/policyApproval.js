@@ -1,0 +1,1 @@
+export const POLICY_APPROVAL_TOKEN = "PROCEED";

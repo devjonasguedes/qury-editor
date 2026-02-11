@@ -7,6 +7,7 @@ import { POLICY_APPROVAL_TOKEN } from "./constants/policyApproval.js";
 import { createQuickConnect } from "./components/quick-connect.js";
 import { createSavedConnections } from "./components/saved-connections.js";
 import { createSettingsModal } from "./components/settings-modal.js";
+import { createSidebarMenu } from "./components/sidebar-menu.js";
 import { createCodeEditor } from "./modules/codeEditor.js";
 import {
   connectionTitle,
@@ -25,6 +26,7 @@ import { createTableObjectTabs } from "./modules/tableObjectTabs.js";
 import { createTableView } from "./modules/tableView.js";
 import { createTabTables } from "./modules/tabTables.js";
 import { createTreeView } from "./modules/treeView.js";
+import { dialogsApi } from "./api/dialogs.js";
 import {
   SESSION_TIMEZONE_ITEMS,
   SESSION_TIMEZONE_ITEM_BY_ID,
@@ -68,11 +70,8 @@ export function initHome({ api }) {
   const byId = (id) => document.getElementById(id);
 
   const dbType = byId("dbType");
-  const sqliteFields = byId("sqliteFields");
-  const sqliteModeCreate = byId("sqliteModeCreate");
   const sqliteModeExisting = byId("sqliteModeExisting");
   const sqlitePath = byId("sqlitePath");
-  const sqliteBrowseBtn = byId("sqliteBrowseBtn");
   const connectionUrl = byId("connectionUrl");
   const host = byId("host");
   const port = byId("port");
@@ -83,8 +82,6 @@ export function initHome({ api }) {
   const rememberPassword = byId("rememberPassword");
   const readOnly = byId("readOnly");
   const policyMode = byId("policyMode");
-  const tabDirectBtn = byId("tabDirectBtn");
-  const tabSshBtn = byId("tabSshBtn");
   const sshHost = byId("sshHost");
   const sshPort = byId("sshPort");
   const sshUser = byId("sshUser");
@@ -92,53 +89,14 @@ export function initHome({ api }) {
   const sshPrivateKey = byId("sshPrivateKey");
   const sshPassphrase = byId("sshPassphrase");
   const sshLocalPort = byId("sshLocalPort");
-  const sshFields = byId("sshFields");
-  const connectBtn = byId("connectBtn");
-  const saveBtn = byId("saveBtn");
-  const testBtn = byId("testBtn");
-  const clearFormBtn = byId("clearFormBtn");
-  const cancelEditBtn = byId("cancelEditBtn");
-  const savedList = byId("savedList");
   const savedPolicyFilters = byId("savedPolicyFilters");
-  const importConnectionsBtn = byId("importConnectionsBtn");
-  const exportConnectionsBtn = byId("exportConnectionsBtn");
   const mainScreen = byId("mainScreen");
   const welcomeScreen = byId("welcomeScreen");
-  const connectSpinner = byId("connectSpinner");
   const tabConnections = byId("tabConnections");
-  const openConnectModalBtn = byId("openConnectModalBtn");
-  const quickConnectBtn = byId("quickConnectBtn");
   const heroCreditLink = document.querySelector(".hero-credit a");
-  const closeConnectModalBtn = byId("closeConnectModalBtn");
   const homeBtn = byId("homeBtn");
-  const connectModal = byId("connectModal");
-  const connectModalBackdrop = byId("connectModalBackdrop");
-  const connectModalTitle = byId("connectModalTitle");
-  const connectModalSubtitle = byId("connectModalSubtitle");
-  const connectSettingsTabs = byId("connectSettingsTabs");
-  const connectSectionConnection = byId("connectSectionConnection");
-  const connectSectionAccess = byId("connectSectionAccess");
-  const connectSectionSave = byId("connectSectionSave");
-  const credentialModal = byId("credentialModal");
-  const credentialModalBackdrop = byId("credentialModalBackdrop");
-  const credentialModalTitle = byId("credentialModalTitle");
-  const credentialModalSubtitle = byId("credentialModalSubtitle");
-  const credentialDbPassword = byId("credentialDbPassword");
-  const credentialSshFields = byId("credentialSshFields");
-  const credentialSshPassword = byId("credentialSshPassword");
-  const credentialSshPrivateKey = byId("credentialSshPrivateKey");
-  const credentialSshPassphrase = byId("credentialSshPassphrase");
-  const credentialCloseBtn = byId("credentialCloseBtn");
-  const credentialCancelBtn = byId("credentialCancelBtn");
-  const credentialConfirmBtn = byId("credentialConfirmBtn");
   const openSettingsBtn = byId("openSettingsBtn");
-  const sidebarTreeBtn = byId("sidebarTreeBtn");
-  const sidebarHistoryBtn = byId("sidebarHistoryBtn");
-  const sidebarSnippetsBtn = byId("sidebarSnippetsBtn");
-  const tablePanel = byId("tablePanel");
-  const historyPanel = byId("historyPanel");
   const historyList = byId("historyList");
-  const snippetsPanel = byId("snippetsPanel");
   const snippetsList = byId("snippetsList");
   const addSnippetBtn = byId("addSnippetBtn");
   const snippetModal = byId("snippetModal");
@@ -223,33 +181,12 @@ export function initHome({ api }) {
   const definitionCopyBtn = byId("definitionCopyBtn");
   const definitionSaveBtn = byId("definitionSaveBtn");
   const definitionQueryInput = byId("definitionQueryInput");
-  const settingsModal = byId("settingsModal");
-  const settingsModalBackdrop = byId("settingsModalBackdrop");
-  const settingsCloseBtn = byId("settingsCloseBtn");
-  const settingsCancelBtn = byId("settingsCancelBtn");
-  const settingsSaveBtn = byId("settingsSaveBtn");
-  const settingsResetDefaultsBtn = byId("settingsResetDefaultsBtn");
-  const settingsTabs = byId("settingsTabs");
-  const settingsPanelGeneral = byId("settingsPanelGeneral");
-  const settingsPanelErrorsTimeouts = byId("settingsPanelErrorsTimeouts");
-  const settingsPanelEnvironments = byId("settingsPanelEnvironments");
   const settingsSessionTimezoneCombobox = byId(
     "settingsSessionTimezoneCombobox",
   );
 
   const settingsDefaultLimit = byId("settingsDefaultLimit");
   const settingsDefaultTimeout = byId("settingsDefaultTimeout");
-  const envPolicyDevAllowWrite = byId("envPolicyDevAllowWrite");
-  const envPolicyDevAllowDdl = byId("envPolicyDevAllowDdl");
-  const envPolicyDevRequireApproval = byId("envPolicyDevRequireApproval");
-  const envPolicyStagingAllowWrite = byId("envPolicyStagingAllowWrite");
-  const envPolicyStagingAllowDdl = byId("envPolicyStagingAllowDdl");
-  const envPolicyStagingRequireApproval = byId(
-    "envPolicyStagingRequireApproval",
-  );
-  const envPolicyProdAllowWrite = byId("envPolicyProdAllowWrite");
-  const envPolicyProdAllowDdl = byId("envPolicyProdAllowDdl");
-  const envPolicyProdRequireApproval = byId("envPolicyProdRequireApproval");
 
   let isConnecting = false;
   let isEditingConnection = false;
@@ -281,6 +218,7 @@ export function initHome({ api }) {
   let environmentPolicyRules = null;
   let settingsModalComponent = null;
   let connectModalComponent = null;
+  let sidebarMenuComponent = null;
   let activeConnectSettingsTab = "connection";
   let activeConnectMode = "full";
   let sessionTimezoneOptionItems = [];
@@ -305,6 +243,16 @@ export function initHome({ api }) {
     {
       get(_target, prop) {
         if (prop === "showError") {
+          if (dialogsApi && typeof dialogsApi.showError === "function") {
+            return async (message) => {
+              try {
+                return await dialogsApi.showError(message);
+              } catch (err) {
+                console.error("API unavailable:", err);
+                if (message) alert(message);
+              }
+            };
+          }
           if (electronApi && typeof electronApi.showError === "function")
             return electronApi.showError;
           if (dbApi && typeof dbApi.showError === "function")
@@ -934,23 +882,6 @@ export function initHome({ api }) {
     return next;
   };
 
-  const getEnvironmentPolicyInputs = () => ({
-    [POLICY_MODE_DEV]: {
-      allowWrite: envPolicyDevAllowWrite,
-      allowDdlAdmin: envPolicyDevAllowDdl,
-      requireApproval: envPolicyDevRequireApproval,
-    },
-    [POLICY_MODE_STAGING]: {
-      allowWrite: envPolicyStagingAllowWrite,
-      allowDdlAdmin: envPolicyStagingAllowDdl,
-      requireApproval: envPolicyStagingRequireApproval,
-    },
-    [POLICY_MODE_PROD]: {
-      allowWrite: envPolicyProdAllowWrite,
-      allowDdlAdmin: envPolicyProdAllowDdl,
-      requireApproval: envPolicyProdRequireApproval,
-    },
-  });
 
   const applyEnvironmentPolicyInputs = (rules) => {
     const nextRules = normalizeEnvironmentPolicyRules(rules);
@@ -1108,12 +1039,6 @@ export function initHome({ api }) {
     if (connectModalComponent) connectModalComponent.setEditMode(enabled);
   };
 
-  const setConnectTab = (tab) => {
-    const isSsh = tab === "ssh";
-    if (connectModalComponent) {
-      connectModalComponent.setActiveTab(isSsh ? "ssh" : "direct");
-    }
-  };
 
   const entryRemembersSecrets = (entry) => {
     if (!entry) return false;
@@ -1205,27 +1130,6 @@ export function initHome({ api }) {
     return resolveConnectEntry({ name });
   };
 
-  const ensureValidationSecretsIfNeeded = async (config) => {
-    const next = {
-      ...(config || {}),
-      ssh: { ...((config && config.ssh) || {}) },
-    };
-    if (String(next.type || "").toLowerCase() === "sqlite") return next;
-    if (hasRuntimeSecretsInConfig(next)) return next;
-    if (!isEditingConnection) return next;
-    const sourceEntry = await resolveSaveValidationEntry(next.name);
-    if (!sourceEntry || entryRemembersSecrets(sourceEntry)) return next;
-    const promptEntry = buildPromptEntryForValidation(sourceEntry, next);
-    const secrets = await promptConnectionSecrets(promptEntry);
-    if (!secrets) return null;
-    next.password = secrets.password || "";
-    if (next.ssh && next.ssh.enabled) {
-      next.ssh.password = secrets.sshPassword || "";
-      next.ssh.privateKey = secrets.sshPrivateKey || "";
-      next.ssh.passphrase = secrets.sshPassphrase || "";
-    }
-    return next;
-  };
 
   const resetConnectionForm = () => {
     if (connectModalComponent) {
@@ -1272,20 +1176,9 @@ export function initHome({ api }) {
 
   const getSelectedDbType = () =>
     normalizeTypeForForm(dbType ? dbType.value : "mysql");
-  const isSqliteSelected = () => getSelectedDbType() === "sqlite";
   const resolveSqliteMode = () =>
     sqliteModeExisting && sqliteModeExisting.checked ? "existing" : "create";
 
-  const getFieldContainer = (input) => (input ? input.closest(".field") : null);
-  const hostField = getFieldContainer(host);
-  const portField = getFieldContainer(port);
-  const userField = getFieldContainer(user);
-  const passwordField = getFieldContainer(password);
-  const databaseField = getFieldContainer(database);
-  const connectionUrlField = getFieldContainer(connectionUrl);
-  const rememberSecretsField = rememberPassword
-    ? rememberPassword.closest(".save-settings-option")
-    : null;
 
   const syncConnectionTypeFields = () => {
     if (connectModalComponent) connectModalComponent.syncTypeFields();
@@ -1386,82 +1279,7 @@ export function initHome({ api }) {
     return normalizeTypeForForm(editingConnectionSeed.type);
   };
 
-  const buildConnectionFromForm = ({ includeSaveFields = false } = {}) => {
-    const lockedType = getLockedEditType();
-    const selectedType = lockedType || getSelectedDbType();
-    const sqliteSelected = selectedType === "sqlite";
-    const sqliteFilePath = sqlitePath
-      ? String(sqlitePath.value || "").trim()
-      : "";
-    const base = {
-      type: selectedType,
-      filePath: sqliteSelected ? sqliteFilePath : "",
-      sqliteMode: sqliteSelected ? resolveSqliteMode() : undefined,
-      host: sqliteSelected
-        ? ""
-        : host
-          ? host.value || "localhost"
-          : "localhost",
-      port: sqliteSelected ? "" : port ? String(port.value || "").trim() : "",
-      user: sqliteSelected ? "" : user ? user.value || "" : "",
-      password: sqliteSelected ? "" : password ? password.value || "" : "",
-      database: sqliteSelected ? "" : database ? database.value || "" : "",
-      sessionTimezone: getSessionTimezoneSetting(),
-      ...getConnectionTimeoutSettings(),
-      readOnly: readOnly ? readOnly.checked : false,
-      policyMode: policyMode ? policyMode.value || "dev" : "dev",
-      ssh: sqliteSelected ? { enabled: false } : buildSshConfig(),
-    };
-    if (includeSaveFields) {
-      base.name = saveName ? saveName.value.trim() : "";
-      base.rememberSecrets = rememberPassword
-        ? rememberPassword.checked
-        : false;
-    }
 
-    if (sqliteSelected && !base.filePath) {
-      throw new Error("Select a SQLite database file.");
-    }
-
-    const urlValue = connectionUrl
-      ? String(connectionUrl.value || "").trim()
-      : "";
-    if (!urlValue) {
-      base.connectionUrl = "";
-      return base;
-    }
-
-    const parsed = parseConnectionUrl(urlValue);
-    if (lockedType && parsed.type !== lockedType) {
-      throw new Error("Connection type cannot be changed while editing.");
-    }
-    return {
-      ...base,
-      ...parsed,
-      connectionUrl: urlValue,
-    };
-  };
-
-  const chooseSqlitePath = async () => {
-    if (!safeApi.openSqliteFile || !safeApi.saveSqliteFile) {
-      await safeApi.showError("SQLite file picker not available.");
-      return;
-    }
-    const mode = resolveSqliteMode();
-    const res =
-      mode === "existing"
-        ? await safeApi.openSqliteFile()
-        : await safeApi.saveSqliteFile();
-    if (!res || !res.ok) {
-      if (!res || !res.canceled) {
-        await safeApi.showError(
-          (res && res.error) || "Failed to choose SQLite file.",
-        );
-      }
-      return;
-    }
-    if (sqlitePath) sqlitePath.value = res.path || "";
-  };
 
   const normalizeConnectSettingsTab = (tab) => {
     if (tab === "access") return tab;
@@ -1475,11 +1293,6 @@ export function initHome({ api }) {
     if (connectModalComponent) connectModalComponent.setSettingsTab(next);
   };
 
-  const setConnectMode = (mode) => {
-    activeConnectMode = mode === "quick" ? "quick" : "full";
-    if (connectModalComponent) connectModalComponent.setMode(activeConnectMode);
-    setConnectSettingsTab(activeConnectSettingsTab || "connection");
-  };
 
   const setScreen = (connected) => {
     if (mainScreen) mainScreen.classList.remove("hidden");
@@ -1511,27 +1324,7 @@ export function initHome({ api }) {
   };
 
   const setSidebarView = (view) => {
-    const next =
-      view === "history"
-        ? "history"
-        : view === "snippets"
-          ? "snippets"
-          : "tree";
-    if (tablePanel) tablePanel.classList.toggle("hidden", next !== "tree");
-    if (historyPanel)
-      historyPanel.classList.toggle("hidden", next !== "history");
-    if (snippetsPanel)
-      snippetsPanel.classList.toggle("hidden", next !== "snippets");
-    if (sidebarTreeBtn)
-      sidebarTreeBtn.classList.toggle("active", next === "tree");
-    if (sidebarHistoryBtn)
-      sidebarHistoryBtn.classList.toggle("active", next === "history");
-    if (sidebarSnippetsBtn)
-      sidebarSnippetsBtn.classList.toggle("active", next === "snippets");
-    if (next === "history" && historyManager)
-      void historyManager.renderHistoryList();
-    if (next === "snippets" && snippetsManager)
-      void snippetsManager.renderSnippetsList();
+    if (sidebarMenuComponent) sidebarMenuComponent.setView(view);
   };
 
   const renderConnectionTabs = () => {
@@ -3885,11 +3678,11 @@ export function initHome({ api }) {
       setScreen(true);
       connectModalComponent.close();
     },
-    onSaveSuccess: async (data) => {
+    onSaveSuccess: async () => {
       setEditMode(false);
       await savedComponent.renderSavedList();
     },
-    onTestSuccess: (data) => {
+    onTestSuccess: () => {
       showToast("Connection successful");
     },
     onError: async (message) => {
@@ -3920,7 +3713,7 @@ export function initHome({ api }) {
       applyQueryDefaultsToSettingsInputs(readStoredQueryDefaults());
       await loadEnvironmentPolicySettings({ silent: false });
     },
-    onSave: async (activeTab) => {
+    onSave: async () => {
       const sessionTimezone = readSessionTimezoneInput();
       const previousTimezone = readStoredSessionTimezone();
 
@@ -4059,8 +3852,18 @@ export function initHome({ api }) {
   // Theme manager
   const themeManagerComponent = createThemeManager({
     api: safeApi,
-    onThemeChange: (theme) => {
+    onThemeChange: () => {
       // Theme changed callback if needed
+    },
+  });
+
+  // Sidebar menu
+  sidebarMenuComponent = createSidebarMenu({
+    onShowHistory: () => {
+      if (historyManager) void historyManager.renderHistoryList();
+    },
+    onShowSnippets: () => {
+      if (snippetsManager) void snippetsManager.renderSnippetsList();
     },
   });
 
@@ -4072,9 +3875,6 @@ export function initHome({ api }) {
     return credentialModalComponent.prompt(entry);
   };
 
-  const closeCredentialPrompt = (result = null) => {
-    credentialModalComponent.close(result);
-  };
 
   const openSettingsModal = async () => {
     await settingsModalComponent.open();
@@ -4084,13 +3884,7 @@ export function initHome({ api }) {
     settingsModalComponent.close();
   };
 
-  const saveSettings = async () => {
-    await settingsModalComponent.save();
-  };
 
-  const resetSettingsDefaults = () => {
-    settingsModalComponent.resetDefaults();
-  };
 
   const setSettingsTab = (tab) => {
     settingsModalComponent.setTab(tab);
@@ -4104,9 +3898,6 @@ export function initHome({ api }) {
     policyApprovalModalComponent.close(result);
   };
 
-  const setThemeMode = (mode, options) => {
-    themeManagerComponent.setMode(mode, options);
-  };
 
   const setThemeMenuOpen = (open) => {
     themeManagerComponent.setMenuOpen(open);
@@ -4173,20 +3964,6 @@ export function initHome({ api }) {
     }
   };
 
-  const testConnectionWithLoading = async (config) => {
-    if (isConnecting) return { ok: false, error: "Connection in progress." };
-    setConnecting(true);
-    try {
-      return await safeApi.testConnection(config);
-    } catch (err) {
-      return {
-        ok: false,
-        error: err && err.message ? err.message : "Failed to test connection.",
-      };
-    } finally {
-      setConnecting(false);
-    }
-  };
 
   const connectEntryFromList = async (entry) => {
     if (!entry) return false;
@@ -4250,149 +4027,8 @@ export function initHome({ api }) {
     return Promise.resolve();
   };
 
-  const connectFromForm = async () => {
-    const shouldSave = activeConnectMode !== "quick";
-    if (shouldSave && (!saveName || !saveName.value.trim())) {
-      await safeApi.showError("Enter a name to save.");
-      return;
-    }
 
-    let config = null;
-    try {
-      config = buildConnectionFromForm({ includeSaveFields: shouldSave });
-    } catch (err) {
-      await safeApi.showError(
-        err && err.message ? err.message : "Invalid connection URL.",
-      );
-      return;
-    }
-    config = {
-      ...config,
-      port: config.port || undefined,
-    };
 
-    if (shouldSave) {
-      const entryForValidation = await ensureValidationSecretsIfNeeded(config);
-      if (!entryForValidation) return;
-      config = entryForValidation;
-    }
-
-    if (await tryActivateExistingConnection(config)) return;
-
-    const res = await connectWithLoading(config);
-    if (!res.ok) {
-      await safeApi.showError(res.error || "Failed to connect.");
-      return;
-    }
-
-    if (shouldSave) {
-      const originalName =
-        editingConnectionSeed && editingConnectionSeed.name
-          ? String(editingConnectionSeed.name).trim()
-          : saveName && saveName.dataset && saveName.dataset.originalName
-            ? String(saveName.dataset.originalName).trim()
-            : "";
-      const payload =
-        isEditingConnection && originalName
-          ? { ...config, originalName }
-          : config;
-      await safeApi.saveConnection(payload);
-      setEditMode(false);
-      await renderSavedList();
-    }
-    saveTabsForActive();
-    upsertConnectionTab(config);
-    await refreshDatabases();
-    await syncActiveDatabaseAndTree(config, getTabKey(config));
-    resetConnectionScopedUi();
-    loadTabsForKey(getTabKey(config));
-    setScreen(true);
-    closeConnectModal();
-  };
-
-  const saveConnection = async () => {
-    if (!saveName || !saveName.value.trim()) {
-      await safeApi.showError("Enter a name to save.");
-      return;
-    }
-
-    let entry = null;
-    try {
-      entry = buildConnectionFromForm({ includeSaveFields: true });
-    } catch (err) {
-      await safeApi.showError(
-        err && err.message ? err.message : "Invalid connection URL.",
-      );
-      return;
-    }
-
-    const entryForValidation = await ensureValidationSecretsIfNeeded(entry);
-    if (!entryForValidation) return;
-
-    const res = await testConnectionWithLoading({
-      type: entryForValidation.type,
-      filePath:
-        entryForValidation.filePath ||
-        entryForValidation.file_path ||
-        entryForValidation.path ||
-        "",
-      sqliteMode:
-        entryForValidation.sqliteMode || entryForValidation.sqlite_mode,
-      host: entryForValidation.host,
-      port: entryForValidation.port || undefined,
-      user: entryForValidation.user,
-      password: entryForValidation.password,
-      database: entryForValidation.database,
-      sessionTimezone: entryForValidation.sessionTimezone,
-      readOnly: entryForValidation.readOnly,
-      policyMode: entryForValidation.policyMode,
-      ssh: entryForValidation.ssh,
-    });
-    if (!res.ok) {
-      await safeApi.showError(res.error || "Failed to test connection.");
-      return;
-    }
-    const originalName =
-      editingConnectionSeed && editingConnectionSeed.name
-        ? String(editingConnectionSeed.name).trim()
-        : saveName && saveName.dataset && saveName.dataset.originalName
-          ? String(saveName.dataset.originalName).trim()
-          : "";
-    const nextName = entry && entry.name ? String(entry.name).trim() : "";
-    const payload =
-      isEditingConnection && originalName ? { ...entry, originalName } : entry;
-
-    await safeApi.saveConnection(payload);
-    setEditMode(false);
-    await renderSavedList();
-    closeConnectModal();
-  };
-
-  const testConnection = async () => {
-    let config = null;
-    try {
-      config = buildConnectionFromForm({ includeSaveFields: true });
-    } catch (err) {
-      await safeApi.showError(
-        err && err.message ? err.message : "Invalid connection URL.",
-      );
-      return;
-    }
-    config = {
-      ...config,
-      port: config.port || undefined,
-    };
-
-    const configForValidation = await ensureValidationSecretsIfNeeded(config);
-    if (!configForValidation) return;
-
-    const res = await testConnectionWithLoading(configForValidation);
-    if (!res.ok) {
-      await safeApi.showError(res.error || "Failed to test connection.");
-      return;
-    }
-    alert("Connection OK.");
-  };
 
   if (homeBtn) {
     homeBtn.addEventListener("click", () => {
@@ -4530,28 +4166,7 @@ export function initHome({ api }) {
   // connectBtn, saveBtn, testBtn are now handled by connectModalComponent
   // openConnectModalBtn and quickConnectBtn are now handled by quickConnectComponent
 
-  if (sqliteModeCreate) {
-    sqliteModeCreate.addEventListener("change", () => {
-      if (sqliteModeCreate.checked && sqlitePath) sqlitePath.value = "";
-    });
-  }
-
-  if (sqliteModeExisting) {
-    sqliteModeExisting.addEventListener("change", () => {
-      if (sqliteModeExisting.checked && sqlitePath) sqlitePath.value = "";
-    });
-  }
-
-  if (clearFormBtn) {
-    clearFormBtn.addEventListener("click", () => resetConnectionForm());
-  }
-
-  if (cancelEditBtn) {
-    cancelEditBtn.addEventListener("click", () => {
-      setEditMode(false);
-      resetConnectionForm();
-    });
-  }
+  // sqliteModeCreate, sqliteModeExisting, clearFormBtn, cancelEditBtn are now handled by connectModalComponent
 
   // Theme toggle and menu event listeners now in themeManager
 
@@ -4570,19 +4185,7 @@ export function initHome({ api }) {
 
   // Native theme listener now handled by themeManager
 
-  if (sidebarTreeBtn) {
-    sidebarTreeBtn.addEventListener("click", () => setSidebarView("tree"));
-  }
-  if (sidebarHistoryBtn) {
-    sidebarHistoryBtn.addEventListener("click", () =>
-      setSidebarView("history"),
-    );
-  }
-  if (sidebarSnippetsBtn) {
-    sidebarSnippetsBtn.addEventListener("click", () =>
-      setSidebarView("snippets"),
-    );
-  }
+  // Sidebar menu event listeners now in sidebarMenu component
 
   const runServerPage = async ({ page, pageSize } = {}) => {
     const active = tableView ? tableView.getActive() : null;
@@ -5194,7 +4797,7 @@ export function initHome({ api }) {
     onSelect: (_key, entry, previousKey) => {
       activateConnection(entry, previousKey);
     },
-    onClose: async (key, entry) => {
+    onClose: async (key) => {
       if (!tabConnectionsView) return;
       const wasActive = tabConnectionsView.getActiveKey() === key;
       tabConnectionsView.remove(key);

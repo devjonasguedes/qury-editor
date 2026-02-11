@@ -1,7 +1,8 @@
 // Connect modal component (full + quick connect)
 
 import { connectionsApi } from '../api/connections.js';
-import { apiService } from '../services/apiService.js';
+import { dbApi } from '../api/db.js';
+import { dialogsApi } from '../api/dialogs.js';
 
 export function createConnectModal({
   onConnectSuccess,
@@ -363,10 +364,9 @@ export function createConnectModal({
 
       try {
         // Test connection first
-        const db = apiService.db;
-        const testResult = await db.testConnection(data);
+        const testResult = await dbApi.testConnection(data);
         
-        if (!testResult || !testResult.ok) {
+        if (!testResult || testResult.ok === false) {
           if (onError) onError(testResult?.error || 'Failed to test connection.');
           return;
         }
@@ -397,10 +397,9 @@ export function createConnectModal({
 
       try {
         // Test connection first
-        const db = apiService.db;
-        const testResult = await db.testConnection(data);
+        const testResult = await dbApi.testConnection(data);
         
-        if (!testResult || !testResult.ok) {
+        if (!testResult || testResult.ok === false) {
           if (onError) onError(testResult?.error || 'Failed to test connection.');
           return;
         }
@@ -422,10 +421,9 @@ export function createConnectModal({
       const data = getFormData({ includeSaveFields: true });
       
       try {
-        const db = apiService.db;
-        const result = await db.testConnection(data);
+        const result = await dbApi.testConnection(data);
         
-        if (!result || !result.ok) {
+        if (!result || result.ok === false) {
           if (onError) onError(result?.error || 'Failed to test connection.');
           return;
         }
@@ -475,11 +473,35 @@ export function createConnectModal({
     });
   }
 
+  if (sqliteModeCreate) {
+    sqliteModeCreate.addEventListener('change', () => {
+      if (sqliteModeCreate.checked && sqlitePath) sqlitePath.value = '';
+    });
+  }
+
+  if (sqliteModeExisting) {
+    sqliteModeExisting.addEventListener('change', () => {
+      if (sqliteModeExisting.checked && sqlitePath) sqlitePath.value = '';
+    });
+  }
+
+  if (clearFormBtn) {
+    clearFormBtn.addEventListener('click', () => {
+      resetForm();
+    });
+  }
+
+  if (cancelEditBtn) {
+    cancelEditBtn.addEventListener('click', () => {
+      setEditMode(false);
+      resetForm();
+    });
+  }
+
   if (sqliteBrowseBtn) {
     sqliteBrowseBtn.addEventListener('click', async () => {
       try {
-        const db = apiService.db;
-        if (!db.openSqliteFile || !db.saveSqliteFile) {
+        if (!dialogsApi.openSqliteFile || !dialogsApi.saveSqliteFile) {
           if (onError) onError('SQLite file picker not available.');
           return;
         }
@@ -489,8 +511,8 @@ export function createConnectModal({
           : 'create';
         const res =
           mode === 'existing'
-            ? await db.openSqliteFile()
-            : await db.saveSqliteFile();
+            ? await dialogsApi.openSqliteFile()
+            : await dialogsApi.saveSqliteFile();
         if (!res || !res.ok) {
           if (!res || !res.canceled) {
             if (onError) {

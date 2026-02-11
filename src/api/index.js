@@ -2,3 +2,7 @@ export { connectionsApi } from "./connections.js";
 export { dbApi } from "./db.js";
 export { electronApi } from "./electron.js";
 export { dialogsApi } from "./dialogs.js";
+export { historyApi } from "./history.js";
+export { snippetsApi } from "./snippets.js";
+export { settingsApi } from "./settings.js";
+export { storageApi } from "./storage.js";

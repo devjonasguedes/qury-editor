@@ -5,32 +5,32 @@ export function createTabConnections({ container, getTitle, onSelect, onClose })
 
   const render = () => {
     if (!container) return;
-    container.innerHTML = '';
-    container.classList.toggle('hidden', entries.size === 0);
+    container.innerHTML = "";
+    container.classList.toggle("hidden", entries.size === 0);
     if (entries.size === 0) return;
 
     order.forEach((key) => {
       const entry = entries.get(key);
       if (!entry) return;
-      const tab = document.createElement('div');
-      tab.className = 'conn-tab';
-      if (key === activeKey) tab.classList.add('active');
+      const tab = document.createElement("div");
+      tab.className = "conn-tab";
+      if (key === activeKey) tab.classList.add("active");
 
-      const label = document.createElement('span');
+      const label = document.createElement("span");
       label.textContent = getTitle ? getTitle(entry) : String(key);
-      label.addEventListener('click', () => {
+      label.addEventListener("click", () => {
         const previousKey = activeKey;
         activeKey = key;
         render();
         if (onSelect) onSelect(key, entry, previousKey);
       });
 
-      const closeBtn = document.createElement('button');
-      closeBtn.type = 'button';
-      closeBtn.className = 'conn-tab-close';
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "conn-tab-close";
       closeBtn.innerHTML = '<i class="bi bi-x"></i>';
-      closeBtn.title = 'Close connection';
-      closeBtn.addEventListener('click', (event) => {
+      closeBtn.title = "Close connection";
+      closeBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         if (onClose) onClose(key, entry);
       });
@@ -84,6 +84,6 @@ export function createTabConnections({ container, getTitle, onSelect, onClose })
     setActive,
     clearActive,
     getEntry,
-    getFirstEntry
+    getFirstEntry,
   };
 }

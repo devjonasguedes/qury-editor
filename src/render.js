@@ -20,13 +20,18 @@ import {
 import { createQueryHistory } from "./modules/queryHistory.js";
 import { createSnippetsManager } from "./modules/snippets.js";
 import { createSqlAutocomplete } from "./modules/sqlAutocomplete.js";
-import { readJson, writeJson } from "./modules/storage.js";
-import { createTabConnections } from "./modules/tabConnections.js";
+import { storageApi } from "./api/index.js";
+import { createTabConnections } from "./components/tab-connections.js";
 import { createTableObjectTabs } from "./modules/tableObjectTabs.js";
 import { createTableView } from "./modules/tableView.js";
 import { createTabTables } from "./modules/tabTables.js";
 import { createTreeView } from "./modules/treeView.js";
-import { dialogsApi } from "./api/dialogs.js";
+import {
+  dialogsApi,
+  historyApi,
+  settingsApi,
+  snippetsApi,
+} from "./api/index.js";
 import {
   SESSION_TIMEZONE_ITEMS,
   SESSION_TIMEZONE_ITEM_BY_ID,
@@ -941,23 +946,8 @@ export function initHome({ api }) {
   const loadEnvironmentPolicySettings = async ({ silent = true } = {}) => {
     const fallback = cloneEnvironmentPolicyRules(ENVIRONMENT_POLICY_DEFAULTS);
     try {
-      if (!safeApi.getPolicySettings) {
-        setEnvironmentPolicyRules(fallback);
-        applyEnvironmentPolicyInputs(fallback);
-        return fallback;
-      }
-      const res = await safeApi.getPolicySettings();
-      if (!res || !res.ok) {
-        if (!silent && safeApi.showError) {
-          await safeApi.showError(
-            (res && res.error) || "Failed to load policy settings.",
-          );
-        }
-        setEnvironmentPolicyRules(fallback);
-        applyEnvironmentPolicyInputs(fallback);
-        return fallback;
-      }
-      const next = setEnvironmentPolicyRules(res.policies || res);
+      const res = await settingsApi.getPolicySettings();
+      const next = setEnvironmentPolicyRules(res && res.policies ? res.policies : res);
       applyEnvironmentPolicyInputs(next);
       return next;
     } catch (err) {
@@ -993,23 +983,19 @@ export function initHome({ api }) {
     const current = getEnvironmentPolicyRules();
     if (areEnvironmentPoliciesEqual(current, next))
       return { ok: true, saved: false };
-    if (!safeApi.savePolicySettings) {
-      if (safeApi.showError)
-        await safeApi.showError("Settings API unavailable.");
-      return { ok: false };
-    }
-    const res = await safeApi.savePolicySettings({ policies: next });
-    if (!res || !res.ok) {
+    try {
+      const res = await settingsApi.savePolicySettings({ policies: next });
+      const saved = setEnvironmentPolicyRules(res && res.policies ? res.policies : next);
+      applyEnvironmentPolicyInputs(saved);
+      return { ok: true, saved: true };
+    } catch (err) {
       if (safeApi.showError) {
         await safeApi.showError(
-          (res && res.error) || "Failed to save policy settings.",
+          err && err.message ? err.message : "Failed to save policy settings.",
         );
       }
       return { ok: false };
     }
-    const saved = setEnvironmentPolicyRules(res.policies || next);
-    applyEnvironmentPolicyInputs(saved);
-    return { ok: true, saved: true };
   };
 
   const applySessionTimezoneToActiveConnection = async (timezone) => {
@@ -1406,7 +1392,7 @@ export function initHome({ api }) {
 
   const saveTabsForKey = (key) => {
     if (!key || !tabTablesView) return;
-    writeJson(tabsStorageKey(key), tabTablesView.getState());
+    storageApi.writeJson(tabsStorageKey(key), tabTablesView.getState());
   };
 
   const saveTabsForActive = () => {
@@ -1419,7 +1405,7 @@ export function initHome({ api }) {
 
   const loadTabsForKey = (key) => {
     if (!key || !tabTablesView) return;
-    const state = readJson(tabsStorageKey(key), null);
+    const state = storageApi.readJson(tabsStorageKey(key), null);
     if (state && Array.isArray(state.tabs)) {
       tabTablesView.setState(state);
       if (state.tabs.length === 0) tabTablesView.ensureOne();
@@ -4617,8 +4603,8 @@ export function initHome({ api }) {
       if (codeEditor) codeEditor.setValue(sql || "");
       if (tabTablesView) tabTablesView.syncActiveTabContent();
     },
-    listHistory: (payload) => safeApi.listHistory(payload),
-    recordHistory: (payload) => safeApi.recordHistory(payload),
+    listHistory: (payload) => historyApi.listHistory(payload),
+    recordHistory: (payload) => historyApi.recordHistory(payload),
     showError: safeApi.showError,
   });
   snippetsManager = createSnippetsManager({
@@ -4665,9 +4651,9 @@ export function initHome({ api }) {
       lastSort = null;
       await runSql(text);
     },
-    listSnippets: (payload) => safeApi.listSnippets(payload),
-    saveSnippet: (payload) => safeApi.saveSnippet(payload),
-    deleteSnippet: (payload) => safeApi.deleteSnippet(payload),
+    listSnippets: (payload) => snippetsApi.listSnippets(payload),
+    saveSnippet: (payload) => snippetsApi.saveSnippet(payload),
+    deleteSnippet: (payload) => snippetsApi.deleteSnippet(payload),
     showError: safeApi.showError,
   });
   const buildOrderBy = (sql, column, direction) => {

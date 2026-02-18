@@ -258,6 +258,86 @@ function parseLegacyCreateColumns(createTableSql) {
   return columns;
 }
 
+function splitStatements(sql) {
+  const source = String(sql || '');
+  const statements = [];
+  let segmentStart = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  const pushStatement = (start, end) => {
+    const raw = source.slice(start, end);
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    statements.push(trimmed);
+  };
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    const next = source[i + 1];
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        i += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inBacktick) {
+      if (ch === '-' && next === '-') {
+        inLineComment = true;
+        i += 1;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        i += 1;
+        continue;
+      }
+    }
+
+    if (!inDouble && !inBacktick && ch === "'") {
+      if (inSingle && next === "'") {
+        i += 1;
+        continue;
+      }
+      inSingle = !inSingle;
+      continue;
+    }
+
+    if (!inSingle && !inBacktick && ch === '"') {
+      if (inDouble && next === '"') {
+        i += 1;
+        continue;
+      }
+      inDouble = !inDouble;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && ch === '`') {
+      inBacktick = !inBacktick;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inBacktick && ch === ';') {
+      pushStatement(segmentStart, i);
+      segmentStart = i + 1;
+    }
+  }
+
+  pushStatement(segmentStart, source.length);
+  return statements;
+}
+
 function normalizeLegacyIndexRows(rows) {
   return (rows || [])
     .map((row) => ({
@@ -790,39 +870,52 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
     if (!client) return { ok: false, error: 'Not connected.' };
     if (!sql || !sql.trim()) return { ok: false, error: 'Empty query.' };
     try {
+      const statements = splitStatements(sql);
+      if (statements.length === 0) return { ok: false, error: 'Empty query.' };
       const threadId = client.threadId || (client.connection && client.connection.threadId);
       currentQuery = { threadId };
-      const [rows] = await client.query({
-        sql,
-        timeout: applyTimeout ? timeoutMs : undefined
-      });
-      currentQuery = null;
-      let payloadRows = rows;
-      let affectedRows = null;
-      let changedRows = null;
-      if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[0])) {
-        payloadRows = rows[rows.length - 1];
-      } else if (Array.isArray(rows) && rows.length > 0) {
-        const packet = rows.slice().reverse().find((item) => item && item.affectedRows !== undefined);
-        const changed = rows.slice().reverse().find((item) => item && item.changedRows !== undefined);
-        if (packet || changed) {
-          if (packet) affectedRows = packet.affectedRows;
-          if (changed) changedRows = changed.changedRows;
+      let payloadRows = [];
+      let totalRows = 0;
+      let lastSelectRows = null;
+      let lastSelectTotalRows = 0;
+      let affectedRows = undefined;
+      let changedRows = undefined;
+      for (const statement of statements) {
+        const [result] = await client.query({
+          sql: statement,
+          timeout: applyTimeout ? timeoutMs : undefined
+        });
+        if (Array.isArray(result)) {
+          payloadRows = result;
+          totalRows = result.length;
+          lastSelectRows = result;
+          lastSelectTotalRows = result.length;
+          affectedRows = undefined;
+          changedRows = undefined;
+        } else if (result && typeof result === 'object') {
           payloadRows = [];
+          totalRows = 0;
+          affectedRows = Number.isFinite(result.affectedRows) ? result.affectedRows : undefined;
+          changedRows = Number.isFinite(result.changedRows) ? result.changedRows : undefined;
+        } else {
+          payloadRows = [];
+          totalRows = 0;
+          affectedRows = undefined;
+          changedRows = undefined;
         }
-      } else if (rows && rows.affectedRows !== undefined) {
-        affectedRows = rows.affectedRows;
-        if (rows && rows.changedRows !== undefined) changedRows = rows.changedRows;
       }
-      const arr = payloadRows || [];
-      const truncated = arr.length > MAX_IPC_ROWS;
+      currentQuery = null;
+      const hasSelect = Array.isArray(lastSelectRows);
+      const outputRows = hasSelect ? lastSelectRows : payloadRows;
+      const outputTotalRows = hasSelect ? lastSelectTotalRows : totalRows;
+      const truncated = outputRows.length > MAX_IPC_ROWS;
       return {
         ok: true,
-        rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr,
-        totalRows: arr.length,
+        rows: truncated ? outputRows.slice(0, MAX_IPC_ROWS) : outputRows,
+        totalRows: outputTotalRows,
         truncated,
-        affectedRows: Number.isFinite(affectedRows) ? affectedRows : undefined,
-        changedRows: Number.isFinite(changedRows) ? changedRows : undefined
+        affectedRows: hasSelect ? undefined : Number.isFinite(affectedRows) ? affectedRows : undefined,
+        changedRows: hasSelect ? undefined : Number.isFinite(changedRows) ? changedRows : undefined
       };
     } catch (err) {
       currentQuery = null;

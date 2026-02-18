@@ -274,6 +274,108 @@ export function createConnectModal({
     if (connectionUrl) connectionUrl.placeholder = value || '';
   };
 
+  const decodeUrlPart = (value) => {
+    if (!value) return '';
+    try {
+      return decodeURIComponent(value);
+    } catch (err) {
+      return value;
+    }
+  };
+
+  const normalizeTypeFromProtocol = (value) => {
+    const type = String(value || '')
+      .trim()
+      .toLowerCase();
+    if (type === 'postgres' || type === 'postgresql') return 'postgres';
+    if (type === 'mysql') return 'mysql';
+    if (type === 'mariadb' || type === 'maria') return 'mariadb';
+    if (type === 'sqlite' || type === 'sqlite3') return 'sqlite';
+    return '';
+  };
+
+  const parseConnectionUrl = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+
+    let parsedUrl = null;
+    try {
+      parsedUrl = new URL(raw);
+    } catch (err) {
+      return null;
+    }
+
+    const protocol = normalizeTypeFromProtocol(
+      String(parsedUrl.protocol || '').replace(':', ''),
+    );
+    if (!protocol) return null;
+
+    if (protocol === 'sqlite') {
+      let filePath = decodeUrlPart(parsedUrl.pathname || '');
+      if (!filePath && parsedUrl.host) {
+        filePath = decodeUrlPart(parsedUrl.host);
+      }
+      if (filePath === '/:memory:' || filePath === ':memory:') {
+        filePath = ':memory:';
+      }
+      if (filePath.startsWith('/') && /^[A-Za-z]:/.test(filePath.slice(1))) {
+        filePath = filePath.slice(1);
+      }
+      return {
+        type: 'sqlite',
+        filePath,
+      };
+    }
+
+    return {
+      type: protocol,
+      host: decodeUrlPart(parsedUrl.hostname || ''),
+      port: parsedUrl.port || '',
+      user: decodeUrlPart(parsedUrl.username || ''),
+      password: decodeUrlPart(parsedUrl.password || ''),
+      database: decodeUrlPart(String(parsedUrl.pathname || '').replace(/^\/+/, '')),
+    };
+  };
+
+  const applyConnectionUrl = (value, { force = false } = {}) => {
+    const parsed = parseConnectionUrl(value);
+    if (!parsed) return false;
+
+    if (!force) {
+      const hasDetails =
+        parsed.type === 'sqlite' ||
+        parsed.host ||
+        parsed.database ||
+        parsed.user ||
+        parsed.password ||
+        parsed.port;
+      if (!hasDetails) return false;
+    }
+
+    if (dbType) dbType.value = parsed.type;
+
+    if (parsed.type === 'sqlite') {
+      if (sqlitePath) sqlitePath.value = parsed.filePath || '';
+      if (sqliteModeExisting) sqliteModeExisting.checked = !!parsed.filePath;
+      if (sqliteModeCreate) sqliteModeCreate.checked = !parsed.filePath;
+      if (host) host.value = '';
+      if (port) port.value = '';
+      if (user) user.value = '';
+      if (password) password.value = '';
+      if (database) database.value = '';
+    } else {
+      if (host) host.value = parsed.host || '';
+      if (port) port.value = parsed.port || '';
+      if (user) user.value = parsed.user || '';
+      if (password) password.value = parsed.password || '';
+      if (database) database.value = parsed.database || '';
+    }
+
+    syncTypeFields();
+    updateTabs();
+    return true;
+  };
+
   const getFormData = ({ includeSaveFields = false } = {}) => {
     const type = dbType?.value || 'postgres';
     const isSqlite = type === 'sqlite';
@@ -457,6 +559,20 @@ export function createConnectModal({
     dbType.addEventListener('change', () => {
       syncTypeFields();
     });
+  }
+
+  if (connectionUrl) {
+    let urlSyncTimeout = null;
+    const scheduleUrlSync = (force = false) => {
+      if (urlSyncTimeout) clearTimeout(urlSyncTimeout);
+      urlSyncTimeout = setTimeout(() => {
+        applyConnectionUrl(connectionUrl.value, { force });
+      }, 200);
+    };
+
+    connectionUrl.addEventListener('input', () => scheduleUrlSync(false));
+    connectionUrl.addEventListener('change', () => scheduleUrlSync(true));
+    connectionUrl.addEventListener('blur', () => applyConnectionUrl(connectionUrl.value, { force: true }));
   }
 
   if (tabDirectBtn) {

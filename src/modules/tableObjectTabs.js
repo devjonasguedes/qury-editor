@@ -658,6 +658,11 @@ export function createTableObjectTabs({
       ];
     });
 
+    const summaryHelp = 'Errors = integrity breaks (duplicate/NULL primary keys, orphan foreign keys). Warnings = potential issues (NULLs in columns, repeated foreign key values). Info = check passed. Counts are per check, not rows.';
+    const pkHelp = 'Error when a primary key has duplicate values or NULLs.';
+    const fkHelp = 'Error when child rows point to missing parents. Warning when the same foreign key values repeat (may be expected).';
+    const nullHelp = 'Warning when a column has NULL rows; info when none.';
+
     detailsContainer.innerHTML = `
       <div class="object-section-head">
         <div class="object-section-title">Quality</div>
@@ -671,18 +676,22 @@ export function createTableObjectTabs({
         <span class="object-quality-chip ${qualityStatusClass('info')}">${summary.info} info</span>
         <span class="object-quality-meta">Rows scanned: ${escapeHtml(report.table.totalRows)}</span>
       </div>
+      <div class="object-quality-help">${summaryHelp}</div>
       <section class="object-quality-section">
         <h4>Primary Key</h4>
+        <div class="object-quality-help">${pkHelp}</div>
         ${renderRowsTable(['Columns', 'Duplicate Groups', 'Rows With NULL', 'Status'], pkRows)}
       </section>
       <section class="object-quality-section">
         <h4>Foreign Keys</h4>
+        <div class="object-quality-help">${fkHelp}</div>
         ${fkRows.length
           ? renderRowsTable(['Constraint', 'Columns', 'References', 'Ref Columns', 'Orphan Rows', 'Duplicate Groups', 'Status'], fkRows)
           : '<div class="object-muted">No foreign keys found.</div>'}
       </section>
       <section class="object-quality-section">
         <h4>Nullability</h4>
+        <div class="object-quality-help">${nullHelp}</div>
         ${nullRows.length
           ? renderRowsTable(['Column', 'Type', 'NULL Rows', 'NULL %', 'Status'], nullRows)
           : '<div class="object-muted">No columns found.</div>'}

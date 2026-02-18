@@ -439,6 +439,36 @@
             <div class="editor-body">
               <textarea id="query" placeholder="Type your SQL query"></textarea>
             </div>
+            <button
+              id="sqlHelpBtn"
+              class="sql-help-fab"
+              title="SQL helper"
+              aria-label="SQL helper"
+              aria-controls="sqlHelpPanel"
+              aria-expanded="false"
+            >
+              <i class="bi bi-code-slash"></i>
+              SQL
+            </button>
+            <div
+              id="sqlHelpPanel"
+              class="sql-help-panel hidden"
+              role="dialog"
+              aria-label="SQL helper"
+            >
+              <div class="sql-help-header">
+                <div>
+                  <div class="sql-help-title">SQL Helper</div>
+                  <div class="sql-help-subtitle">
+                    Copy a template to use in your query.
+                  </div>
+                </div>
+                <button id="sqlHelpCloseBtn" class="icon-btn" title="Close">
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+              <div id="sqlHelpList" class="sql-help-list"></div>
+            </div>
           </div>
           <div id="editorResizer" class="editor-resizer hidden"></div>
           <div class="results" id="resultsPanel">
@@ -475,6 +505,35 @@
                 <button id="countBtn" class="icon-btn mini" title="Count rows">
                   <i class="bi bi-123"></i>
                 </button>
+                <div class="table-edit-actions">
+                  <button
+                    id="applyEditsBtn"
+                    class="icon-btn mini apply-edits-btn"
+                    title="Apply edits"
+                    aria-label="Apply edits"
+                    disabled
+                  >
+                    <i class="bi bi-arrow-up"></i>
+                  </button>
+                  <button
+                    id="revertEditsBtn"
+                    class="icon-btn mini"
+                    title="Revert edits"
+                    aria-label="Revert edits"
+                    disabled
+                  >
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>
+                  <button
+                    id="deleteRowBtn"
+                    class="icon-btn mini danger"
+                    title="Delete row"
+                    aria-label="Delete row"
+                    disabled
+                  >
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
                 <button
                   id="copyCellBtn"
                   class="icon-btn mini"
@@ -1322,6 +1381,47 @@
             <div class="actions end">
               <button id="outputCopyBtn" class="secondary">Copy</button>
               <button id="outputCloseBtnBottom">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="editChangesModal" class="modal hidden">
+        <div id="editChangesModalBackdrop" class="modal-backdrop"></div>
+        <div class="modal-card">
+          <div class="connect-panel">
+            <div class="connect-header">
+              <div>
+                <div class="connect-title">Pending changes</div>
+                <div id="editChangesSubtitle" class="connect-subtitle">
+                  Review the SQL updates below.
+                </div>
+              </div>
+              <button id="editChangesCloseBtn" class="icon-btn" title="Close">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="edit-changes-body">
+              <div
+                id="editChangesPkWarning"
+                class="edit-changes-warning hidden"
+              >
+                <i class="bi bi-exclamation-triangle"></i>
+                No primary key detected. Updates/deletes will match by all
+                columns and may affect multiple rows.
+              </div>
+              <textarea
+                id="editChangesSqlInput"
+                class="edit-changes-sql"
+                readonly
+              ></textarea>
+            </div>
+            <div class="actions end">
+              <button id="editChangesCancelBtn" class="secondary">Cancel</button>
+              <button id="editChangesRevertBtn" class="secondary">
+                Revert
+              </button>
+              <button id="editChangesRunBtn">Run</button>
             </div>
           </div>
         </div>

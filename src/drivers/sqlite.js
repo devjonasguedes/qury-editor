@@ -377,15 +377,26 @@ function createSqliteDriver() {
   const runQuery = async (payload) => {
     const input = typeof payload === 'string' ? { sql: payload } : (payload || {});
     const sql = input.sql || '';
+    const timeoutMs = Number(input.timeoutMs || 0);
     if (!client) return { ok: false, error: 'Not connected.' };
     if (!sql || !sql.trim()) return { ok: false, error: 'Empty query.' };
 
     try {
+      if (Number.isFinite(timeoutMs)) {
+        const safeTimeout = Math.max(0, Math.floor(timeoutMs));
+        try {
+          client.pragma(`busy_timeout = ${safeTimeout}`);
+        } catch (_) {
+          // ignore busy_timeout errors
+        }
+      }
       const statements = splitStatements(sql);
       if (statements.length === 0) return { ok: false, error: 'Empty query.' };
 
       let rows = [];
       let totalRows = 0;
+      let lastSelectRows = null;
+      let lastSelectTotalRows = 0;
       let affectedRows = undefined;
 
       statements.forEach((statement) => {
@@ -394,6 +405,8 @@ function createSqliteDriver() {
           const result = stmt.all();
           rows = result || [];
           totalRows = rows.length;
+          lastSelectRows = rows;
+          lastSelectTotalRows = totalRows;
           affectedRows = undefined;
         } else {
           const info = stmt.run();
@@ -405,14 +418,17 @@ function createSqliteDriver() {
         }
       });
 
-      const truncated = rows.length > MAX_IPC_ROWS;
+      const hasSelect = Array.isArray(lastSelectRows);
+      const outputRows = hasSelect ? lastSelectRows : rows;
+      const outputTotalRows = hasSelect ? lastSelectTotalRows : totalRows;
+      const truncated = outputRows.length > MAX_IPC_ROWS;
       return {
         ok: true,
-        rows: truncated ? rows.slice(0, MAX_IPC_ROWS) : rows,
-        totalRows,
+        rows: truncated ? outputRows.slice(0, MAX_IPC_ROWS) : outputRows,
+        totalRows: outputTotalRows,
         truncated,
-        affectedRows: Number.isFinite(affectedRows) ? affectedRows : undefined,
-        changedRows: Number.isFinite(affectedRows) ? affectedRows : undefined
+        affectedRows: hasSelect ? undefined : Number.isFinite(affectedRows) ? affectedRows : undefined,
+        changedRows: hasSelect ? undefined : Number.isFinite(affectedRows) ? affectedRows : undefined
       };
     } catch (err) {
       const message = err && err.message ? err.message : 'Failed to run query.';

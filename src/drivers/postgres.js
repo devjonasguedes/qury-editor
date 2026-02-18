@@ -116,7 +116,13 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
       config = null;
       database = '';
       currentQuery = null;
-      if (tunnel && closeTunnel) closeTunnel(tunnel);
+      if (tunnel && closeTunnel) {
+        try {
+          await closeTunnel(tunnel);
+        } catch (_) {
+          // ignore
+        }
+      }
       tunnel = null;
     }
   };
@@ -174,7 +180,13 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
           await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
-      if (createdTunnel && closeTunnel) closeTunnel(createdTunnel);
+      if (createdTunnel && closeTunnel) {
+        try {
+          await closeTunnel(createdTunnel);
+        } catch (_) {
+          // ignore
+        }
+      }
       const message = err && err.message ? err.message : 'Failed to connect.';
       return { ok: false, error: message };
     }
@@ -215,7 +227,13 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
           await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
-      if (testTunnel && closeTunnel) closeTunnel(testTunnel);
+      if (testTunnel && closeTunnel) {
+        try {
+          await closeTunnel(testTunnel);
+        } catch (_) {
+          // ignore
+        }
+      }
     }
   };
 
@@ -237,7 +255,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
 
   const listColumns = async (payload) => {
     if (!client) return { ok: false, error: 'Not connected.' };
-    const schema = payload && payload.schema ? payload.schema : database || '';
+    const schema = payload && payload.schema ? payload.schema : 'public';
     const table = payload && payload.table ? payload.table : '';
     if (!table) return { ok: false, error: 'Invalid table.' };
     const res = await client.query(
@@ -249,7 +267,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
 
   const listTableInfo = async (payload) => {
     if (!client) return { ok: false, error: 'Not connected.' };
-    const schema = payload && payload.schema ? payload.schema : database || '';
+    const schema = payload && payload.schema ? payload.schema : 'public';
     const table = payload && payload.table ? payload.table : '';
     if (!table) return { ok: false, error: 'Invalid table.' };
     try {
@@ -352,7 +370,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
 
       const lines = columnLines.concat(constraintLines);
       const qualified = buildQualified(targetSchema, table);
-      const sql = `CREATE TABLE ${qualified} (\\n${lines.join(',\\n')}\\n);`;
+      const sql = `CREATE TABLE ${qualified} (\n${lines.join(',\n')}\n);`;
       return { ok: true, sql };
     } catch (err) {
       const message = err && err.message ? err.message : 'Failed to load table definition.';
@@ -442,17 +460,28 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     currentQuery = { pid: client.processID };
     try {
       if (applyTimeout) {
-        await client.query('SET statement_timeout = $1', [timeoutMs]);
+        const safeTimeoutMs = Math.max(0, Math.floor(Number(timeoutMs)));
+        await client.query(`SET statement_timeout = ${safeTimeoutMs}`);
       }
       const res = await client.query(sql);
-      const arr = res.rows || [];
+      const results = Array.isArray(res) ? res : [res];
+      const lastSelect =
+        results
+          .filter((item) => item && String(item.command || '').toUpperCase() === 'SELECT')
+          .pop() || null;
+      const lastResult = lastSelect || results[results.length - 1] || {};
+      const arr = Array.isArray(lastResult.rows) ? lastResult.rows : [];
       const truncated = arr.length > MAX_IPC_ROWS;
       return {
         ok: true,
         rows: truncated ? arr.slice(0, MAX_IPC_ROWS) : arr,
         totalRows: arr.length,
         truncated,
-        affectedRows: Number.isFinite(res.rowCount) ? res.rowCount : undefined
+        affectedRows: lastSelect
+          ? undefined
+          : Number.isFinite(lastResult.rowCount)
+            ? lastResult.rowCount
+            : undefined
       };
     } catch (err) {
       const message = err && err.message ? err.message : 'Failed to run query.';

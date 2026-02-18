@@ -12,12 +12,17 @@ export function createResultsRenderer({
   showError,
   onToast,
   onExportAvailabilityChange,
-  maxRows = 2000
+  maxRows = 2000,
+  canEditCell,
+  onCellEdit,
+  getCellEditState,
+  onSelectionChange
 }) {
   let selectedCell = null;
   let selectedRow = null;
   let selectedCellEl = null;
   let selectedRowEl = null;
+  let activeEditor = null;
 
   function updateSelectionActions() {
     const tab = getActiveTab();
@@ -45,6 +50,14 @@ export function createResultsRenderer({
     const colName = columns && columns[colIndex] ? columns[colIndex] : null;
     selectedCell = colName ? { rowIndex, colIndex, value: rowData ? rowData[colName] : '' } : null;
     updateSelectionActions();
+    if (typeof onSelectionChange === 'function') {
+      onSelectionChange({
+        rowIndex,
+        colIndex,
+        row: rowData || null,
+        column: colName
+      });
+    }
   }
 
   function clearSelection() {
@@ -54,6 +67,9 @@ export function createResultsRenderer({
     selectedRowEl = null;
     selectedCell = null;
     selectedRow = null;
+    if (typeof onSelectionChange === 'function') {
+      onSelectionChange(null);
+    }
   }
 
   const getColumnMeta = (columnKeyMeta, columnName) => {
@@ -61,8 +77,127 @@ export function createResultsRenderer({
     return columnKeyMeta[String(columnName || '').toLowerCase()] || null;
   };
 
+  const resolveEditable = (row, column, rowIndex, colIndex) => {
+    if (typeof canEditCell !== 'function') return { ok: false };
+    const result = canEditCell({ row, column, rowIndex, colIndex });
+    if (result && typeof result === 'object') {
+      return { ok: !!result.ok, reason: result.reason || '' };
+    }
+    return { ok: !!result };
+  };
+
+  const finishEdit = ({ cancel = false } = {}) => {
+    if (!activeEditor) return;
+    const {
+      td,
+      input,
+      valueEl,
+      rowIndex,
+      colIndex,
+      row,
+      column,
+      previousValue
+    } = activeEditor;
+    activeEditor = null;
+    const rawValue = input ? input.value : '';
+    if (td) td.classList.remove('editing');
+    if (valueEl) valueEl.classList.remove('hidden');
+    if (input && input.parentNode) input.parentNode.removeChild(input);
+    let result = null;
+    if (!cancel && typeof onCellEdit === 'function') {
+      result = onCellEdit({
+        rowIndex,
+        colIndex,
+        column,
+        rawValue,
+        row,
+        previousValue
+      });
+      if (result && result.ok === false) {
+        if (result.message && typeof showError === 'function') {
+          void showError(result.message);
+        } else if (result.message && typeof onToast === 'function') {
+          onToast(result.message);
+        }
+        if (row && column) row[column] = previousValue;
+      }
+    }
+    if (cancel && row && column) row[column] = previousValue;
+    const nextValue = row && column ? row[column] : previousValue;
+    const displayValue =
+      result && result.displayValue !== undefined
+        ? result.displayValue
+        : nextValue === null || nextValue === undefined
+          ? ''
+          : String(nextValue);
+    if (valueEl) valueEl.textContent = displayValue;
+    if (td) td.title = displayValue;
+    if (
+      selectedCell &&
+      selectedCell.rowIndex === rowIndex &&
+      selectedCell.colIndex === colIndex
+    ) {
+      selectedCell.value = nextValue;
+    }
+    if (td && typeof getCellEditState === 'function') {
+      const pending = getCellEditState(rowIndex, column, row);
+      td.classList.toggle('pending-edit', !!pending);
+    }
+  };
+
+  const startEdit = ({ td, rowIndex, colIndex, row, column }) => {
+    if (!td || !row || !column) return;
+    if (activeEditor && activeEditor.td === td) return;
+    if (activeEditor) finishEdit();
+    const editable = resolveEditable(row, column, rowIndex, colIndex);
+    if (!editable.ok) {
+      if (editable.reason && typeof onToast === 'function') {
+        onToast(editable.reason);
+      }
+      return;
+    }
+    const valueEl = td.querySelector('.results-cell-value');
+    if (!valueEl) return;
+    const previousValue = row[column];
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'results-cell-input';
+    input.value =
+      previousValue === null || previousValue === undefined
+        ? ''
+        : String(previousValue);
+    td.classList.add('editing');
+    valueEl.classList.add('hidden');
+    td.appendChild(input);
+    input.focus();
+    input.select();
+    activeEditor = {
+      td,
+      input,
+      valueEl,
+      rowIndex,
+      colIndex,
+      row,
+      column,
+      previousValue
+    };
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finishEdit();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        finishEdit({ cancel: true });
+      }
+    });
+    input.addEventListener('blur', () => {
+      finishEdit();
+    });
+  };
+
   function buildTable(rows, totalRows, columnKeyMeta = null) {
     clearSelection();
+    if (activeEditor) finishEdit({ cancel: true });
     resultsTable.innerHTML = '';
     resultsTable.className = '';
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -72,12 +207,13 @@ export function createResultsRenderer({
     }
 
     const limitedRows = rows.slice(0, maxRows);
-    if (!limitedRows[0] || typeof limitedRows[0] !== 'object') {
+    const firstVisible = limitedRows.find((row) => row && !row.__deleted);
+    if (!firstVisible || typeof firstVisible !== 'object') {
       resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
       updateSelectionActions();
       return;
     }
-    const columns = Object.keys(limitedRows[0]);
+    const columns = Object.keys(firstVisible);
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
     const normalizedKeyMeta = columnKeyMeta && typeof columnKeyMeta === 'object' ? columnKeyMeta : null;
@@ -136,6 +272,7 @@ export function createResultsRenderer({
 
     const tbody = document.createElement('tbody');
     limitedRows.forEach((row, rowIndex) => {
+      if (!row || row.__deleted) return;
       const tr = document.createElement('tr');
       columns.forEach((col, colIndex) => {
         const td = document.createElement('td');
@@ -148,6 +285,15 @@ export function createResultsRenderer({
         td.title = text;
         td.dataset.col = col;
         td.dataset.colIndex = String(colIndex);
+        td.dataset.rowIndex = String(rowIndex);
+
+        const editable = resolveEditable(row, col, rowIndex, colIndex);
+        if (editable.ok) td.classList.add('editable');
+        const isPending =
+          typeof getCellEditState === 'function'
+            ? getCellEditState(rowIndex, col, row)
+            : false;
+        if (isPending) td.classList.add('pending-edit');
 
         const colMeta = getColumnMeta(normalizedKeyMeta, col);
         const fkRefs = colMeta && Array.isArray(colMeta.fkRefs) ? colMeta.fkRefs : [];
@@ -171,6 +317,11 @@ export function createResultsRenderer({
           });
           td.appendChild(openFkBtn);
         }
+
+        td.addEventListener('dblclick', (event) => {
+          if (event.target && event.target.closest('.results-fk-open-btn')) return;
+          startEdit({ td, rowIndex, colIndex, row, column: col });
+        });
 
         tr.appendChild(td);
       });

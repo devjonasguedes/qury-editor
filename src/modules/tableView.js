@@ -13,7 +13,11 @@ export function createTableView({
   onShowError,
   onToast,
   onSort,
-  onOpenForeignKey
+  onOpenForeignKey,
+  canEditCell,
+  onCellEdit,
+  getCellEditState,
+  onSelectionChange
 }) {
   let activeResults = {
     rows: [],
@@ -52,6 +56,10 @@ export function createTableView({
     showError: onShowError,
     onToast,
     maxRows: 2000,
+    canEditCell,
+    onCellEdit,
+    getCellEditState,
+    onSelectionChange,
     onExportAvailabilityChange: (hasRows) => {
       if (exportToggle) exportToggle.disabled = !hasRows;
       if (!hasRows) setExportMenuOpen(false);

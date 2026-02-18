@@ -7,7 +7,13 @@ import { sql, schemaCompletionSource, keywordCompletionSource, MySQL, PostgreSQL
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 
-export function createCodeEditor({ textarea, lineWrapping = false }) {
+export function createCodeEditor({
+  textarea,
+  lineWrapping = false,
+  readOnly = false,
+  enableCompletion = true,
+  autoFocus = true
+}) {
   let view = null;
   let onRun = null;
   let onRunSelection = null;
@@ -141,32 +147,42 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
     textarea.style.display = 'none';
     textarea.insertAdjacentElement('afterend', host);
 
+    const extensions = [
+      basicSetup,
+      EditorState.tabSize.of(2),
+      sql(),
+      lineWrapping ? EditorView.lineWrapping : [],
+      themeCompartment.of(resolveTheme()),
+      syntaxHighlighting(highlightStyle),
+      keymap.of([indentWithTab]),
+      runKeymap,
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          if (textarea) textarea.value = update.state.doc.toString();
+          changeHandlers.forEach((handler) => handler(update));
+        }
+        if (update.selectionSet) {
+          selectionHandlers.forEach((handler) => handler(update));
+        }
+      })
+    ];
+
+    if (readOnly) {
+      extensions.push(EditorState.readOnly.of(true));
+      extensions.push(EditorView.editable.of(false));
+    }
+
+    if (enableCompletion) {
+      extensions.push(autocompletion({ override: [completionSource, keywordSource] }));
+    }
+
     const state = EditorState.create({
       doc: textarea.value || '',
-      extensions: [
-        basicSetup,
-        EditorState.tabSize.of(2),
-        sql(),
-        lineWrapping ? EditorView.lineWrapping : [],
-        themeCompartment.of(resolveTheme()),
-        syntaxHighlighting(highlightStyle),
-        autocompletion({ override: [completionSource, keywordSource] }),
-        keymap.of([indentWithTab]),
-        runKeymap,
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            if (textarea) textarea.value = update.state.doc.toString();
-            changeHandlers.forEach((handler) => handler(update));
-          }
-          if (update.selectionSet) {
-            selectionHandlers.forEach((handler) => handler(update));
-          }
-        })
-      ]
+      extensions
     });
 
     view = new EditorView({ state, parent: host });
-    view.focus();
+    if (autoFocus) view.focus();
     return view;
   };
 
@@ -201,10 +217,10 @@ export function createCodeEditor({ textarea, lineWrapping = false }) {
   const onSelectionChange = (handler) => {
     if (typeof handler === 'function') selectionHandlers.add(handler);
   };
-  const refresh = () => {
+  const refresh = (shouldFocus = true) => {
     if (!view) return;
     view.requestMeasure();
-    view.focus();
+    if (shouldFocus) view.focus();
   };
   const focus = () => {
     if (view) view.focus();

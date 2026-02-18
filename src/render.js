@@ -19,6 +19,7 @@ import {
 } from "./modules/connectionUtils.js";
 import { createQueryHistory } from "./modules/queryHistory.js";
 import { createSnippetsManager } from "./modules/snippets.js";
+import { createSqlHelp } from "./modules/sqlHelp.js";
 import { createSqlAutocomplete } from "./modules/sqlAutocomplete.js";
 import { storageApi } from "./api/index.js";
 import { createTabConnections } from "./components/tab-connections.js";
@@ -103,6 +104,10 @@ export function initHome({ api }) {
   const queryStatus = byId("queryStatus");
   const snippetQueryInput = byId("snippetQueryInput");
   const definitionQueryInput = byId("definitionQueryInput");
+  const sqlHelpBtn = byId("sqlHelpBtn");
+  const sqlHelpPanel = byId("sqlHelpPanel");
+  const sqlHelpCloseBtn = byId("sqlHelpCloseBtn");
+  const sqlHelpList = byId("sqlHelpList");
   const resultsTableWrap = byId("resultsTableWrap") ||
     (resultsPanel ? resultsPanel.querySelector(".results-table") : null);
   const tableActionsBar = byId("tableActionsBar");
@@ -124,6 +129,9 @@ export function initHome({ api }) {
   const pageInfo = byId("pageInfo");
   const countBtn = byId("countBtn");
   const tableRefreshBtn = byId("tableRefreshBtn");
+  const applyEditsBtn = byId("applyEditsBtn");
+  const revertEditsBtn = byId("revertEditsBtn");
+  const deleteRowBtn = byId("deleteRowBtn");
   const refreshSchemaBtn = byId("refreshSchemaBtn");
   const applyFilterBtn = byId("applyFilterBtn");
   const queryOutputBtn = byId("queryOutputBtn");
@@ -135,6 +143,15 @@ export function initHome({ api }) {
   const outputCloseBtnBottom = byId("outputCloseBtnBottom");
   const outputModalBackdrop = byId("outputModalBackdrop");
   const outputCopyBtn = byId("outputCopyBtn");
+  const editChangesModal = byId("editChangesModal");
+  const editChangesModalBackdrop = byId("editChangesModalBackdrop");
+  const editChangesSubtitle = byId("editChangesSubtitle");
+  const editChangesSqlInput = byId("editChangesSqlInput");
+  const editChangesPkWarning = byId("editChangesPkWarning");
+  const editChangesCloseBtn = byId("editChangesCloseBtn");
+  const editChangesCancelBtn = byId("editChangesCancelBtn");
+  const editChangesRevertBtn = byId("editChangesRevertBtn");
+  const editChangesRunBtn = byId("editChangesRunBtn");
   const definitionModal = byId("definitionModal");
   const definitionTitle = byId("definitionTitle");
   const definitionSubtitle = byId("definitionSubtitle");
@@ -156,6 +173,8 @@ export function initHome({ api }) {
   const snippetCancelBtn = byId("snippetCancelBtn");
   const snippetSaveBtn = byId("snippetSaveBtn");
   const snippetNameInput = byId("snippetNameInput");
+  const stopBtn = byId("stopBtn");
+  const explainAnalyzeBtn = byId("explainAnalyzeBtn");
   const editorSqlState = {
     historyManager: null,
     snippetsManager: null,
@@ -163,6 +182,7 @@ export function initHome({ api }) {
     codeEditor: null,
     snippetEditor: null,
     definitionEditor: null,
+    editChangesEditor: null,
     treeView: null,
     tabTablesView: null,
     tabConnectionsView: null,
@@ -184,6 +204,17 @@ export function initHome({ api }) {
     objectContextByTabId: new Map(),
     columnKeyMetaByTableKey: new Map(),
     columnKeyMetaRequestSeq: 0,
+    pendingEditsByTabId: new Map(),
+    selectedResultRowIndex: null,
+    selectedResultRow: null,
+    editCapabilityCache: {
+      tabId: null,
+      rowsRef: null,
+      metaRef: null,
+      contextKey: "",
+      value: null,
+    },
+    isApplyingEdits: false,
     lastSort: null,
     environmentPolicyRules: null,
     settingsModalComponent: null,
@@ -797,6 +828,8 @@ export function initHome({ api }) {
       timeoutMs: localStorage.getItem(STORAGE_KEYS.QUERY_DEFAULT_TIMEOUT_KEY),
     });
 
+  let lastTimeoutSelection = null;
+
   const applyQueryDefaultsToEditorControls = (input) => {
     const next = normalizeQueryDefaults(input);
     if (limitSelect) {
@@ -1137,6 +1170,7 @@ export function initHome({ api }) {
     if (!connected) stopQueryProgress();
     if (!connected) {
       editorSqlState.objectContextByTabId = new Map();
+      editorSqlState.pendingEditsByTabId = new Map();
       applyResultsPanelState({ snapshot: null, objectContext: null });
     }
     if (homeBtn) {
@@ -1150,6 +1184,7 @@ export function initHome({ api }) {
       setSidebarView("tree");
       refreshEditor();
     }
+    applySqliteUi();
   };
 
   const setSidebarView = (view) => {
@@ -1207,6 +1242,56 @@ export function initHome({ api }) {
     if (!editorSqlState.tabConnectionsView) return null;
     const key = editorSqlState.tabConnectionsView.getActiveKey();
     return key ? editorSqlState.tabConnectionsView.getEntry(key) : null;
+  };
+
+  const applyTimeoutSupport = () => {
+    if (!timeoutSelect) return;
+    const active = getActiveConnection();
+    const type = active && active.type ? String(active.type).toLowerCase() : "";
+    const isSqlite = type === "sqlite";
+    if (isSqlite) {
+      if (!timeoutSelect.disabled) {
+        lastTimeoutSelection = timeoutSelect.value;
+      }
+      if (hasSelectOption(timeoutSelect, "none")) {
+        timeoutSelect.value = "none";
+      }
+      timeoutSelect.disabled = true;
+      timeoutSelect.title = "Timeout not supported for SQLite";
+      return;
+    }
+    if (timeoutSelect.disabled) {
+      timeoutSelect.disabled = false;
+      if (lastTimeoutSelection && hasSelectOption(timeoutSelect, lastTimeoutSelection)) {
+        timeoutSelect.value = lastTimeoutSelection;
+      }
+    }
+    timeoutSelect.title = "Query timeout";
+  };
+
+  const applySqliteUi = () => {
+    const active = getActiveConnection();
+    const type = active && active.type ? String(active.type).toLowerCase() : "";
+    const isSqlite = type === "sqlite";
+    const hideForSqlite = !active || isSqlite;
+
+    if (stopBtn) stopBtn.classList.toggle("hidden", hideForSqlite);
+    if (timeoutSelect) timeoutSelect.classList.toggle("hidden", hideForSqlite);
+    if (explainAnalyzeBtn)
+      explainAnalyzeBtn.classList.toggle("hidden", hideForSqlite);
+    if (dbSelectWrap) dbSelectWrap.classList.toggle("hidden", hideForSqlite);
+
+    const timeoutField = settingsDefaultTimeout
+      ? settingsDefaultTimeout.closest(".field")
+      : null;
+    if (timeoutField) timeoutField.classList.toggle("hidden", isSqlite);
+
+    const timezoneSection = settingsSessionTimezoneCombobox
+      ? settingsSessionTimezoneCombobox.closest(".settings-section")
+      : null;
+    if (timezoneSection) timezoneSection.classList.toggle("hidden", isSqlite);
+
+    applyTimeoutSupport();
   };
 
   editorSqlState.sqlAutocomplete = createSqlAutocomplete({
@@ -1915,6 +2000,7 @@ export function initHome({ api }) {
           ...snapshot,
           columnKeyMeta,
         });
+        updateApplyEditsButton();
       })();
     }
 
@@ -1933,6 +2019,7 @@ export function initHome({ api }) {
       }
       editorSqlState.tableObjectTabsView.setDataToolbarVisible(hasSnapshot);
     }
+    updateApplyEditsButton();
   };
 
   const renderResults = (
@@ -1956,6 +2043,7 @@ export function initHome({ api }) {
       const tab = editorSqlState.tabTablesView.getActiveTab();
       if (tab && tab.id) {
         editorSqlState.resultsByTabId.set(tab.id, snapshot);
+        resetPendingEditsForTab(tab.id, rows || []);
         const inferred = inferObjectContextFromSql(sourceSql || baseSql);
         if (inferred) {
           setObjectContextForTab(tab.id, inferred);
@@ -2901,6 +2989,414 @@ export function initHome({ api }) {
     return `'${String(value).replace(/'/g, "''")}'`;
   };
 
+  const getActiveTabId = () => {
+    const activeTab = editorSqlState.tabTablesView
+      ? editorSqlState.tabTablesView.getActiveTab()
+      : null;
+    return activeTab && activeTab.id ? activeTab.id : null;
+  };
+
+  const cloneRow = (row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+    return { ...row };
+  };
+
+  const createPendingEditsState = (rows) => ({
+    baselineRows: Array.isArray(rows) ? rows.map(cloneRow) : [],
+    changesByRow: new Map(),
+    deletedRows: new Set(),
+  });
+
+  const resetPendingEditsForTab = (tabId, rows = []) => {
+    if (!tabId) return;
+    editorSqlState.pendingEditsByTabId.set(
+      tabId,
+      createPendingEditsState(rows),
+    );
+  };
+
+  const ensurePendingEditsForTab = (tabId, rows = []) => {
+    if (!tabId) return null;
+    const existing = editorSqlState.pendingEditsByTabId.get(tabId);
+    if (existing && existing.baselineRows.length === rows.length) return existing;
+    const next = createPendingEditsState(rows);
+    editorSqlState.pendingEditsByTabId.set(tabId, next);
+    return next;
+  };
+
+  const getPendingEditCount = (tabId) => {
+    const state = editorSqlState.pendingEditsByTabId.get(tabId);
+    if (!state) return 0;
+    let count = 0;
+    for (const changeSet of state.changesByRow.values()) {
+      if (changeSet) count += changeSet.size;
+    }
+    if (state.deletedRows) count += state.deletedRows.size;
+    return count;
+  };
+
+  const getPendingCellState = (tabId, rowIndex, column) => {
+    const state = editorSqlState.pendingEditsByTabId.get(tabId);
+    if (!state) return false;
+    if (state.deletedRows && state.deletedRows.has(rowIndex)) return false;
+    const rowChanges = state.changesByRow.get(rowIndex);
+    if (!rowChanges) return false;
+    return rowChanges.has(String(column));
+  };
+
+  const valuesEqual = (a, b) => {
+    if (a === b) return true;
+    if (a instanceof Date && b instanceof Date) {
+      return a.getTime() === b.getTime();
+    }
+    return false;
+  };
+
+  const coerceEditedValue = (rawValue, originalValue) => {
+    if (rawValue === null || rawValue === undefined) return rawValue;
+    const text = String(rawValue);
+    if (text.trim() === "") {
+      if (originalValue === null || originalValue === undefined) return null;
+      if (typeof originalValue === "number") return null;
+      if (typeof originalValue === "boolean") return null;
+      return "";
+    }
+    if (typeof originalValue === "number") {
+      const parsed = Number(text.trim());
+      if (!Number.isNaN(parsed)) return parsed;
+      return text;
+    }
+    if (typeof originalValue === "bigint") {
+      try {
+        return BigInt(text.trim());
+      } catch (_) {
+        return text;
+      }
+    }
+    if (typeof originalValue === "boolean") {
+      const normalized = text.trim().toLowerCase();
+      if (["true", "t", "1", "yes", "y"].includes(normalized)) return true;
+      if (["false", "f", "0", "no", "n"].includes(normalized)) return false;
+      return text;
+    }
+    return text;
+  };
+
+  const getEditCapability = () => {
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
+    const tabId = getActiveTabId();
+    const context = tabId ? getObjectContextForTab(tabId) : null;
+    const rowsRef = active ? active.rows : null;
+    const metaRef = active ? active.columnKeyMeta : null;
+    const contextKey = context ? `${context.schema}.${context.table}` : "";
+    const cache = editorSqlState.editCapabilityCache;
+    if (
+      cache &&
+      cache.tabId === tabId &&
+      cache.rowsRef === rowsRef &&
+      cache.metaRef === metaRef &&
+      cache.contextKey === contextKey
+    ) {
+      return cache.value || { ok: false };
+    }
+
+    let result = { ok: false, reason: "Open a table first." };
+    const activeConnection = getActiveConnection();
+    if (activeConnection && isEntryReadOnly(activeConnection)) {
+      result = { ok: false, reason: "Connection is read-only." };
+    } else if (!tabId || !context || !context.table) {
+      result = { ok: false, reason: "Open a table first." };
+    } else if (!active || !Array.isArray(active.rows) || active.rows.length === 0) {
+      result = { ok: false, reason: "No rows to edit." };
+    } else {
+      const sampleRow = active.rows[0];
+      if (!sampleRow || typeof sampleRow !== "object") {
+        result = { ok: false, reason: "No editable rows." };
+      } else {
+        const rowColumns = Object.keys(sampleRow);
+        const pkColumns = rowColumns.filter((col) => {
+          const meta =
+            active.columnKeyMeta &&
+            active.columnKeyMeta[normalizeColumnName(col)];
+          return meta && meta.pk;
+        });
+        const keyColumns = pkColumns.length > 0 ? pkColumns : rowColumns;
+        if (keyColumns.length === 0) {
+          result = { ok: false, reason: "No columns available to identify rows." };
+        } else {
+          result = {
+            ok: true,
+            keyColumns,
+            context,
+            hasPrimaryKey: pkColumns.length > 0,
+          };
+        }
+      }
+    }
+
+    editorSqlState.editCapabilityCache = {
+      tabId,
+      rowsRef,
+      metaRef,
+      contextKey,
+      value: result,
+    };
+    return result;
+  };
+
+  const updateApplyEditsButton = () => {
+    if (!applyEditsBtn && !revertEditsBtn && !deleteRowBtn) return;
+    const tabId = getActiveTabId();
+    const pendingCount = tabId ? getPendingEditCount(tabId) : 0;
+    const capability = getEditCapability();
+    const hasPending = pendingCount > 0;
+    const applyEnabled = capability.ok && hasPending;
+    if (applyEditsBtn) {
+      applyEditsBtn.disabled = !applyEnabled;
+      applyEditsBtn.classList.toggle("has-pending", hasPending);
+      if (capability.ok) {
+        applyEditsBtn.title = hasPending
+          ? `Apply ${pendingCount} edit(s)`
+          : "No pending edits";
+      } else {
+        applyEditsBtn.title = capability.reason || "Edits unavailable";
+      }
+    }
+    if (revertEditsBtn) {
+      revertEditsBtn.disabled = !hasPending;
+      revertEditsBtn.title = hasPending
+        ? `Revert ${pendingCount} edit(s)`
+        : "No pending edits";
+    }
+    updateDeleteButton();
+  };
+
+  const clearPendingEditsUi = () => {
+    if (!resultsTable) return;
+    resultsTable
+      .querySelectorAll("td.pending-edit")
+      .forEach((cell) => cell.classList.remove("pending-edit"));
+  };
+
+  const setRowDeletedFlag = (row, value) => {
+    if (!row || typeof row !== "object") return;
+    if (Object.prototype.hasOwnProperty.call(row, "__deleted")) {
+      row.__deleted = value;
+      return;
+    }
+    Object.defineProperty(row, "__deleted", {
+      value,
+      writable: true,
+      configurable: true,
+      enumerable: false,
+    });
+  };
+
+  const updateDeleteButton = () => {
+    if (!deleteRowBtn) return;
+    const capability = getEditCapability();
+    const hasSelection =
+      Number.isFinite(editorSqlState.selectedResultRowIndex) &&
+      !!editorSqlState.selectedResultRow;
+    deleteRowBtn.disabled = !(capability.ok && hasSelection);
+    if (!capability.ok) {
+      deleteRowBtn.title = capability.reason || "Edits unavailable";
+    } else if (hasSelection) {
+      deleteRowBtn.title = "Delete row";
+    } else {
+      deleteRowBtn.title = "Select a row to delete";
+    }
+  };
+
+  const setSelectedResultRow = (payload) => {
+    if (!payload || !Number.isFinite(payload.rowIndex)) {
+      editorSqlState.selectedResultRowIndex = null;
+      editorSqlState.selectedResultRow = null;
+      updateDeleteButton();
+      return;
+    }
+    editorSqlState.selectedResultRowIndex = payload.rowIndex;
+    editorSqlState.selectedResultRow = payload.row || null;
+    updateDeleteButton();
+  };
+
+  const revertPendingEdits = (tabId) => {
+    if (!tabId) return false;
+    const state = editorSqlState.pendingEditsByTabId.get(tabId);
+    if (!state) return false;
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
+    if (!active || !Array.isArray(active.rows)) return false;
+    const nextRows = state.baselineRows.map(cloneRow);
+    resetPendingEditsForTab(tabId, nextRows);
+    if (editorSqlState.tableView) {
+      editorSqlState.tableView.setResults({
+        ...active,
+        rows: nextRows,
+      });
+    }
+    const snapshot = editorSqlState.resultsByTabId.get(tabId);
+    if (snapshot) {
+      editorSqlState.resultsByTabId.set(tabId, {
+        ...snapshot,
+        rows: nextRows,
+      });
+    }
+    updateApplyEditsButton();
+    return true;
+  };
+
+  const markRowForDelete = (tabId, rowIndex, row) => {
+    if (!tabId || !Number.isFinite(rowIndex) || !row) return false;
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
+    if (!active || !Array.isArray(active.rows)) return false;
+    const state = ensurePendingEditsForTab(tabId, active.rows);
+    if (!state) return false;
+    if (state.deletedRows.has(rowIndex)) return false;
+    state.deletedRows.add(rowIndex);
+    state.changesByRow.delete(rowIndex);
+    setRowDeletedFlag(row, true);
+    if (editorSqlState.tableView) {
+      editorSqlState.tableView.setResults(active);
+    }
+    setSelectedResultRow(null);
+    updateApplyEditsButton();
+    return true;
+  };
+
+  const buildPendingUpdateStatements = (tabId) => {
+    const state = editorSqlState.pendingEditsByTabId.get(tabId);
+    if (!state) return { statements: [], skipped: 0 };
+    const capability = getEditCapability();
+    if (!capability.ok)
+      return { statements: [], skipped: 0, error: capability.reason };
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
+    if (!active || !Array.isArray(active.rows))
+      return { statements: [], skipped: 0 };
+    const { context, keyColumns } = capability;
+    const tableRef = buildQualifiedTableRef(
+      context.schema || "",
+      context.table || "",
+    );
+    const statements = [];
+    let skipped = 0;
+    const deletedRows = state.deletedRows || new Set();
+
+    const deletedIndexes = Array.from(deletedRows).sort((a, b) => a - b);
+    deletedIndexes.forEach((rowIndex) => {
+      const baseRow = state.baselineRows[rowIndex];
+      if (!baseRow) {
+        skipped += 1;
+        return;
+      }
+      const conditions = [];
+      let missingKey = false;
+      keyColumns.forEach((col) => {
+        const pkValue = getRowValueForColumn(baseRow, col);
+        if (pkValue === undefined) {
+          missingKey = true;
+          return;
+        }
+        if (pkValue === null) {
+          conditions.push(`${quoteIdentifier(col)} IS NULL`);
+        } else {
+          conditions.push(
+            `${quoteIdentifier(col)} = ${toSqlLiteral(pkValue)}`,
+          );
+        }
+      });
+      if (missingKey || conditions.length === 0) {
+        skipped += 1;
+        return;
+      }
+      statements.push(
+        `DELETE FROM ${tableRef} WHERE ${conditions.join(" AND ")};`,
+      );
+    });
+
+    const sortedRows = Array.from(state.changesByRow.keys()).sort(
+      (a, b) => a - b,
+    );
+    sortedRows.forEach((rowIndex) => {
+      if (deletedRows.has(rowIndex)) return;
+      const changeSet = state.changesByRow.get(rowIndex);
+      if (!changeSet || changeSet.size === 0) return;
+      const baseRow = state.baselineRows[rowIndex];
+      const currentRow = active.rows[rowIndex];
+      if (!baseRow || !currentRow) {
+        skipped += 1;
+        return;
+      }
+      const conditions = [];
+      let missingKey = false;
+      keyColumns.forEach((col) => {
+        const pkValue = getRowValueForColumn(baseRow, col);
+        if (pkValue === undefined) {
+          missingKey = true;
+          return;
+        }
+        if (pkValue === null) {
+          conditions.push(`${quoteIdentifier(col)} IS NULL`);
+        } else {
+          conditions.push(
+            `${quoteIdentifier(col)} = ${toSqlLiteral(pkValue)}`,
+          );
+        }
+      });
+      if (missingKey || conditions.length === 0) {
+        skipped += 1;
+        return;
+      }
+      const sets = [];
+      for (const col of changeSet.keys()) {
+        const nextValue = getRowValueForColumn(currentRow, col);
+        sets.push(`${quoteIdentifier(col)} = ${toSqlLiteral(nextValue)}`);
+      }
+      if (sets.length === 0) return;
+      statements.push(
+        `UPDATE ${tableRef} SET ${sets.join(", ")} WHERE ${conditions.join(" AND ")};`,
+      );
+    });
+
+    return { statements, skipped };
+  };
+
+  const openEditChangesModal = ({ statements = [], skipped = 0 } = {}) => {
+    if (!editChangesModal) return;
+    const sqlText = statements.join("\n");
+    if (editorSqlState.editChangesEditor) {
+      editorSqlState.editChangesEditor.setValue(sqlText);
+    } else if (editChangesSqlInput) {
+      editChangesSqlInput.value = sqlText;
+    }
+    if (editChangesPkWarning) {
+      const capability = getEditCapability();
+      const showWarning =
+        capability && capability.ok && capability.hasPrimaryKey === false;
+      editChangesPkWarning.classList.toggle("hidden", !showWarning);
+    }
+    if (editChangesSubtitle) {
+      const count = statements.length;
+      const skippedLabel = skipped > 0 ? ` • ${skipped} skipped` : "";
+      editChangesSubtitle.textContent = `${count} update(s) ready${skippedLabel}`;
+    }
+    editChangesModal.classList.remove("hidden");
+    if (editorSqlState.editChangesEditor) {
+      editorSqlState.editChangesEditor.refresh(false);
+    }
+  };
+
+  const closeEditChangesModal = () => {
+    if (editChangesModal) editChangesModal.classList.add("hidden");
+  };
+
   const buildForeignKeyLookupSql = (fkRef, row, defaultSchema = "") => {
     if (!fkRef || !fkRef.refTable) return "";
     const fromColumns = Array.isArray(fkRef.fromColumns)
@@ -3192,6 +3688,7 @@ export function initHome({ api }) {
     editorSqlState.columnKeyMetaRequestSeq += 1;
     editorSqlState.outputByTabId = new Map();
     editorSqlState.tableFilterByTabId = new Map();
+    editorSqlState.pendingEditsByTabId = new Map();
     setOutputDisplay(null);
     if (editorSqlState.tableObjectTabsView) {
       editorSqlState.tableObjectTabsView.resetScopeCache();
@@ -3310,6 +3807,7 @@ export function initHome({ api }) {
     await refreshDatabases();
     await syncActiveDatabaseAndTree(entry, key);
     resetConnectionScopedUi();
+    applySqliteUi();
     if (editorSqlState.tabTablesView) loadTabsForKey(key);
     return true;
   };
@@ -3789,6 +4287,97 @@ export function initHome({ api }) {
     outputModalBackdrop.addEventListener("click", () => closeOutputModal());
   }
 
+  if (editChangesModalBackdrop) {
+    editChangesModalBackdrop.addEventListener("click", () =>
+      closeEditChangesModal(),
+    );
+  }
+
+  if (editChangesCloseBtn) {
+    editChangesCloseBtn.addEventListener("click", () =>
+      closeEditChangesModal(),
+    );
+  }
+
+  if (editChangesCancelBtn) {
+    editChangesCancelBtn.addEventListener("click", () =>
+      closeEditChangesModal(),
+    );
+  }
+
+  if (editChangesRevertBtn) {
+    editChangesRevertBtn.addEventListener("click", () => {
+      const tabId = getActiveTabId();
+      if (!tabId) return;
+      const ok = revertPendingEdits(tabId);
+      if (ok) {
+        closeEditChangesModal();
+        editorSqlState.showToast("Edits reverted");
+      }
+    });
+  }
+
+  if (editChangesRunBtn) {
+    editChangesRunBtn.addEventListener("click", async () => {
+      if (editorSqlState.isApplyingEdits) return;
+      const tabId = getActiveTabId();
+      if (!tabId) return;
+      const { statements, error } = buildPendingUpdateStatements(tabId);
+      if (error) {
+        await safeApi.showError(error);
+        return;
+      }
+      if (!statements || statements.length === 0) {
+        editorSqlState.showToast("No pending edits.");
+        return;
+      }
+      editorSqlState.isApplyingEdits = true;
+      editChangesRunBtn.disabled = true;
+      if (editChangesCancelBtn) editChangesCancelBtn.disabled = true;
+      if (editChangesRevertBtn) editChangesRevertBtn.disabled = true;
+      const sql = statements.join("\n");
+      const ok = await runSql(sql, sql, { applyDefaultLimit: false });
+      editorSqlState.isApplyingEdits = false;
+      editChangesRunBtn.disabled = false;
+      if (editChangesCancelBtn) editChangesCancelBtn.disabled = false;
+      if (editChangesRevertBtn) editChangesRevertBtn.disabled = false;
+      if (ok) {
+        const active = editorSqlState.tableView
+          ? editorSqlState.tableView.getActive()
+          : null;
+        if (active && Array.isArray(active.rows)) {
+          const nextRows = active.rows
+            .filter((row) => !(row && row.__deleted))
+            .map((row) => {
+              if (row && Object.prototype.hasOwnProperty.call(row, "__deleted")) {
+                delete row.__deleted;
+              }
+              return row;
+            });
+          if (editorSqlState.tableView) {
+            editorSqlState.tableView.setResults({
+              ...active,
+              rows: nextRows,
+              totalRows: nextRows.length,
+            });
+          }
+          const snapshot = editorSqlState.resultsByTabId.get(tabId);
+          if (snapshot) {
+            editorSqlState.resultsByTabId.set(tabId, {
+              ...snapshot,
+              rows: nextRows,
+              totalRows: nextRows.length,
+            });
+          }
+          resetPendingEditsForTab(tabId, nextRows);
+        }
+        clearPendingEditsUi();
+        updateApplyEditsButton();
+        closeEditChangesModal();
+      }
+    });
+  }
+
   if (outputCopyBtn) {
     outputCopyBtn.addEventListener("click", async () => {
       if (
@@ -3894,6 +4483,7 @@ export function initHome({ api }) {
     if (event.key === "Escape") {
       closeSettingsModal();
       closePolicyApprovalPrompt("");
+      closeEditChangesModal();
     }
   });
 
@@ -3951,6 +4541,48 @@ export function initHome({ api }) {
       }
       editorSqlState.lastSort = null;
       await runSql(countSql, source);
+    });
+  }
+
+  if (applyEditsBtn) {
+    applyEditsBtn.addEventListener("click", async () => {
+      const tabId = getActiveTabId();
+      if (!tabId) return;
+      const { statements, skipped, error } =
+        buildPendingUpdateStatements(tabId);
+      if (error) {
+        await safeApi.showError(error);
+        return;
+      }
+      if (!statements || statements.length === 0) {
+        editorSqlState.showToast("No pending edits.");
+        return;
+      }
+      openEditChangesModal({ statements, skipped });
+    });
+  }
+
+  if (revertEditsBtn) {
+    revertEditsBtn.addEventListener("click", () => {
+      const tabId = getActiveTabId();
+      if (!tabId) return;
+      const ok = revertPendingEdits(tabId);
+      if (ok) editorSqlState.showToast("Edits reverted");
+    });
+  }
+
+  if (deleteRowBtn) {
+    deleteRowBtn.addEventListener("click", () => {
+      const tabId = getActiveTabId();
+      if (!tabId) return;
+      const rowIndex = editorSqlState.selectedResultRowIndex;
+      const row = editorSqlState.selectedResultRow;
+      if (!Number.isFinite(rowIndex) || !row) {
+        editorSqlState.showToast("Select a row to delete.");
+        return;
+      }
+      const ok = markRowForDelete(tabId, rowIndex, row);
+      if (ok) editorSqlState.showToast("Row marked for deletion");
     });
   }
 
@@ -4120,6 +4752,13 @@ export function initHome({ api }) {
   editorSqlState.codeEditor.init();
   themeManagerComponent.registerCodeEditor(editorSqlState.codeEditor);
   updateToggleEditorButtonState(true);
+  createSqlHelp({
+    sqlHelpBtn,
+    sqlHelpPanel,
+    sqlHelpCloseBtn,
+    sqlHelpList,
+    showToast: editorSqlState.showToast,
+  });
   if (editorSqlState.sqlAutocomplete) {
     editorSqlState.codeEditor.setHintProvider({
       getHintOptions: () => editorSqlState.sqlAutocomplete.getHintOptions(),
@@ -4155,6 +4794,17 @@ export function initHome({ api }) {
         prefetch: (editor) => editorSqlState.sqlAutocomplete.prefetch(editor),
       });
     }
+  }
+  if (editChangesSqlInput) {
+    editorSqlState.editChangesEditor = createCodeEditor({
+      textarea: editChangesSqlInput,
+      lineWrapping: true,
+      readOnly: true,
+      enableCompletion: false,
+      autoFocus: false,
+    });
+    editorSqlState.editChangesEditor.init();
+    themeManagerComponent.registerCodeEditor(editorSqlState.editChangesEditor);
   }
   syncDefinitionSaveState();
   updateRunAvailability();
@@ -4201,6 +4851,9 @@ export function initHome({ api }) {
         }
         for (const id of editorSqlState.objectContextByTabId.keys()) {
           if (!ids.has(id)) editorSqlState.objectContextByTabId.delete(id);
+        }
+        for (const id of editorSqlState.pendingEditsByTabId.keys()) {
+          if (!ids.has(id)) editorSqlState.pendingEditsByTabId.delete(id);
         }
       }
     },
@@ -4405,6 +5058,88 @@ export function initHome({ api }) {
     });
   };
 
+  const canEditResultCell = () => {
+    const capability = getEditCapability();
+    if (!capability.ok) {
+      return { ok: false, reason: capability.reason || "Edits unavailable" };
+    }
+    return { ok: true };
+  };
+
+  const handleResultCellEdit = ({
+    rowIndex,
+    column,
+    rawValue,
+    row,
+    previousValue,
+  }) => {
+    const tabId = getActiveTabId();
+    if (!tabId) {
+      return { ok: false, message: "Open a table first." };
+    }
+    const capability = getEditCapability();
+    if (!capability.ok) {
+      return { ok: false, message: capability.reason || "Edits unavailable." };
+    }
+    const active = editorSqlState.tableView
+      ? editorSqlState.tableView.getActive()
+      : null;
+    if (!active || !Array.isArray(active.rows)) {
+      return { ok: false, message: "No rows to edit." };
+    }
+    const editState = ensurePendingEditsForTab(tabId, active.rows);
+    if (!editState) {
+      return { ok: false, message: "Unable to track edits." };
+    }
+    const baseRow = editState.baselineRows[rowIndex];
+    if (!baseRow || !row) {
+      return { ok: false, message: "Row not available." };
+    }
+    const originalValue = getRowValueForColumn(baseRow, column);
+    const nextValue = coerceEditedValue(rawValue, originalValue);
+    const changed = !valuesEqual(originalValue, nextValue);
+
+    if (changed) {
+      row[column] = nextValue;
+      let rowChanges = editState.changesByRow.get(rowIndex);
+      if (!rowChanges) {
+        rowChanges = new Map();
+        editState.changesByRow.set(rowIndex, rowChanges);
+      }
+      rowChanges.set(String(column), {
+        from: originalValue,
+        to: nextValue,
+      });
+    } else {
+      row[column] = originalValue;
+      const rowChanges = editState.changesByRow.get(rowIndex);
+      if (rowChanges) {
+        rowChanges.delete(String(column));
+        if (rowChanges.size === 0) editState.changesByRow.delete(rowIndex);
+      }
+    }
+
+    updateApplyEditsButton();
+    return {
+      ok: true,
+      displayValue:
+        row[column] === null || row[column] === undefined
+          ? ""
+          : String(row[column]),
+      previousValue,
+    };
+  };
+
+  const getResultCellEditState = (rowIndex, column) => {
+    const tabId = getActiveTabId();
+    if (!tabId) return false;
+    return getPendingCellState(tabId, rowIndex, column);
+  };
+
+  const handleResultsSelectionChange = (payload) => {
+    setSelectedResultRow(payload);
+  };
+
   editorSqlState.tableView = createTableView({
     resultsTable,
     resultsEmptyState,
@@ -4419,7 +5154,12 @@ export function initHome({ api }) {
     onToast: (message) => editorSqlState.showToast(message),
     onSort: rerunSortedQuery,
     onOpenForeignKey: openForeignKeyLookup,
+    canEditCell: canEditResultCell,
+    onCellEdit: handleResultCellEdit,
+    getCellEditState: getResultCellEditState,
+    onSelectionChange: handleResultsSelectionChange,
   });
+  updateApplyEditsButton();
   editorSqlState.tableObjectTabsView = createTableObjectTabs({
     container: tableObjectTabs,
     detailsContainer: objectDetailsPanel,

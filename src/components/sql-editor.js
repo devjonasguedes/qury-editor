@@ -442,6 +442,14 @@ export function createSqlEditor({
   };
 
   const handleStop = async () => {
+    const active =
+      typeof getActiveConnection === "function" ? getActiveConnection() : null;
+    const type = active && active.type ? String(active.type).toLowerCase() : "";
+    if (type === "sqlite") {
+      await showError("Cancel is not supported for SQLite connections.");
+      setRunning(false);
+      return;
+    }
     if (typeof stopQueryProgress === "function") stopQueryProgress();
     let res = null;
     if (api && typeof api.cancelQuery === "function") {
@@ -472,12 +480,21 @@ export function createSqlEditor({
   };
 
   const setRunning = (running) => {
+    const active =
+      typeof getActiveConnection === "function" ? getActiveConnection() : null;
+    const type = active && active.type ? String(active.type).toLowerCase() : "";
+    const cancelSupported = type !== "sqlite";
     if (runBtn) runBtn.disabled = !!running;
     if (runSelectionBtn) runSelectionBtn.disabled = !!running;
     if (runCurrentBtn) runCurrentBtn.disabled = !!running;
     if (explainBtn) explainBtn.disabled = !!running;
     if (explainAnalyzeBtn) explainAnalyzeBtn.disabled = !!running;
-    if (stopBtn) stopBtn.disabled = !running;
+    if (stopBtn) {
+      stopBtn.disabled = !running || !cancelSupported;
+      stopBtn.title = cancelSupported
+        ? "Stop execution"
+        : "Stop not supported for SQLite";
+    }
     if (!running) updateAvailability();
   };
 

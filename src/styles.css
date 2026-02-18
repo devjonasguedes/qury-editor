@@ -263,6 +263,9 @@ body.theme-light button.secondary:hover {
 topbar
 ==== */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 900;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2269,6 +2272,7 @@ body.theme-light .conn-dot {
 .icon-btn.mini.danger {
   color: var(--danger);
   border-color: var(--danger);
+  background: var(--surface-2);
 }
 
 .icon-btn.mini.danger:hover {
@@ -2595,6 +2599,7 @@ workspace & editor
   border-radius: 4px;
   overflow: hidden;
   box-shadow: var(--shadow);
+  position: relative;
 }
 
 body.theme-light .editor {
@@ -2812,6 +2817,170 @@ body.theme-light .tab-bar {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.sql-help-fab {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--accent) 55%, var(--border));
+  background: color-mix(in oklab, var(--accent) 18%, var(--surface-2));
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease, background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.sql-help-fab i {
+  font-size: 14px;
+}
+
+.sql-help-fab:hover {
+  transform: translateY(-1px);
+  background: color-mix(in oklab, var(--accent) 26%, var(--surface-2));
+  border-color: color-mix(in oklab, var(--accent) 70%, var(--border));
+}
+
+.sql-help-fab.active {
+  background: color-mix(in oklab, var(--accent) 34%, var(--surface-2));
+  border-color: color-mix(in oklab, var(--accent) 80%, var(--border));
+}
+
+.sql-help-panel {
+  position: absolute;
+  right: 12px;
+  bottom: 56px;
+  width: min(420px, 92%);
+  max-height: calc(100% - 72px);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 9;
+}
+
+.sql-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.sql-help-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.sql-help-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sql-help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 16px;
+  overflow: auto;
+}
+
+.sql-help-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sql-help-item:hover {
+  background: var(--surface-4);
+}
+
+.sql-help-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.sql-help-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sql-help-item-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sql-help-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sql-help-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-soft);
+  background: color-mix(in oklab, var(--accent) 20%, var(--surface-2));
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, var(--border));
+}
+
+.sql-help-item-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sql-help-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sql-help-code {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-family: "Fira Code", ui-monospace, SFMono-Regular, SFMono-Regular,
+    Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 .run-btn-label {
@@ -3421,6 +3590,12 @@ results panel
   color: var(--text-muted);
 }
 
+.object-quality-help {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .object-quality-section {
   margin-top: 10px;
 }
@@ -3507,6 +3682,37 @@ results panel
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.table-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  margin-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.apply-edits-btn {
+  border-color: color-mix(in oklab, var(--success) 55%, var(--border));
+  color: var(--success);
+}
+
+.apply-edits-btn i {
+  color: var(--success);
+}
+
+.apply-edits-btn.has-pending {
+  background: color-mix(in oklab, var(--success) 16%, var(--surface-2));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--success) 24%, transparent);
+}
+
+body.theme-light .apply-edits-btn {
+  background: var(--panel);
+}
+
+body.theme-light .apply-edits-btn.has-pending {
+  background: color-mix(in oklab, var(--success) 14%, var(--panel));
 }
 
 .table-export-control {
@@ -3710,6 +3916,56 @@ results panel
   overflow: auto;
 }
 
+.edit-changes-body {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 10px;
+  max-height: 55vh;
+  overflow: auto;
+}
+
+.edit-changes-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.edit-changes-sql {
+  margin: 0;
+  width: 100%;
+  min-height: 220px;
+  border: none;
+  background: transparent;
+  resize: vertical;
+}
+
+.edit-changes-body .cm-editor {
+  background: transparent;
+}
+
+.edit-changes-body .cm-scroller {
+  min-height: 220px;
+}
+
+.edit-changes-body .cm-content {
+  font-family: "Fira Code", ui-monospace, SFMono-Regular, SFMono-Regular,
+    Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.edit-changes-body .cm-gutters {
+  display: none;
+}
+
 .output-table {
   width: 100%;
   border-collapse: collapse;
@@ -3882,6 +4138,45 @@ data table
 #resultsTable td {
   position: relative;
   z-index: 0;
+}
+
+#resultsTable td.editable {
+  cursor: text;
+}
+
+#resultsTable td.pending-edit {
+  background: color-mix(in oklab, var(--success) 14%, var(--surface-3));
+  outline: 1px solid color-mix(in oklab, var(--success) 35%, transparent);
+  outline-offset: -1px;
+}
+
+#resultsTable td.pending-edit.selected {
+  background: color-mix(in oklab, var(--success) 18%, var(--selection));
+}
+
+#resultsTable td.editing {
+  padding: 4px;
+}
+
+#resultsTable td.editing .results-cell-value {
+  visibility: hidden;
+}
+
+.results-cell-input {
+  width: 100%;
+  min-width: 80px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface-1);
+  outline: none;
+}
+
+.results-cell-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent);
 }
 
 #resultsTable td .results-cell-value {

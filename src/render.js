@@ -9,6 +9,7 @@ import { createSettingsModal } from "./components/settings-modal.js";
 import { createSidebarMenu } from "./components/sidebar-menu.js";
 import { createToast } from "./components/toast.js";
 import { createCodeEditor } from "./modules/codeEditor.js";
+import { format as formatSql } from "sql-formatter";
 import {
   connectionTitle,
   getConnectionScopeKey,
@@ -1107,12 +1108,10 @@ export function initHome({ api }) {
       .toLowerCase();
     if (!type) return "mysql";
     if (type === "postgresql") return "postgres";
-    if (type === "maria" || type === "maria-db") return "mariadb";
     if (type === "sqlite3") return "sqlite";
     if (
       type === "postgres" ||
       type === "mysql" ||
-      type === "mariadb" ||
       type === "sqlite"
     )
       return type;
@@ -1128,8 +1127,6 @@ export function initHome({ api }) {
     const type = normalizeTypeForForm(typeValue);
     if (type === "postgres")
       return "postgresql://user:password@localhost:5432/database";
-    if (type === "mariadb")
-      return "mariadb://user:password@localhost:3306/database";
     if (type === "sqlite") return "sqlite:///path/to/database.sqlite";
     return "mysql://user:password@localhost:3306/database";
   };
@@ -1577,6 +1574,7 @@ export function initHome({ api }) {
   };
 
   const OUTPUT_PREVIEW_MAX = 160;
+  const OUTPUT_SQL_MAX = 220;
 
   const normalizePreview = (text) =>
     String(text || "")
@@ -1587,6 +1585,12 @@ export function initHome({ api }) {
     const preview = normalizePreview(text);
     if (preview.length <= OUTPUT_PREVIEW_MAX) return preview;
     return `${preview.slice(0, OUTPUT_PREVIEW_MAX - 1)}…`;
+  };
+
+  const truncateOutputSql = (text) => {
+    const preview = normalizePreview(text);
+    if (preview.length <= OUTPUT_SQL_MAX) return preview;
+    return `${preview.slice(0, OUTPUT_SQL_MAX - 1)}…`;
   };
 
   const formatTime = (date) => {
@@ -1621,6 +1625,8 @@ export function initHome({ api }) {
     changedRows,
     error,
     duration,
+    startedAt,
+    endedAt,
   }) => {
     const keyword = firstDmlKeyword(sql || "");
     const isDml =
@@ -1641,13 +1647,21 @@ export function initHome({ api }) {
         response = `Rows: ${Number.isFinite(totalRows) ? totalRows : 0}${truncated ? " (truncated)" : ""}`;
       }
     }
+    const startTime = startedAt
+      ? formatTime(new Date(startedAt))
+      : formatTime(new Date());
+    const endTime = endedAt ? formatTime(new Date(endedAt)) : startTime;
     return {
       id: 0,
-      time: formatTime(new Date()),
+      time: endTime,
+      startTime,
+      endTime,
       action: buildAction(sql),
       response,
       durationMs: Number.isFinite(duration) ? Math.round(duration) : 0,
       fullResponse: response,
+      ok: !!ok,
+      sql: String(sql || ""),
     };
   };
 
@@ -1682,7 +1696,7 @@ export function initHome({ api }) {
         const preview = `${last.action} • ${last.response}`;
         queryOutputPreview.textContent = truncatePreview(preview);
       } else {
-        queryOutputPreview.textContent = "No output.";
+        queryOutputPreview.textContent = "Run a query to see output.";
       }
     }
     if (queryOutputBtn) {
@@ -1708,21 +1722,56 @@ export function initHome({ api }) {
     if (outputLogBody) {
       outputLogBody.innerHTML = "";
       editorSqlState.currentOutput.items.forEach((entry) => {
-        const tr = document.createElement("tr");
-        const cols = [
-          String(entry.id),
-          entry.time,
-          entry.action,
-          entry.response,
-          entry.durationMs ? `${entry.durationMs}ms` : "",
-        ];
-        cols.forEach((value, index) => {
-          const td = document.createElement("td");
-          td.textContent = value;
-          if (index === 3) td.classList.add("response");
-          tr.appendChild(td);
-        });
-        outputLogBody.appendChild(tr);
+        const wrapper = document.createElement("div");
+        wrapper.className = "output-entry";
+
+        const header = document.createElement("div");
+        header.className = "output-line is-neutral";
+
+        const time = document.createElement("span");
+        time.className = "output-time";
+        time.textContent = entry.startTime || entry.time || "";
+
+        const sep = document.createElement("span");
+        sep.textContent = "-";
+
+        const sql = document.createElement("span");
+        sql.className = "output-sql-line";
+        const fullSql = entry.sql || entry.action || "";
+        sql.textContent = truncateOutputSql(fullSql);
+
+        header.appendChild(time);
+        header.appendChild(sep);
+        header.appendChild(sql);
+        wrapper.appendChild(header);
+
+        const running = document.createElement("div");
+        running.className = "output-line is-neutral";
+        running.textContent = "Running Query...";
+        wrapper.appendChild(running);
+
+        const footer = document.createElement("div");
+        footer.className = `output-line output-meta ${entry.ok ? "is-success" : "is-error"}`;
+
+        const footerTime = document.createElement("span");
+        footerTime.className = "output-time";
+        footerTime.textContent = entry.endTime || entry.time || "";
+
+        const footerSep = document.createElement("span");
+        footerSep.textContent = "-";
+
+        const meta = document.createElement("span");
+        const metaParts = [];
+        if (entry.response) metaParts.push(entry.response);
+        if (entry.durationMs) metaParts.push(`${entry.durationMs}ms`);
+        meta.textContent = metaParts.join(" - ");
+
+        footer.appendChild(footerTime);
+        footer.appendChild(footerSep);
+        footer.appendChild(meta);
+        wrapper.appendChild(footer);
+
+        outputLogBody.appendChild(wrapper);
       });
     }
     outputModal.classList.remove("hidden");
@@ -1878,26 +1927,32 @@ export function initHome({ api }) {
       const type = String(
         (constraint && (constraint.type || constraint.constraint_type)) || "",
       ).toUpperCase();
-      if (!type.includes("FOREIGN")) return;
       const columns =
         constraint && Array.isArray(constraint.columns)
           ? constraint.columns
           : [];
-      const ref =
-        (constraint && (constraint.ref || constraint.reference)) || {};
-      const refTable = String(ref.table || "").trim();
-      const refSchema = String(ref.schema || "").trim();
-      const refColumns = Array.isArray(ref.columns) ? ref.columns : [];
-      const fkRef = refTable
-        ? {
-            name: String((constraint && constraint.name) || ""),
-            fromColumns: columns.map((columnName) => String(columnName || "")),
-            toColumns: refColumns.map((columnName) => String(columnName || "")),
-            refSchema,
-            refTable,
-          }
-        : null;
-      columns.forEach((columnName) => mark(columnName, "fk", fkRef));
+
+      if (type.includes("PRIMARY")) {
+        columns.forEach((columnName) => mark(columnName, "pk"));
+      }
+
+      if (type.includes("FOREIGN")) {
+        const ref =
+          (constraint && (constraint.ref || constraint.reference)) || {};
+        const refTable = String(ref.table || "").trim();
+        const refSchema = String(ref.schema || "").trim();
+        const refColumns = Array.isArray(ref.columns) ? ref.columns : [];
+        const fkRef = refTable
+          ? {
+              name: String((constraint && constraint.name) || ""),
+              fromColumns: columns.map((columnName) => String(columnName || "")),
+              toColumns: refColumns.map((columnName) => String(columnName || "")),
+              refSchema,
+              refTable,
+            }
+          : null;
+        columns.forEach((columnName) => mark(columnName, "fk", fkRef));
+      }
     });
 
     return meta;
@@ -2091,8 +2146,22 @@ export function initHome({ api }) {
   };
 
   const buildServerPaginatedSql = (selectSql, page, pageSize) => {
-    const baseSql = normalizeSql(selectSql);
+    let baseSql = normalizeSql(selectSql);
     if (!baseSql) return "";
+    const active = getActiveConnection();
+    const type = active && active.type ? String(active.type).toLowerCase() : "";
+    if (type === "mysql" && baseSql.includes('"')) {
+      baseSql = baseSql.replace(
+        /\b(from|join|update|into|delete\s+from)\s+("([^"]+)"(?:\s*\.\s*"[^"]+")?)/gi,
+        (match, keyword, ref) => {
+          const quoted = ref.replace(/"([^"]+)"/g, (_, name) => {
+            const safe = String(name).replace(/`/g, "``");
+            return `\`${safe}\``;
+          });
+          return `${keyword} ${quoted}`;
+        },
+      );
+    }
     const safePage = Number.isFinite(Number(page))
       ? Math.max(0, Math.floor(Number(page)))
       : 0;
@@ -2533,15 +2602,17 @@ export function initHome({ api }) {
           if (editorSqlState.tabTablesView) {
             const tab = editorSqlState.tabTablesView.getActiveTab();
             if (tab && tab.id) {
-              appendOutputEntry(
-                tab.id,
-                buildOutputEntry({
-                  sql: displayStmt,
-                  ok: false,
-                  error: formattedError,
-                  duration: Date.now() - startedAt,
-                }),
-              );
+            appendOutputEntry(
+              tab.id,
+              buildOutputEntry({
+                sql: displayStmt,
+                ok: false,
+                error: formattedError,
+                duration: Date.now() - startedAt,
+                startedAt,
+                endedAt: Date.now(),
+              }),
+            );
               updateOutputForActiveTab();
               hasOutputErrorEntry = true;
             }
@@ -2618,6 +2689,8 @@ export function initHome({ api }) {
                   ? res.changedRows
                   : undefined,
                 duration: Date.now() - startedAt,
+                startedAt,
+                endedAt: Date.now(),
               }),
             );
             updateOutputForActiveTab();
@@ -4387,19 +4460,20 @@ export function initHome({ api }) {
       )
         return;
       try {
-        const header = ["#", "Time", "Action", "Response", "Duration"].join(
-          "\t",
-        );
-        const lines = editorSqlState.currentOutput.items.map((entry) =>
-          [
-            entry.id,
-            entry.time,
-            entry.action,
-            entry.response,
-            entry.durationMs ? `${entry.durationMs}ms` : "",
-          ].join("\t"),
-        );
-        await navigator.clipboard.writeText([header, ...lines].join("\n"));
+        const lines = editorSqlState.currentOutput.items.flatMap((entry) => {
+          const metaParts = [];
+          if (entry.response) metaParts.push(entry.response);
+          if (entry.durationMs) metaParts.push(`${entry.durationMs}ms`);
+          const startTime = entry.startTime || entry.time || "";
+          const endTime = entry.endTime || entry.time || "";
+          return [
+            `${startTime} - ${entry.sql || entry.action || ""}`,
+            "Running Query...",
+            `${endTime} - ${metaParts.join(" - ")}`,
+            "",
+          ];
+        });
+        await navigator.clipboard.writeText(lines.join("\n"));
         editorSqlState.showToast("Output copied");
       } catch (_) {
         if (safeApi.showError)
@@ -4626,17 +4700,7 @@ export function initHome({ api }) {
 
   if (limitSelect) {
     limitSelect.addEventListener("change", async () => {
-      const active = editorSqlState.tableView
-        ? editorSqlState.tableView.getActive()
-        : null;
-      const pagination = normalizeSnapshotPagination(
-        active && active.pagination,
-      );
-      if (!pagination) return;
-      await runServerPage({
-        page: 0,
-        pageSize: getServerPageSizeSelection(),
-      });
+      // Intentionally no auto-run; user will apply manually.
     });
   }
 

@@ -29,9 +29,15 @@ function tableKey(schema, table) {
 
 function renderRowsTable(columns, rows) {
   const head = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join('');
+  const renderCell = (cell) => {
+    if (cell && typeof cell === 'object' && cell.html !== undefined) {
+      return `<td>${cell.html}</td>`;
+    }
+    return `<td>${escapeHtml(cell)}</td>`;
+  };
   const body = rows
     .map((row) => {
-      const cells = row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
+      const cells = row.map((cell) => renderCell(cell)).join('');
       return `<tr>${cells}</tr>`;
     })
     .join('');
@@ -51,6 +57,42 @@ function resolveConstraintType(constraint) {
 
 function isForeignKey(constraint) {
   return resolveConstraintType(constraint).includes('FOREIGN');
+}
+
+function normalizeColumnName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function buildColumnKeyMeta(info) {
+  const meta = {};
+  const mark = (columnName, kind) => {
+    const key = normalizeColumnName(columnName);
+    if (!key) return;
+    if (!meta[key]) meta[key] = { pk: false, fk: false };
+    if (kind === 'pk') meta[key].pk = true;
+    if (kind === 'fk') meta[key].fk = true;
+  };
+
+  const indexes = info && Array.isArray(info.indexes) ? info.indexes : [];
+  indexes.forEach((index) => {
+    if (!index || !index.primary) return;
+    ensureArray(index.columns).forEach((columnName) => mark(columnName, 'pk'));
+  });
+
+  const constraints = info && Array.isArray(info.constraints) ? info.constraints : [];
+  constraints.forEach((constraint) => {
+    const type = resolveConstraintType(constraint);
+    if (type.includes('PRIMARY')) {
+      ensureArray(constraint.columns).forEach((columnName) => mark(columnName, 'pk'));
+    }
+    if (type.includes('FOREIGN')) {
+      ensureArray(constraint.columns).forEach((columnName) => mark(columnName, 'fk'));
+    }
+  });
+
+  return meta;
 }
 
 function asNumber(value) {
@@ -318,17 +360,48 @@ export function createTableObjectTabs({
   };
 
   const renderColumns = async (schema, table) => {
-    const columns = await loadColumns(schema, table);
+    const [columns, info] = await Promise.all([
+      loadColumns(schema, table),
+      loadTableInfo(schema, table, { silent: true })
+    ]);
     if (!detailsContainer) return;
     if (columns.length === 0) {
       renderMessage('Columns', 'No columns found for this table.');
       return;
     }
-    const rows = columns.map((col) => [col.name, col.type]);
+    const columnKeyMeta = buildColumnKeyMeta(info || {});
+    const rows = columns.map((col) => {
+      const nameValue = escapeHtml(col.name);
+      const meta = columnKeyMeta[normalizeColumnName(col.name)];
+      const hasKey = meta && (meta.pk || meta.fk);
+      const keyIcons = hasKey
+        ? `<span class="object-column-key-icons">
+            ${meta.pk ? '<i class="bi bi-key-fill object-column-key-icon is-pk" title="Primary key" aria-hidden="true"></i>' : ''}
+            ${meta.fk ? '<i class="bi bi-key-fill object-column-key-icon is-fk" title="Foreign key" aria-hidden="true"></i>' : ''}
+          </span>`
+        : '';
+      const nameHtml = `<span class="object-column-label-wrap">${keyIcons}<span class="object-column-label">${nameValue}</span><button type="button" class="icon-btn mini object-column-copy" title="Copy column" aria-label="Copy column" data-copy-column="${nameValue}"><i class="bi bi-clipboard"></i></button></span>`;
+      return [{ html: nameHtml }, col.type];
+    });
     detailsContainer.innerHTML = `
       <div class="object-section-title">Columns</div>
       ${renderRowsTable(['Column', 'Type'], rows)}
     `;
+    const copyButtons = detailsContainer.querySelectorAll('[data-copy-column]');
+    copyButtons.forEach((btn) => {
+      btn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const value = btn.getAttribute('data-copy-column') || '';
+        if (!value) return;
+        const ok = await copyText(value);
+        if (!ok) {
+          if (onShowError) await onShowError('Unable to copy column name.');
+          return;
+        }
+        if (typeof onToast === 'function') onToast('Column name copied');
+      });
+    });
   };
 
   const renderConstraints = async (schema, table) => {

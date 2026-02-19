@@ -218,19 +218,20 @@ async function fetchTableInfo(schema, table, listTableInfo, onShowError) {
   return info;
 }
 
-function createSectionHeader(label, depth, icon) {
+function createSectionNode(label, depth, icon, expanded = false) {
   const item = document.createElement('div');
-  item.className = 'tree-item tree-section';
+  item.className = 'tree-item tree-section' + (expanded ? ' expanded' : '');
   item.style.paddingLeft = `${8 + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
+  item.setAttribute('aria-expanded', expanded ? 'true' : 'false');
 
   const content = document.createElement('div');
   content.className = 'tree-content';
 
   const caret = document.createElement('span');
   caret.className = 'tree-caret';
-  caret.innerHTML = '&nbsp;';
+  caret.innerHTML = '<i class="bi bi-chevron-right"></i>';
   content.appendChild(caret);
 
   const iconEl = document.createElement('span');
@@ -248,7 +249,29 @@ function createSectionHeader(label, depth, icon) {
   content.appendChild(text);
 
   item.appendChild(content);
-  return item;
+
+  const children = document.createElement('div');
+  children.className = 'tree-children' + (expanded ? '' : ' hidden');
+
+  const toggle = () => {
+    item.classList.toggle('expanded');
+    children.classList.toggle('hidden');
+    const isExpanded = item.classList.contains('expanded');
+    item.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+  };
+
+  caret.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggle();
+  });
+
+  item.addEventListener('click', (event) => {
+    if (event.target.closest('.tree-caret')) return;
+    if (event.target.closest('.tree-item') !== item) return;
+    toggle();
+  });
+
+  return { item, children };
 }
 
 function normalizeList(value) {
@@ -316,15 +339,17 @@ function formatTriggerMeta(trigger) {
 
 function renderSection(container, options) {
   const { label, icon, items, emptyText, depth, renderItem } = options;
-  container.appendChild(createSectionHeader(label, depth, icon));
+  const section = createSectionNode(label, depth, icon, false);
+  container.appendChild(section.item);
+  container.appendChild(section.children);
   if (!items || items.length === 0) {
     const emptyLeaf = createColumnLeaf(emptyText, '', depth + 1, 'tree-meta tree-muted');
-    container.appendChild(emptyLeaf);
+    section.children.appendChild(emptyLeaf);
     return;
   }
   items.forEach((item) => {
     const leaf = renderItem(item, depth + 1);
-    if (leaf) container.appendChild(leaf);
+    if (leaf) section.children.appendChild(leaf);
   });
 }
 

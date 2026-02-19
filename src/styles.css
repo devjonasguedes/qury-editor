@@ -3522,6 +3522,39 @@ results panel
   z-index: 1;
 }
 
+.object-grid .object-column-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.object-grid .object-column-key-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.object-grid .object-column-key-icon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.object-grid .object-column-key-icon.is-pk {
+  color: #3b82f6;
+}
+
+.object-grid .object-column-key-icon.is-fk {
+  color: #f59e0b;
+}
+
+.object-grid .object-column-copy {
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+  padding: 0;
+}
+
 .object-ddl {
   margin: 0;
   border: 1px solid var(--border);
@@ -3914,6 +3947,57 @@ body.theme-light .apply-edits-btn.has-pending {
   padding: 10px;
   max-height: 55vh;
   overflow: auto;
+}
+
+.output-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.output-entry {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.output-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text);
+}
+
+.output-line.is-neutral {
+  color: var(--text-muted);
+}
+
+.output-sql-line {
+  color: var(--text-soft);
+}
+
+.output-line.is-success {
+  color: var(--success);
+}
+
+.output-line.is-error {
+  color: var(--danger);
+}
+
+.output-time {
+  color: var(--text-muted);
+}
+
+.output-status {
+  color: var(--text);
+}
+
+.output-meta {
+  color: inherit;
 }
 
 .edit-changes-body {

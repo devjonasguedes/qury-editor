@@ -633,7 +633,7 @@
                   disabled
                 >
                   <span id="queryOutputPreview" class="query-output-preview">
-                    No output.
+                    Run a query to see output.
                   </span>
                   <i class="bi bi-box-arrow-up-right"></i>
                 </button>
@@ -696,7 +696,6 @@
                     <select id="dbType">
                       <option value="sqlite">SQLite</option>
                       <option value="mysql">MySQL</option>
-                      <option value="mariadb">MariaDB</option>
                       <option value="postgres">PostgreSQL</option>
                     </select>
                   </div>
@@ -1365,18 +1364,7 @@
               </button>
             </div>
             <div class="output-body">
-              <table class="output-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Time</th>
-                    <th>Action</th>
-                    <th>Response</th>
-                    <th>Duration</th>
-                  </tr>
-                </thead>
-                <tbody id="outputLogBody"></tbody>
-              </table>
+              <div id="outputLogBody" class="output-log"></div>
             </div>
             <div class="actions end">
               <button id="outputCopyBtn" class="secondary">Copy</button>

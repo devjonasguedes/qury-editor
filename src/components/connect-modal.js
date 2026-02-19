@@ -208,12 +208,10 @@ export function createConnectModal({
       .toLowerCase();
     if (!type) return 'mysql';
     if (type === 'postgresql') return 'postgres';
-    if (type === 'maria' || type === 'maria-db') return 'mariadb';
     if (type === 'sqlite3') return 'sqlite';
     if (
       type === 'postgres' ||
       type === 'mysql' ||
-      type === 'mariadb' ||
       type === 'sqlite'
     )
       return type;
@@ -224,8 +222,6 @@ export function createConnectModal({
     const type = normalizeTypeForPlaceholder(typeValue);
     if (type === 'postgres')
       return 'postgresql://user:password@localhost:5432/database';
-    if (type === 'mariadb')
-      return 'mariadb://user:password@localhost:3306/database';
     if (type === 'sqlite') return 'sqlite:///path/to/database.sqlite';
     return 'mysql://user:password@localhost:3306/database';
   };
@@ -289,7 +285,6 @@ export function createConnectModal({
       .toLowerCase();
     if (type === 'postgres' || type === 'postgresql') return 'postgres';
     if (type === 'mysql') return 'mysql';
-    if (type === 'mariadb' || type === 'maria') return 'mariadb';
     if (type === 'sqlite' || type === 'sqlite3') return 'sqlite';
     return '';
   };

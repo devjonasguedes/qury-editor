@@ -233,7 +233,7 @@ export function createSqlEditor({
     }
     const name = String(options.dialect || "").toLowerCase();
     if (name === "postgres" || name === "postgresql") return PostgreSQL;
-    if (name === "mysql" || name === "mariadb") return MySQL;
+    if (name === "mysql") return MySQL;
     return StandardSQL;
   };
 

@@ -701,12 +701,10 @@ function normalizeConnectionType(value) {
     .trim()
     .toLowerCase();
   if (text === "postgres") return "postgresql";
-  if (text === "maria" || text === "maria-db") return "mariadb";
   if (text === "sqlite3") return "sqlite";
   if (
     text === "postgresql" ||
     text === "mysql" ||
-    text === "mariadb" ||
     text === "sqlite"
   )
     return text;
@@ -1191,7 +1189,7 @@ function normalizedPortForFingerprint(type, port) {
   const value = normalizedPart(port);
   if (value) return value;
   if (type === "postgresql") return "5432";
-  if (type === "mysql" || type === "mariadb") return "3306";
+  if (type === "mysql") return "3306";
   return "";
 }
 

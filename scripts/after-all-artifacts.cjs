@@ -24,12 +24,6 @@ async function zipSingleFile(inputFile, outZipPath, entryName) {
   });
 }
 
-async function zipDirectory(inputDir, outZipPath, rootName) {
-  await createZip(outZipPath, (archive) => {
-    archive.directory(inputDir, rootName);
-  });
-}
-
 module.exports = async function afterAllArtifactBuild(context) {
   if (!context || !context.outDir) return;
 
@@ -44,15 +38,5 @@ module.exports = async function afterAllArtifactBuild(context) {
     await zipSingleFile(dmgPath, macZip, "qury-mac.dmg");
     console.log(`Created ${macZip}`);
     fs.rmSync(dmgPath, { force: true });
-  }
-
-  const winUnpacked = context.appOutDir && fs.existsSync(context.appOutDir)
-    ? context.appOutDir
-    : path.join(outDir, "win-unpacked");
-
-  if (fs.existsSync(winUnpacked)) {
-    const winZip = path.join(outDir, "qury-windows.zip");
-    await zipDirectory(winUnpacked, winZip, "qury-windows");
-    console.log(`Created ${winZip}`);
   }
 };

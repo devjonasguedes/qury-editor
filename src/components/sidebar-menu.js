@@ -10,6 +10,12 @@ export function createSidebarMenu({
   const treeBtn = document.getElementById("sidebarTreeBtn");
   const historyBtn = document.getElementById("sidebarHistoryBtn");
   const snippetsBtn = document.getElementById("sidebarSnippetsBtn");
+  const sidebar =
+    panels.sidebar ||
+    document.getElementById("sidebar") ||
+    document.querySelector(".tables");
+  const sidebarResizer =
+    panels.sidebarResizer || document.getElementById("sidebarResizer");
   const tablePanel = panels.tablePanel || document.getElementById("tablePanel");
   const historyPanel =
     panels.historyPanel || document.getElementById("historyPanel");
@@ -20,46 +26,70 @@ export function createSidebarMenu({
     view === "history" ? "history" : view === "snippets" ? "snippets" : "tree";
 
   let activeView = normalizeView(initialView);
+  let isCollapsed = false;
 
-  const setActive = (view) => {
-    activeView = normalizeView(view);
-    if (treeBtn) treeBtn.classList.toggle("active", activeView === "tree");
+  const setActiveButtons = () => {
+    if (treeBtn) treeBtn.classList.toggle("active", !isCollapsed && activeView === "tree");
     if (historyBtn)
-      historyBtn.classList.toggle("active", activeView === "history");
+      historyBtn.classList.toggle("active", !isCollapsed && activeView === "history");
     if (snippetsBtn)
-      snippetsBtn.classList.toggle("active", activeView === "snippets");
-    return activeView;
+      snippetsBtn.classList.toggle("active", !isCollapsed && activeView === "snippets");
+  };
+
+  const applyPanels = () => {
+    if (tablePanel) tablePanel.classList.toggle("hidden", isCollapsed || activeView !== "tree");
+    if (historyPanel)
+      historyPanel.classList.toggle("hidden", isCollapsed || activeView !== "history");
+    if (snippetsPanel)
+      snippetsPanel.classList.toggle("hidden", isCollapsed || activeView !== "snippets");
+    if (sidebar) sidebar.classList.toggle("hidden", isCollapsed);
+    if (sidebarResizer) sidebarResizer.classList.toggle("hidden", isCollapsed);
+  };
+
+  const setCollapsed = (next, { notify = true } = {}) => {
+    isCollapsed = !!next;
+    setActiveButtons();
+    applyPanels();
+    if (notify && onChange) onChange(isCollapsed ? null : activeView);
   };
 
   const setView = (view, { notify = true } = {}) => {
-    const next = setActive(view);
-    if (tablePanel) tablePanel.classList.toggle("hidden", next !== "tree");
-    if (historyPanel) historyPanel.classList.toggle("hidden", next !== "history");
-    if (snippetsPanel)
-      snippetsPanel.classList.toggle("hidden", next !== "snippets");
-    if (next === "history" && onShowHistory) onShowHistory();
-    if (next === "snippets" && onShowSnippets) onShowSnippets();
-    if (notify && onChange) onChange(next);
-    return next;
+    activeView = normalizeView(view);
+    isCollapsed = false;
+    setActiveButtons();
+    applyPanels();
+    if (activeView === "history" && onShowHistory) onShowHistory();
+    if (activeView === "snippets" && onShowSnippets) onShowSnippets();
+    if (notify && onChange) onChange(activeView);
+    return activeView;
+  };
+
+  const toggleView = (view) => {
+    const next = normalizeView(view);
+    if (!isCollapsed && activeView === next) {
+      setCollapsed(true);
+      return null;
+    }
+    return setView(next);
   };
 
   if (treeBtn) {
-    treeBtn.addEventListener("click", () => setView("tree"));
+    treeBtn.addEventListener("click", () => toggleView("tree"));
   }
 
   if (historyBtn) {
-    historyBtn.addEventListener("click", () => setView("history"));
+    historyBtn.addEventListener("click", () => toggleView("history"));
   }
 
   if (snippetsBtn) {
-    snippetsBtn.addEventListener("click", () => setView("snippets"));
+    snippetsBtn.addEventListener("click", () => toggleView("snippets"));
   }
 
   setView(activeView, { notify: false });
 
   return {
     setView,
-    setActive,
+    setCollapsed,
     getActive: () => activeView,
   };
 }

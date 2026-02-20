@@ -68,13 +68,15 @@ function buildTreeData(tableRows, routineRows, filterText, activeSchema, options
   return map;
 }
 
-const INDENT = 20;
+const INDENT = 16;
+const BASE_PADDING = 6;
 
-function createGroup({ label, depth, expanded = true, icon, count, key, level, onToggle, isFolder, isActive }) {
+function createGroup({ label, depth, expanded = true, icon, count, key, level, onToggle, isFolder, isActive, className }) {
   const item = document.createElement('div');
   item.className = 'tree-item tree-group' + (expanded ? ' expanded' : '');
+  if (className) item.classList.add(className);
   if (isActive) item.classList.add('active-schema');
-  item.style.paddingLeft = `${8 + depth * INDENT}px`;
+  item.style.paddingLeft = `${BASE_PADDING + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(level || 1));
   item.setAttribute('aria-expanded', expanded ? 'true' : 'false');
@@ -156,7 +158,7 @@ function createGroup({ label, depth, expanded = true, icon, count, key, level, o
 function createColumnLeaf(label, type, depth, className = 'tree-column') {
   const item = document.createElement('div');
   item.className = `tree-item ${className}`;
-  item.style.paddingLeft = `${8 + depth * INDENT}px`;
+  item.style.paddingLeft = `${BASE_PADDING + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
 
@@ -221,7 +223,7 @@ async function fetchTableInfo(schema, table, listTableInfo, onShowError) {
 function createSectionNode(label, depth, icon, expanded = false) {
   const item = document.createElement('div');
   item.className = 'tree-item tree-section' + (expanded ? ' expanded' : '');
-  item.style.paddingLeft = `${8 + depth * INDENT}px`;
+  item.style.paddingLeft = `${BASE_PADDING + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
   item.setAttribute('aria-expanded', expanded ? 'true' : 'false');
@@ -433,7 +435,7 @@ function createTableNode(schema, name, depth, onOpenTable, onOpenView, listColum
   const { expanded = false, onToggle, onCopyName, onCopyQualified, key } = options;
   const item = document.createElement('div');
   item.className = 'tree-item tree-leaf tree-routine';
-  item.style.paddingLeft = `${8 + depth * INDENT}px`;
+  item.style.paddingLeft = `${BASE_PADDING + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
   item.setAttribute('aria-expanded', expanded ? 'true' : 'false');
@@ -564,7 +566,7 @@ function createRoutineNode(schema, name, routineType, depth, onOpenRoutine, high
   const { onCopyName, onCopyQualified, key } = options;
   const item = document.createElement('div');
   item.className = 'tree-item tree-leaf tree-table';
-  item.style.paddingLeft = `${8 + depth * INDENT}px`;
+  item.style.paddingLeft = `${BASE_PADDING + depth * INDENT}px`;
   item.setAttribute('role', 'treeitem');
   item.setAttribute('aria-level', String(depth + 1));
   item.dataset.key = key || `${schema}.${name}`;
@@ -655,6 +657,7 @@ export function renderTableTree({
   highlightText,
   skipNameFilter,
   activeSchema,
+  dbType,
   onOpenTable,
   onOpenView,
   onOpenRoutine,
@@ -671,137 +674,192 @@ export function renderTableTree({
   tableList.className = 'tree';
   tableList.setAttribute('role', 'tree');
 
-  const hasTables = Array.isArray(tableCache) && tableCache.length > 0;
-  const hasRoutines = Array.isArray(routineCache) && routineCache.length > 0;
-  if (!hasTables && !hasRoutines) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'No objects found.';
-    tableList.appendChild(empty);
-    return;
-  }
-
-  const treeData = buildTreeData(tableCache, routineCache, filterText, activeSchema, { skipNameFilter: !!skipNameFilter });
-  if (treeData.size === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-empty';
-    empty.textContent = 'No objects found.';
-    tableList.appendChild(empty);
-    return;
-  }
-
   const filterActive = !!(filterText || '').trim();
   const searchText = typeof highlightText === 'string' ? highlightText : filterText;
+  const normalizedType = String(dbType || '').toLowerCase();
+  const useRootGroups = true;
+  const rootLabel = (() => {
+    if (normalizedType === 'postgres' || normalizedType === 'postgresql') return 'Schemas';
+    if (normalizedType === 'mysql') return 'Databases';
+    if (normalizedType === 'sqlite') return 'Databases';
+    return 'Database Objects';
+  })();
+
+  const hasTables = Array.isArray(tableCache) && tableCache.length > 0;
+  const hasRoutines = Array.isArray(routineCache) && routineCache.length > 0;
+  const treeData = buildTreeData(
+    tableCache,
+    routineCache,
+    filterText,
+    activeSchema,
+    { skipNameFilter: !!skipNameFilter }
+  );
+  const hasDbObjects = treeData.size > 0;
 
   const normalizedActive = normalizeName(activeSchema);
-  for (const [schema, groups] of treeData.entries()) {
-    const isActiveSchema = normalizedActive && normalizeName(schema) === normalizedActive;
-    const schemaKey = `db:${schema}`;
-    const schemaExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, schemaKey)
-      ? !!expandedState[schemaKey]
-      : (normalizedActive ? isActiveSchema : true);
-    const schemaNode = createGroup({
-      label: schema,
-      depth: 0,
-      expanded: schemaExpanded,
-      icon: '<i class="bi bi-database"></i>',
-      key: schemaKey,
-      level: 1,
-      isActive: isActiveSchema,
-      onToggle: (expanded) => {
-        if (onToggleExpand) onToggleExpand(schemaKey, expanded);
-      }
-    });
-    tableList.appendChild(schemaNode.item);
-    tableList.appendChild(schemaNode.children);
 
-    ['Tables', 'Views', 'Procedures', 'Functions', 'Other'].forEach((groupLabel) => {
-      const items = groups[groupLabel] || [];
-      if (items.length === 0) return;
-
-      const groupKey = `group:${schema}:${groupLabel}`;
-      const groupExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, groupKey)
-        ? !!expandedState[groupKey]
-        : true;
-      const groupNode = createGroup({
-        label: groupLabel,
-        depth: 1,
-        expanded: groupExpanded,
-        icon: '<i class="bi bi-folder2-open"></i>',
-        count: items.length,
-        key: groupKey,
-        level: 2,
-        isFolder: true,
+  const renderSchemas = (container, depthBase, levelBase) => {
+    for (const [schema, groups] of treeData.entries()) {
+      const isActiveSchema = normalizedActive && normalizeName(schema) === normalizedActive;
+      const schemaKey = `db:${schema}`;
+      const schemaExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, schemaKey)
+        ? !!expandedState[schemaKey]
+        : (normalizedActive ? isActiveSchema : true);
+      const schemaNode = createGroup({
+        label: schema,
+        depth: depthBase,
+        expanded: schemaExpanded,
+        icon: '<i class="bi bi-database"></i>',
+        key: schemaKey,
+        level: levelBase,
+        isActive: isActiveSchema,
         onToggle: (expanded) => {
-          if (onToggleExpand) onToggleExpand(groupKey, expanded);
-          if (!filterActive) return;
-          groupNode.children
-            .querySelectorAll('.tree-item.tree-table')
-            .forEach((item) => {
-              item.classList.toggle('expanded', expanded);
-              const sibling = item.nextElementSibling;
-              if (sibling && sibling.classList.contains('tree-children')) {
-                sibling.classList.toggle('hidden', !expanded);
-              }
-            });
+          if (onToggleExpand) onToggleExpand(schemaKey, expanded);
         }
       });
-      schemaNode.children.appendChild(groupNode.item);
-      schemaNode.children.appendChild(groupNode.children);
+      container.appendChild(schemaNode.item);
+      container.appendChild(schemaNode.children);
 
-      items.sort((a, b) => a.name.localeCompare(b.name));
-      items.forEach((item) => {
-        if (item.itemType === 'table') {
-          const name = item.name;
-          const tableKey = `table:${schema}.${name}`;
-          const tableExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, tableKey)
-            ? !!expandedState[tableKey]
-            : false;
-          const tableNode = createTableNode(
+      ['Tables', 'Views', 'Procedures', 'Functions', 'Other'].forEach((groupLabel) => {
+        const items = groups[groupLabel] || [];
+        if (items.length === 0) return;
+
+        const groupKey = `group:${schema}:${groupLabel}`;
+        const groupExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, groupKey)
+          ? !!expandedState[groupKey]
+          : true;
+        const groupNode = createGroup({
+          label: groupLabel,
+          depth: depthBase + 1,
+          expanded: groupExpanded,
+          icon: '<i class="bi bi-folder2-open"></i>',
+          count: items.length,
+          key: groupKey,
+          level: levelBase + 1,
+          isFolder: true,
+          onToggle: (expanded) => {
+            if (onToggleExpand) onToggleExpand(groupKey, expanded);
+            if (!filterActive) return;
+            groupNode.children
+              .querySelectorAll('.tree-item.tree-table')
+              .forEach((item) => {
+                item.classList.toggle('expanded', expanded);
+                const sibling = item.nextElementSibling;
+                if (sibling && sibling.classList.contains('tree-children')) {
+                  sibling.classList.toggle('hidden', !expanded);
+                }
+              });
+          }
+        });
+        schemaNode.children.appendChild(groupNode.item);
+        schemaNode.children.appendChild(groupNode.children);
+
+        items.sort((a, b) => a.name.localeCompare(b.name));
+        items.forEach((item) => {
+          if (item.itemType === 'table') {
+            const name = item.name;
+            const tableKey = `table:${schema}.${name}`;
+            const tableExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, tableKey)
+              ? !!expandedState[tableKey]
+              : false;
+            const tableNode = createTableNode(
+              schema,
+              name,
+              depthBase + 2,
+              onOpenTable,
+              onOpenView,
+              listColumns,
+              listTableInfo,
+              onShowError,
+              item.isView,
+              searchText,
+              {
+                key: tableKey,
+                expanded: tableExpanded,
+                onToggle: (expanded) => {
+                  if (onToggleExpand) onToggleExpand(tableKey, expanded);
+                },
+                onCopyName,
+                onCopyQualified
+              }
+            );
+            groupNode.children.appendChild(tableNode.item);
+            groupNode.children.appendChild(tableNode.children);
+            return;
+          }
+
+          const routineKey = `routine:${schema}.${item.name}`;
+          const routineNode = createRoutineNode(
             schema,
-            name,
-            2,
-            onOpenTable,
-            onOpenView,
-            listColumns,
-            listTableInfo,
-            onShowError,
-            item.isView,
+            item.name,
+            item.routineType,
+            depthBase + 2,
+            onOpenRoutine,
             searchText,
             {
-              key: tableKey,
-              expanded: tableExpanded,
-              onToggle: (expanded) => {
-                if (onToggleExpand) onToggleExpand(tableKey, expanded);
-              },
+              key: routineKey,
               onCopyName,
               onCopyQualified
             }
           );
-          groupNode.children.appendChild(tableNode.item);
-          groupNode.children.appendChild(tableNode.children);
-          return;
-        }
-
-        const routineKey = `routine:${schema}.${item.name}`;
-        const routineNode = createRoutineNode(
-          schema,
-          item.name,
-          item.routineType,
-          2,
-          onOpenRoutine,
-          searchText,
-          {
-            key: routineKey,
-            onCopyName,
-            onCopyQualified
-          }
-        );
-        groupNode.children.appendChild(routineNode.item);
-        groupNode.children.appendChild(routineNode.children);
+          groupNode.children.appendChild(routineNode.item);
+          groupNode.children.appendChild(routineNode.children);
+        });
       });
-    });
+    }
+  };
+
+  if (!useRootGroups) {
+    if (!hasTables && !hasRoutines) {
+      const empty = document.createElement('div');
+      empty.className = 'tree-empty';
+      empty.textContent = 'No objects found.';
+      tableList.appendChild(empty);
+      return;
+    }
+    if (!hasDbObjects) {
+      const empty = document.createElement('div');
+      empty.className = 'tree-empty';
+      empty.textContent = 'No objects found.';
+      tableList.appendChild(empty);
+      return;
+    }
+    renderSchemas(tableList, 0, 1);
+    return;
   }
+
+  const rootDbKey = 'root:databaseObjects';
+  const rootDbExpanded = expandedState && Object.prototype.hasOwnProperty.call(expandedState, rootDbKey)
+    ? !!expandedState[rootDbKey]
+    : true;
+  const rootDbNode = createGroup({
+    label: rootLabel,
+    depth: 0,
+    expanded: rootDbExpanded,
+    icon: '<i class="bi bi-boxes"></i>',
+    key: rootDbKey,
+    level: 1,
+    isFolder: true,
+    className: 'tree-root',
+    onToggle: (expanded) => {
+      if (onToggleExpand) onToggleExpand(rootDbKey, expanded);
+    }
+  });
+  tableList.appendChild(rootDbNode.item);
+  tableList.appendChild(rootDbNode.children);
+
+  if (hasDbObjects) {
+    renderSchemas(rootDbNode.children, 1, 2);
+  } else {
+    const emptyLeaf = createColumnLeaf(
+      filterActive ? 'No objects found.' : 'No database objects.',
+      '',
+      2,
+      'tree-meta tree-muted'
+    );
+    rootDbNode.children.appendChild(emptyLeaf);
+  }
+
 }
 
 function setSelected(item) {

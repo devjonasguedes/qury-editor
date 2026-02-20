@@ -1948,22 +1948,29 @@ sidebar tree
 .tree {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   overflow: auto;
   min-height: 0;
-  padding: 4px 0;
+  padding: 2px 0;
   font-size: 13px;
   line-height: 22px;
   scroll-behavior: smooth;
+}
+
+.tree,
+.tree * {
+  font-family:
+    "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+    Arial, sans-serif;
 }
 
 .tree-item {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 6px;
-  padding: 4px 44px 4px 8px;
-  border-radius: 4px;
+  gap: 4px;
+  padding: 2px 28px 2px 6px;
+  border-radius: 0;
   color: var(--text);
   cursor: pointer;
   font-size: 13px;
@@ -1973,9 +1980,9 @@ sidebar tree
 
 .tree-content {
   display: grid;
-  grid-template-columns: 18px 16px 1fr auto;
+  grid-template-columns: 16px 16px 1fr auto;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
   flex: 1;
 }
@@ -1987,12 +1994,12 @@ sidebar tree
   opacity: 0;
   transition: opacity 0.1s ease-in-out;
   position: absolute;
-  right: 8px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
-  background: rgb(18, 18, 18);
-  padding: 2px 4px;
-  border-radius: 6px;
+  background: transparent;
+  padding: 0;
+  border-radius: 4px;
 }
 
 .tree-item:hover .tree-actions {
@@ -2000,22 +2007,21 @@ sidebar tree
 }
 
 .tree-action {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   font-size: 12px;
-  border-radius: 4px;
+  border-radius: 3px;
   padding: 0;
-  background: rgba(255, 255, 255, 0.06);
+  background: transparent;
   border: none;
-  color: var(--text);
+  color: var(--text-muted-2);
   opacity: 0.9;
 }
 
 .tree-action:hover {
-  background: var(--surface-7);
-  color: var(--hover-text);
+  background: var(--surface-6);
+  color: var(--text);
   opacity: 1;
-  transform: scale(1.1);
 }
 
 .tree-action i {
@@ -2023,13 +2029,22 @@ sidebar tree
 }
 
 .tree-item:hover {
-  background: var(--surface-7);
-  color: var(--hover-text);
+  background: var(--surface-6);
+  color: var(--text);
 }
 
 .tree-group {
   color: var(--tree-group);
+  font-weight: 500;
+}
+
+.tree-root {
+  color: var(--text-strong);
   font-weight: 600;
+}
+
+.tree-root .tree-icon {
+  color: var(--text-muted-2);
 }
 
 .tree-section {
@@ -2085,12 +2100,14 @@ sidebar tree
 }
 
 .tree-caret {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   justify-content: center;
   align-items: center;
   color: var(--tree-caret);
+  font-size: 12px;
+  opacity: 0.85;
   transition:
     transform 0.18s ease-in-out,
     color 0.1s ease-in-out;
@@ -2117,7 +2134,7 @@ sidebar tree
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted-2);
+  color: var(--tree-icon);
 }
 
 .tree-icon.placeholder {
@@ -2132,12 +2149,12 @@ sidebar tree
   margin-left: 4px;
   padding: 0 6px;
   min-width: 18px;
-  height: 16px;
+  height: 14px;
   font-size: 10px;
-  line-height: 16px;
+  line-height: 14px;
   text-align: center;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   background: var(--badge-bg);
   color: var(--badge-text);
   font-weight: 600;
@@ -2153,29 +2170,22 @@ body.theme-light .tree-highlight {
 }
 
 .tree-item.selected {
-  background: var(--selection-strong);
+  background: var(--selection);
   color: var(--selected-text);
   font-weight: 500;
 }
 
 .tree-item.selected::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--accent-strong);
-  border-radius: 4px;
+  display: none;
 }
 
 body.theme-light .tree-item.selected {
-  background: var(--selection-strong);
+  background: var(--selection);
   color: var(--text-strong);
 }
 
 body.theme-light .tree-item.selected::before {
-  background: var(--accent);
+  display: none;
 }
 
 .tree-item.selected .tree-actions {
@@ -2325,9 +2335,9 @@ body.theme-light .conn-dot {
 }
 
 .sidebar-icon.active {
-  border-color: var(--border);
-  background: var(--surface-1);
-  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--accent);
 }
 
 .sidebar-panel {
@@ -3222,12 +3232,12 @@ editor (CodeMirror)
 }
 
 body.theme-light .tree-actions {
-  background: rgb(245, 245, 245);
+  background: transparent;
 }
 
 body.theme-light .tree-action {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--text);
+  background: transparent;
+  color: var(--text-muted-2);
 }
 
 .cm-lineNumbers .cm-gutterElement {
@@ -3724,6 +3734,10 @@ results panel
   padding-left: 10px;
   margin-left: 6px;
   border-left: 1px solid var(--border);
+}
+
+body.db-readonly .table-edit-actions {
+  display: none;
 }
 
 .apply-edits-btn {

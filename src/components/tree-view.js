@@ -268,6 +268,12 @@ export function createTreeView({
     }
   };
 
+  const getConnectionType = () => {
+    const conn =
+      typeof getActiveConnection === "function" ? getActiveConnection() : null;
+    return conn && conn.type ? String(conn.type).toLowerCase() : "";
+  };
+
   const render = (filterText = "", options = {}) => {
     const {
       tableRows = tableCache,
@@ -275,6 +281,7 @@ export function createTreeView({
       skipNameFilter = false,
       highlightText = "",
     } = options;
+    const dbType = getConnectionType();
     renderTableTree({
       tableList,
       tableCache: tableRows,
@@ -283,6 +290,7 @@ export function createTreeView({
       highlightText: highlightText || filterText,
       skipNameFilter,
       activeSchema,
+      dbType,
       onOpenTable: runOpenTable,
       onOpenView: runOpenView,
       onOpenRoutine: runOpenRoutine,

@@ -19,7 +19,8 @@
     "build:win:x64": "npm run build:app && npx electron-builder --win zip --x64 --publish never",
     "build:linux:deb": "npm run build:app && npx electron-builder --linux deb --x64 --publish never",
     "build:linux:deb:arm64": "npm run build:app && npx electron-builder --linux deb --arm64 --publish never",
-    "postinstall": "electron-rebuild -o better-sqlite3"
+    "rebuild:native": "node scripts/rebuild-native.cjs",
+    "postinstall": "npm run rebuild:native"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",

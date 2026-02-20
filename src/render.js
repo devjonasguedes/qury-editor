@@ -101,8 +101,8 @@ export function initHome({ api }) {
   const tableSearchClear = byId("tableSearchClear");
   const query = byId("query");
   const limitSelect = byId("limitSelect");
-  const timeoutSelect = byId("timeoutSelect");
   const queryStatus = byId("queryStatus");
+  const explainBtn = byId("explainBtn");
   const snippetQueryInput = byId("snippetQueryInput");
   const definitionQueryInput = byId("definitionQueryInput");
   const sqlHelpBtn = byId("sqlHelpBtn");
@@ -808,7 +808,7 @@ export function initHome({ api }) {
   const normalizeQueryDefaults = (input) => {
     const source = input && typeof input === "object" ? input : {};
     const limitAnchor = settingsDefaultLimit || limitSelect;
-    const timeoutAnchor = settingsDefaultTimeout || timeoutSelect;
+    const timeoutAnchor = settingsDefaultTimeout;
     return {
       limit: normalizeSelectValue(
         limitAnchor,
@@ -829,8 +829,6 @@ export function initHome({ api }) {
       timeoutMs: localStorage.getItem(STORAGE_KEYS.QUERY_DEFAULT_TIMEOUT_KEY),
     });
 
-  let lastTimeoutSelection = null;
-
   const applyQueryDefaultsToEditorControls = (input) => {
     const next = normalizeQueryDefaults(input);
     if (limitSelect) {
@@ -838,13 +836,6 @@ export function initHome({ api }) {
         limitSelect,
         next.limit,
         QUERY_DEFAULTS.limit,
-      );
-    }
-    if (timeoutSelect) {
-      timeoutSelect.value = normalizeSelectValue(
-        timeoutSelect,
-        next.timeoutMs,
-        QUERY_DEFAULTS.timeoutMs,
       );
     }
     return next;
@@ -1241,41 +1232,18 @@ export function initHome({ api }) {
     return key ? editorSqlState.tabConnectionsView.getEntry(key) : null;
   };
 
-  const applyTimeoutSupport = () => {
-    if (!timeoutSelect) return;
-    const active = getActiveConnection();
-    const type = active && active.type ? String(active.type).toLowerCase() : "";
-    const isSqlite = type === "sqlite";
-    if (isSqlite) {
-      if (!timeoutSelect.disabled) {
-        lastTimeoutSelection = timeoutSelect.value;
-      }
-      if (hasSelectOption(timeoutSelect, "none")) {
-        timeoutSelect.value = "none";
-      }
-      timeoutSelect.disabled = true;
-      timeoutSelect.title = "Timeout not supported for SQLite";
-      return;
-    }
-    if (timeoutSelect.disabled) {
-      timeoutSelect.disabled = false;
-      if (lastTimeoutSelection && hasSelectOption(timeoutSelect, lastTimeoutSelection)) {
-        timeoutSelect.value = lastTimeoutSelection;
-      }
-    }
-    timeoutSelect.title = "Query timeout";
-  };
-
   const applySqliteUi = () => {
     const active = getActiveConnection();
     const type = active && active.type ? String(active.type).toLowerCase() : "";
     const isSqlite = type === "sqlite";
+    const isPostgres = type === "postgres" || type === "postgresql";
+    const isMysql = type === "mysql";
     const hideForSqlite = !active || isSqlite;
 
     if (stopBtn) stopBtn.classList.toggle("hidden", hideForSqlite);
-    if (timeoutSelect) timeoutSelect.classList.toggle("hidden", hideForSqlite);
     if (explainAnalyzeBtn)
       explainAnalyzeBtn.classList.toggle("hidden", hideForSqlite);
+    if (explainBtn) explainBtn.classList.toggle("hidden", !active);
     if (dbSelectWrap) dbSelectWrap.classList.toggle("hidden", hideForSqlite);
 
     const timeoutField = settingsDefaultTimeout
@@ -1288,7 +1256,10 @@ export function initHome({ api }) {
       : null;
     if (timezoneSection) timezoneSection.classList.toggle("hidden", isSqlite);
 
-    applyTimeoutSupport();
+    document.body.classList.toggle("db-sqlite", isSqlite);
+    document.body.classList.toggle("db-postgres", isPostgres);
+    document.body.classList.toggle("db-mysql", isMysql);
+    document.body.classList.toggle("db-readonly", !!(active && active.readOnly));
   };
 
   editorSqlState.sqlAutocomplete = createSqlAutocomplete({
@@ -2193,7 +2164,8 @@ export function initHome({ api }) {
   };
 
   const getTimeoutMs = () => {
-    const value = timeoutSelect ? timeoutSelect.value : "none";
+    const stored = readStoredQueryDefaults();
+    const value = stored && stored.timeoutMs ? stored.timeoutMs : "none";
     if (!value || value === "none") return 0;
     const ms = Number(value);
     return Number.isFinite(ms) ? ms : 0;
@@ -3827,6 +3799,7 @@ export function initHome({ api }) {
         : null;
       if (editorSqlState.sqlAutocomplete && tables)
         editorSqlState.sqlAutocomplete.setTables(tables);
+      if (dbSelect) dbSelect.value = targetDb;
       updateDbSelectUsageHint(targetDb);
       if (editorSqlState.tabTablesView) editorSqlState.tabTablesView.render();
       editorSqlState.showToast(`Using database: ${targetDb}`, 1600, "info");
@@ -5230,6 +5203,10 @@ export function initHome({ api }) {
     resultsToolbar: tableActionsBar,
     resultsTableWrap,
     getScopeKey: getCurrentHistoryKey,
+    getConnectionType: () => {
+      const active = getActiveConnection();
+      return active && active.type ? active.type : "";
+    },
     listColumns: (payload) => safeApi.listColumns(payload),
     listTableInfo: (payload) => safeApi.listTableInfo(payload),
     getTableDefinition: (payload) => safeApi.getTableDefinition(payload),

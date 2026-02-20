@@ -132,6 +132,7 @@ export function createTableObjectTabs({
   resultsToolbar,
   resultsTableWrap,
   getScopeKey,
+  getConnectionType,
   listColumns,
   listTableInfo,
   getTableDefinition,
@@ -157,6 +158,25 @@ export function createTableObjectTabs({
   const scopeKey = () => (typeof getScopeKey === 'function' ? String(getScopeKey() || '__default__') : '__default__');
   const scopedTableKey = (schema, table) => `${scopeKey()}::${tableKey(schema, table)}`;
   const scopedSchemaKey = (schema) => `${scopeKey()}::${String(schema || '').toLowerCase()}`;
+
+  const resolveSupportedTabs = () => {
+    const type = typeof getConnectionType === 'function'
+      ? String(getConnectionType() || '').toLowerCase()
+      : '';
+    if (type === 'sqlite') {
+      return TAB_DEFS.filter((tab) => !['relations', 'quality'].includes(tab.id));
+    }
+    return TAB_DEFS;
+  };
+
+  const ensureSupportedTabs = () => {
+    const supported = resolveSupportedTabs();
+    if (!supported.some((tab) => tab.id === activeTab)) {
+      const fallback = supported.find((tab) => tab.id === 'data') || supported[0];
+      activeTab = fallback ? fallback.id : 'data';
+    }
+    return supported;
+  };
 
   const setMetaVisible = (visible) => {
     const showMeta = !!visible;
@@ -789,7 +809,8 @@ export function createTableObjectTabs({
   const renderTabs = () => {
     if (!container) return;
     container.classList.remove('hidden');
-    container.innerHTML = TAB_DEFS.map((tab) => {
+    const supportedTabs = ensureSupportedTabs();
+    container.innerHTML = supportedTabs.map((tab) => {
       const active = tab.id === activeTab ? ' active' : '';
       const disabled = !context && tab.id !== 'data';
       return `<button type="button" class="object-tab-btn${active}${disabled ? ' disabled' : ''}" data-object-tab="${tab.id}" ${disabled ? 'disabled aria-disabled="true"' : ''}>${escapeHtml(tab.label)}</button>`;
@@ -828,7 +849,11 @@ export function createTableObjectTabs({
   };
 
   const activate = (tabId) => {
-    const next = TAB_DEFS.some((tab) => tab.id === tabId) ? tabId : 'data';
+    const supportedTabs = ensureSupportedTabs();
+    const fallback = supportedTabs.find((tab) => tab.id === 'data') || supportedTabs[0];
+    const next = supportedTabs.some((tab) => tab.id === tabId)
+      ? tabId
+      : (fallback ? fallback.id : 'data');
     if (!context && next !== 'data') {
       return;
     }

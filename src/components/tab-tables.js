@@ -16,6 +16,8 @@ export function createTabTables({
   const tabsContainer = tabBar
     ? tabBar.querySelector(".tab-scroll") || tabBar
     : null;
+  let dragState = null;
+  let lastHoverTabId = null;
 
   const getActiveTab = () => tabs.find((tab) => tab.id === activeTabId) || null;
 
@@ -122,11 +124,13 @@ export function createTabTables({
       el.className = "tab";
       el.dataset.tabId = tab.id;
       if (tab.id === activeTabId) el.classList.add("active");
+      el.setAttribute("draggable", "true");
 
       const label = document.createElement("span");
       label.textContent = formatTabLabel(tab);
       label.title = formatTabLabel(tab, { truncateDatabase: false });
       label.addEventListener("click", () => {
+        if (dragState) return;
         syncActiveTabContent();
         activeTabId = tab.id;
         render();
@@ -140,6 +144,7 @@ export function createTabTables({
       close.innerHTML = '<i class="bi bi-x"></i>';
       close.addEventListener("click", (event) => {
         event.stopPropagation();
+        if (dragState) return;
         closeTab(tab.id);
       });
 
@@ -149,6 +154,75 @@ export function createTabTables({
     });
     ensureActiveTabVisible();
     if (didBackfillDatabase && onChange) onChange(getState());
+  };
+
+  const getTabIndex = (id) => tabs.findIndex((tab) => tab.id === id);
+
+  const cleanupDrag = () => {
+    if (!tabsContainer) return;
+    tabsContainer.classList.remove("is-dragging");
+    tabsContainer.querySelectorAll(".tab.dragging, .tab.drag-over").forEach((el) => {
+      el.classList.remove("dragging", "drag-over");
+    });
+    dragState = null;
+    lastHoverTabId = null;
+  };
+
+  const onDragStart = (event) => {
+    const tabEl = event.target.closest(".tab");
+    if (!tabEl) return;
+    const tabId = tabEl.dataset.tabId;
+    if (!tabId) return;
+    dragState = { sourceId: tabId };
+    lastHoverTabId = tabId;
+    tabEl.classList.add("dragging");
+    if (tabsContainer) tabsContainer.classList.add("is-dragging");
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", tabId);
+    }
+  };
+
+  const onDragOver = (event) => {
+    if (!dragState) return;
+    const tabEl = event.target.closest(".tab");
+    if (!tabEl || !tabsContainer) return;
+    event.preventDefault();
+    const tabId = tabEl.dataset.tabId;
+    if (!tabId || tabId === lastHoverTabId) return;
+    tabsContainer
+      .querySelectorAll(".tab.drag-over")
+      .forEach((el) => el.classList.remove("drag-over"));
+    tabEl.classList.add("drag-over");
+    lastHoverTabId = tabId;
+  };
+
+  const onDrop = (event) => {
+    if (!dragState) return;
+    event.preventDefault();
+    const targetEl = event.target.closest(".tab");
+    if (!targetEl) return;
+    const targetId = targetEl.dataset.tabId;
+    const sourceId = dragState.sourceId;
+    if (!sourceId || !targetId || sourceId === targetId) {
+      cleanupDrag();
+      return;
+    }
+    const fromIndex = getTabIndex(sourceId);
+    const toIndex = getTabIndex(targetId);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+      cleanupDrag();
+      return;
+    }
+    const [moved] = tabs.splice(fromIndex, 1);
+    tabs.splice(toIndex, 0, moved);
+    render();
+    if (onChange) onChange(getState());
+    cleanupDrag();
+  };
+
+  const onDragEnd = () => {
+    cleanupDrag();
   };
 
   const create = (title) => {
@@ -265,6 +339,22 @@ export function createTabTables({
       newTabBtn.addEventListener("click", () => {
         syncActiveTabContent();
         create();
+      });
+    }
+
+    if (tabsContainer) {
+      tabsContainer.addEventListener("dragstart", onDragStart);
+      tabsContainer.addEventListener("dragover", onDragOver);
+      tabsContainer.addEventListener("drop", onDrop);
+      tabsContainer.addEventListener("dragend", onDragEnd);
+      tabsContainer.addEventListener("dragleave", (event) => {
+        if (!dragState || !tabsContainer) return;
+        if (event.target === tabsContainer) {
+          tabsContainer
+            .querySelectorAll(".tab.drag-over")
+            .forEach((el) => el.classList.remove("drag-over"));
+          lastHoverTabId = dragState.sourceId;
+        }
       });
     }
 

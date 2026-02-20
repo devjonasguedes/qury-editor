@@ -273,7 +273,7 @@ export function createSqlEditor({
       {
         key: "Shift-Enter",
         run: () => {
-          void handleRunSelection();
+          void handleRunCurrentStatement();
           return true;
         },
       },

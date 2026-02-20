@@ -23,6 +23,46 @@ export function createResultsRenderer({
   let selectedCellEl = null;
   let selectedRowEl = null;
   let activeEditor = null;
+  let resizeState = null;
+  const MIN_COL_WIDTH = 80;
+  const MAX_COL_WIDTH = 420;
+
+  const cleanupResize = () => {
+    if (resizeState && resizeState.th) resizeState.th.classList.remove('resizing');
+    if (resultsTable) resultsTable.classList.remove('resizing');
+    resizeState = null;
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  };
+
+  const handleResizeMove = (event) => {
+    if (!resizeState) return;
+    const delta = event.clientX - resizeState.startX;
+    const nextWidth = Math.max(MIN_COL_WIDTH, resizeState.startWidth + delta);
+    if (resizeState.col) resizeState.col.style.width = `${nextWidth}px`;
+  };
+
+  const handleResizeEnd = () => {
+    cleanupResize();
+  };
+
+  const startResize = (event, th, col) => {
+    if (!th || !col) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = th.getBoundingClientRect();
+    resizeState = {
+      th,
+      col,
+      startX: event.clientX,
+      startWidth: rect.width
+    };
+    th.classList.add('resizing');
+    if (resultsTable) resultsTable.classList.add('resizing');
+    if (resultsTable) resultsTable.style.tableLayout = 'fixed';
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  };
 
   function updateSelectionActions() {
     const tab = getActiveTab();
@@ -200,6 +240,7 @@ export function createResultsRenderer({
     if (activeEditor) finishEdit({ cancel: true });
     resultsTable.innerHTML = '';
     resultsTable.className = '';
+    resultsTable.style.tableLayout = 'auto';
     if (!Array.isArray(rows) || rows.length === 0) {
       resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
       updateSelectionActions();
@@ -214,10 +255,18 @@ export function createResultsRenderer({
       return;
     }
     const columns = Object.keys(firstVisible);
+    const colgroup = document.createElement('colgroup');
+    const colEls = columns.map(() => {
+      const col = document.createElement('col');
+      colgroup.appendChild(col);
+      return col;
+    });
+    resultsTable.appendChild(colgroup);
+
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
     const normalizedKeyMeta = columnKeyMeta && typeof columnKeyMeta === 'object' ? columnKeyMeta : null;
-    columns.forEach((col) => {
+    columns.forEach((col, colIndex) => {
       const th = document.createElement('th');
       th.title = `Order by ${col}`;
       const content = document.createElement('span');
@@ -262,6 +311,15 @@ export function createResultsRenderer({
       content.appendChild(labelWrap);
       content.appendChild(icon);
       th.appendChild(content);
+      const resizer = document.createElement('span');
+      resizer.className = 'results-col-resizer';
+      resizer.addEventListener('mousedown', (event) => {
+        startResize(event, th, colEls[colIndex]);
+      });
+      resizer.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      th.appendChild(resizer);
       th.addEventListener('click', () => {
         if (onSort) onSort(col);
       });
@@ -335,6 +393,19 @@ export function createResultsRenderer({
       tbody.appendChild(tr);
     });
     resultsTable.appendChild(tbody);
+
+    const headCells = headRow.querySelectorAll('th');
+    requestAnimationFrame(() => {
+      if (!resultsTable.isConnected) return;
+      headCells.forEach((th, idx) => {
+        const width = Math.max(
+          MIN_COL_WIDTH,
+          Math.min(MAX_COL_WIDTH, th.getBoundingClientRect().width || MIN_COL_WIDTH)
+        );
+        if (colEls[idx]) colEls[idx].style.width = `${width}px`;
+      });
+      resultsTable.style.tableLayout = 'fixed';
+    });
 
     const total = totalRows || rows.length;
     if (total > maxRows) {

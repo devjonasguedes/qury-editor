@@ -4226,10 +4226,9 @@ loading & skeleton
 data table
 ==== */
 #resultsTable {
-  width: max-content;
-  min-width: 100%;
   border-collapse: collapse;
-  table-layout: auto;
+  min-width: 0;
+  table-layout: fixed;
   user-select: text;
 }
 
@@ -4241,6 +4240,7 @@ data table
   text-align: left;
   white-space: nowrap;
   user-select: text;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }

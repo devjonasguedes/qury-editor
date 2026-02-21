@@ -24,8 +24,30 @@ export function createResultsRenderer({
   let selectedRowEl = null;
   let activeEditor = null;
   let resizeState = null;
-  const MIN_COL_WIDTH = 80;
-  const MAX_COL_WIDTH = 420;
+  let lastColumns = [];
+  const columnWidths = new Map();
+  const MIN_COL_WIDTH = 150;
+  const DEFAULT_COL_WIDTH = 200;
+  let suppressNextSortClick = false;
+
+  const getColWidth = (colEl) => {
+    if (!colEl) return DEFAULT_COL_WIDTH;
+    const explicit = Number.parseFloat(colEl.style.width);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    const rect = colEl.getBoundingClientRect();
+    return rect && rect.width ? rect.width : DEFAULT_COL_WIDTH;
+  };
+
+  const syncTableWidth = (colgroupEl) => {
+    if (!resultsTable || !colgroupEl) return;
+    let total = 0;
+    Array.from(colgroupEl.children).forEach((colEl) => {
+      total += getColWidth(colEl);
+    });
+    if (Number.isFinite(total) && total > 0) {
+      resultsTable.style.width = `${total}px`;
+    }
+  };
 
   const cleanupResize = () => {
     if (resizeState && resizeState.th) resizeState.th.classList.remove('resizing');
@@ -38,24 +60,36 @@ export function createResultsRenderer({
   const handleResizeMove = (event) => {
     if (!resizeState) return;
     const delta = event.clientX - resizeState.startX;
+    if (!resizeState.moved && Math.abs(delta) > 2) resizeState.moved = true;
     const nextWidth = Math.max(MIN_COL_WIDTH, resizeState.startWidth + delta);
     if (resizeState.col) resizeState.col.style.width = `${nextWidth}px`;
+    if (resizeState.colgroup) syncTableWidth(resizeState.colgroup);
   };
 
   const handleResizeEnd = () => {
+    if (resizeState && resizeState.col) {
+      const width = Number.parseFloat(resizeState.col.style.width);
+      if (Number.isFinite(width) && resizeState.colName) {
+        columnWidths.set(resizeState.colName, width);
+      }
+      if (resizeState.moved) suppressNextSortClick = true;
+    }
     cleanupResize();
   };
 
-  const startResize = (event, th, col) => {
+  const startResize = (event, th, col, colName) => {
     if (!th || !col) return;
     event.preventDefault();
     event.stopPropagation();
-    const rect = th.getBoundingClientRect();
+    const startWidth = getColWidth(col);
     resizeState = {
       th,
       col,
+      colgroup: col.parentNode,
+      colName,
       startX: event.clientX,
-      startWidth: rect.width
+      startWidth,
+      moved: false
     };
     th.classList.add('resizing');
     if (resultsTable) resultsTable.classList.add('resizing');
@@ -238,9 +272,11 @@ export function createResultsRenderer({
   function buildTable(rows, totalRows, columnKeyMeta = null) {
     clearSelection();
     if (activeEditor) finishEdit({ cancel: true });
+    const columnsChanged = lastColumns.length > 0;
     resultsTable.innerHTML = '';
     resultsTable.className = '';
-    resultsTable.style.tableLayout = 'auto';
+    resultsTable.style.tableLayout = 'fixed';
+    resultsTable.style.width = '';
     if (!Array.isArray(rows) || rows.length === 0) {
       resultsTable.innerHTML = '<tr><td>No results.</td></tr>';
       updateSelectionActions();
@@ -255,13 +291,25 @@ export function createResultsRenderer({
       return;
     }
     const columns = Object.keys(firstVisible);
+    if (
+      columnsChanged
+      && (columns.length !== lastColumns.length
+        || columns.some((col, idx) => col !== lastColumns[idx]))
+    ) {
+      columnWidths.clear();
+    }
     const colgroup = document.createElement('colgroup');
-    const colEls = columns.map(() => {
+    columns.forEach((colName) => {
       const col = document.createElement('col');
+      const width = columnWidths.has(colName)
+        ? columnWidths.get(colName)
+        : DEFAULT_COL_WIDTH;
+      const safeWidth = Math.max(MIN_COL_WIDTH, Number(width) || DEFAULT_COL_WIDTH);
+      col.style.width = `${safeWidth}px`;
       colgroup.appendChild(col);
-      return col;
     });
     resultsTable.appendChild(colgroup);
+    syncTableWidth(colgroup);
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
@@ -314,13 +362,20 @@ export function createResultsRenderer({
       const resizer = document.createElement('span');
       resizer.className = 'results-col-resizer';
       resizer.addEventListener('mousedown', (event) => {
-        startResize(event, th, colEls[colIndex]);
+        const colEl = colgroup.children[colIndex];
+        startResize(event, th, colEl, col);
       });
       resizer.addEventListener('click', (event) => {
         event.stopPropagation();
       });
       th.appendChild(resizer);
-      th.addEventListener('click', () => {
+      th.addEventListener('click', (event) => {
+        if (suppressNextSortClick) {
+          suppressNextSortClick = false;
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         if (onSort) onSort(col);
       });
       headRow.appendChild(th);
@@ -393,19 +448,7 @@ export function createResultsRenderer({
       tbody.appendChild(tr);
     });
     resultsTable.appendChild(tbody);
-
-    const headCells = headRow.querySelectorAll('th');
-    requestAnimationFrame(() => {
-      if (!resultsTable.isConnected) return;
-      headCells.forEach((th, idx) => {
-        const width = Math.max(
-          MIN_COL_WIDTH,
-          Math.min(MAX_COL_WIDTH, th.getBoundingClientRect().width || MIN_COL_WIDTH)
-        );
-        if (colEls[idx]) colEls[idx].style.width = `${width}px`;
-      });
-      resultsTable.style.tableLayout = 'fixed';
-    });
+    lastColumns = columns.slice();
 
     const total = totalRows || rows.length;
     if (total > maxRows) {

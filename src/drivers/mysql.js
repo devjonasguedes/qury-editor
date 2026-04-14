@@ -547,6 +547,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         user: cfg.user,
         password: cfg.password,
         database: cfg.database || undefined,
+        dateStrings: true,
         connectTimeout: timeouts.openMs > 0 ? timeouts.openMs : undefined
       });
       await validateConnection(connection, timeouts.validationMs);
@@ -605,6 +606,7 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         user: cfg.user,
         password: cfg.password,
         database: cfg.database || undefined,
+        dateStrings: true,
         connectTimeout: timeouts.openMs > 0 ? timeouts.openMs : undefined
       });
       await validateConnection(connection, timeouts.validationMs);
@@ -940,7 +942,8 @@ function createMySqlDriver({ createTunnel, closeTunnel } = {}) {
         port: config.port,
         user: config.user,
         password: config.password,
-        database: config.database || undefined
+        database: config.database || undefined,
+        dateStrings: true
       });
       await killer.query(`KILL QUERY ${threadId}`);
       await killer.end();

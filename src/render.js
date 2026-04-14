@@ -3127,6 +3127,19 @@ export function initHome({ api }) {
     return text;
   };
 
+  const toResultCellDisplayValue = (value) => {
+    if (value === null || value === undefined) return "";
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === "object") {
+      try {
+        return JSON.stringify(value);
+      } catch (_) {
+        return String(value);
+      }
+    }
+    return String(value);
+  };
+
   const getEditCapability = () => {
     const active = editorSqlState.tableView
       ? editorSqlState.tableView.getActive()
@@ -5159,10 +5172,7 @@ export function initHome({ api }) {
     updateApplyEditsButton();
     return {
       ok: true,
-      displayValue:
-        row[column] === null || row[column] === undefined
-          ? ""
-          : String(row[column]),
+      displayValue: toResultCellDisplayValue(row[column]),
       previousValue,
     };
   };

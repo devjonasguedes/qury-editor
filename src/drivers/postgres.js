@@ -1,4 +1,4 @@
-const { Client } = require('pg');
+const { Client, types } = require('pg');
 const { buildIndexes, buildConstraints, buildTriggers } = require('./metadata');
 
 const MAX_IPC_ROWS = 5000;
@@ -6,6 +6,7 @@ const DEFAULT_SESSION_TIMEZONE = 'UTC';
 const DEFAULT_CONNECTION_OPEN_TIMEOUT_MS = 10000;
 const DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS = 5000;
 const DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS = 10000;
+const RAW_TEXT_TYPE_OIDS = [1082, 1083, 1114, 1184, 1266];
 const isReadOnlyConfig = (cfg) => !!(cfg && (cfg.readOnly || cfg.read_only));
 const normalizeSessionTimezone = (value) => String(value || '').trim() || DEFAULT_SESSION_TIMEZONE;
 const normalizeTimeoutMs = (value, fallback) => {
@@ -14,6 +15,10 @@ const normalizeTimeoutMs = (value, fallback) => {
   if (!Number.isFinite(parsed) || parsed < 0) return normalizedFallback;
   return Math.floor(parsed);
 };
+
+RAW_TEXT_TYPE_OIDS.forEach((oid) => {
+  types.setTypeParser(oid, (value) => value);
+});
 
 function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   let client = null;

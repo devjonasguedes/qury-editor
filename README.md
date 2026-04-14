@@ -76,6 +76,14 @@ npm run build:win:x64
 npm run build:linux:deb
 ```
 
+No macOS, após gerar/baixar o app sem assinatura de certificado, rode no terminal:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Qury Editor.app"
+```
+
+Isso remove o atributo de quarentena para permitir abrir o app.
+
 ---
 
 ## Estrutura do projeto

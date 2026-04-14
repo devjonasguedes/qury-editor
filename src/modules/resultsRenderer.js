@@ -160,6 +160,19 @@ export function createResultsRenderer({
     return { ok: !!result };
   };
 
+  const toDisplayValue = (value) => {
+    if (value === null || value === undefined) return '';
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch (_) {
+        return String(value);
+      }
+    }
+    return String(value);
+  };
+
   const finishEdit = ({ cancel = false } = {}) => {
     if (!activeEditor) return;
     const {
@@ -201,9 +214,7 @@ export function createResultsRenderer({
     const displayValue =
       result && result.displayValue !== undefined
         ? result.displayValue
-        : nextValue === null || nextValue === undefined
-          ? ''
-          : String(nextValue);
+        : toDisplayValue(nextValue);
     if (valueEl) valueEl.textContent = displayValue;
     if (td) td.title = displayValue;
     if (
@@ -236,10 +247,7 @@ export function createResultsRenderer({
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'results-cell-input';
-    input.value =
-      previousValue === null || previousValue === undefined
-        ? ''
-        : String(previousValue);
+    input.value = toDisplayValue(previousValue);
     td.classList.add('editing');
     valueEl.classList.add('hidden');
     td.appendChild(input);
@@ -390,7 +398,7 @@ export function createResultsRenderer({
       columns.forEach((col, colIndex) => {
         const td = document.createElement('td');
         const value = row[col];
-        const text = value === null || value === undefined ? '' : String(value);
+        const text = toDisplayValue(value);
         const content = document.createElement('span');
         content.className = 'results-cell-value';
         content.textContent = text;
@@ -478,8 +486,7 @@ export function createResultsRenderer({
       new Set(normalized.flatMap((row) => Object.keys(row || {})))
     );
     const escape = (val) => {
-      if (val === null || val === undefined) return '';
-      const str = String(val);
+      const str = toDisplayValue(val);
       if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
       return str;
     };
@@ -507,11 +514,7 @@ export function createResultsRenderer({
   async function copyCell() {
     if (!selectedCell) return;
     try {
-      await navigator.clipboard.writeText(
-        selectedCell.value === null || selectedCell.value === undefined
-          ? ''
-          : String(selectedCell.value)
-      );
+      await navigator.clipboard.writeText(toDisplayValue(selectedCell.value));
       if (onToast) onToast('Cell copied');
     } catch (_) {
       if (showError) await showError('Unable to copy cell.');

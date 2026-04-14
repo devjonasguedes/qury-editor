@@ -6,6 +6,8 @@ const DEFAULT_SESSION_TIMEZONE = 'UTC';
 const DEFAULT_CONNECTION_OPEN_TIMEOUT_MS = 10000;
 const DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS = 5000;
 const DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS = 10000;
+const DEFAULT_SOCKET_KEEP_ALIVE_INITIAL_DELAY_MS = 10000;
+const DEFAULT_HEALTHCHECK_TIMEOUT_MS = 5000;
 const RAW_TEXT_TYPE_OIDS = [1082, 1083, 1114, 1184, 1266];
 const isReadOnlyConfig = (cfg) => !!(cfg && (cfg.readOnly || cfg.read_only));
 const normalizeSessionTimezone = (value) => String(value || '').trim() || DEFAULT_SESSION_TIMEZONE;
@@ -26,12 +28,58 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   let database = '';
   let tunnel = null;
   let currentQuery = null;
+  let connectInput = null;
+  let reconnectPromise = null;
 
   const resolveConnectionTimeouts = (cfg) => ({
     openMs: normalizeTimeoutMs(cfg && cfg.connectionOpenTimeoutMs, DEFAULT_CONNECTION_OPEN_TIMEOUT_MS),
     closeMs: normalizeTimeoutMs(cfg && cfg.connectionCloseTimeoutMs, DEFAULT_CONNECTION_CLOSE_TIMEOUT_MS),
     validationMs: normalizeTimeoutMs(cfg && cfg.connectionValidationTimeoutMs, DEFAULT_CONNECTION_VALIDATION_TIMEOUT_MS)
   });
+
+  const resolveHealthcheckTimeoutMs = (cfg) => {
+    const timeouts = resolveConnectionTimeouts(cfg);
+    const base = Number.isFinite(timeouts.validationMs) && timeouts.validationMs > 0
+      ? timeouts.validationMs
+      : DEFAULT_HEALTHCHECK_TIMEOUT_MS;
+    return Math.max(1000, Math.min(DEFAULT_HEALTHCHECK_TIMEOUT_MS, base));
+  };
+
+  const closeTunnelSafe = async (value) => {
+    if (!value || !closeTunnel) return;
+    try {
+      await closeTunnel(value);
+    } catch (_) {
+      // best effort
+    }
+  };
+
+  const buildClientConfig = (cfg, host, port, databaseOverride) => {
+    const source = cfg || {};
+    const timeouts = resolveConnectionTimeouts(source);
+    return {
+      host,
+      port,
+      user: source.user,
+      password: source.password,
+      database:
+        databaseOverride !== undefined
+          ? databaseOverride || undefined
+          : source.database || undefined,
+      connectionTimeoutMillis: timeouts.openMs > 0 ? timeouts.openMs : undefined,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: DEFAULT_SOCKET_KEEP_ALIVE_INITIAL_DELAY_MS
+    };
+  };
+
+  const rememberConnectInput = (cfg, sshConfig) => {
+    const sourceCfg = cfg && typeof cfg === 'object' ? cfg : {};
+    const sourceSsh = sshConfig && typeof sshConfig === 'object' ? sshConfig : null;
+    connectInput = {
+      cfg: { ...sourceCfg },
+      sshConfig: sourceSsh ? { ...sourceSsh } : null
+    };
+  };
 
   const forceCloseConnection = (connection) => {
     const stream = connection && connection.connection && connection.connection.stream;
@@ -106,6 +154,65 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     }
   };
 
+  const reconnectClient = async () => {
+    if (reconnectPromise) return reconnectPromise;
+    reconnectPromise = (async () => {
+      if (!connectInput || !connectInput.cfg) {
+        return { ok: false, error: 'Not connected.' };
+      }
+      const nextCfg = { ...connectInput.cfg };
+      const nextSshConfig = connectInput.sshConfig ? { ...connectInput.sshConfig } : null;
+      const closeTimeoutMs = resolveConnectionTimeouts(nextCfg).closeMs;
+      const previousClient = client;
+      const previousTunnel = tunnel;
+
+      client = null;
+      config = null;
+      database = '';
+      tunnel = null;
+      currentQuery = null;
+
+      if (previousClient) {
+        try {
+          await closeConnection(previousClient, closeTimeoutMs);
+        } catch (_) {
+          // best effort
+        }
+      }
+      await closeTunnelSafe(previousTunnel);
+      return connect(nextCfg, nextSshConfig);
+    })();
+    try {
+      return await reconnectPromise;
+    } finally {
+      reconnectPromise = null;
+    }
+  };
+
+  const ensureClientReady = async () => {
+    if (!client) {
+      const reconnected = await reconnectClient();
+      if (reconnected && reconnected.ok) return { ok: true };
+      return {
+        ok: false,
+        error: reconnected && reconnected.error ? reconnected.error : 'Not connected.'
+      };
+    }
+    try {
+      await validateConnection(client, resolveHealthcheckTimeoutMs(config));
+      return { ok: true };
+    } catch (_) {
+      const reconnected = await reconnectClient();
+      if (reconnected && reconnected.ok) return { ok: true };
+      return {
+        ok: false,
+        error: reconnected && reconnected.error
+          ? reconnected.error
+          : 'Connection lost. Reconnect failed.'
+      };
+    }
+  };
+
   const disconnect = async () => {
     const closeTimeoutMs = resolveConnectionTimeouts(config).closeMs;
     try {
@@ -121,13 +228,9 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
       config = null;
       database = '';
       currentQuery = null;
-      if (tunnel && closeTunnel) {
-        try {
-          await closeTunnel(tunnel);
-        } catch (_) {
-          // ignore
-        }
-      }
+      connectInput = null;
+      reconnectPromise = null;
+      await closeTunnelSafe(tunnel);
       tunnel = null;
     }
   };
@@ -144,14 +247,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         connectHost = createdTunnel.localHost;
         connectPort = createdTunnel.localPort;
       }
-      connection = new Client({
-        host: connectHost,
-        port: connectPort,
-        user: cfg.user,
-        password: cfg.password,
-        database: cfg.database || undefined,
-        connectionTimeoutMillis: timeouts.openMs > 0 ? timeouts.openMs : undefined
-      });
+      connection = new Client(buildClientConfig(cfg, connectHost, connectPort));
       await connection.connect();
       await validateConnection(connection, timeouts.validationMs);
       if (isReadOnlyConfig(cfg)) {
@@ -178,6 +274,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
       };
       database = dbName;
       tunnel = createdTunnel;
+      rememberConnectInput(cfg, sshConfig);
       return { ok: true };
     } catch (err) {
       if (connection) {
@@ -185,13 +282,7 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
           await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
-      if (createdTunnel && closeTunnel) {
-        try {
-          await closeTunnel(createdTunnel);
-        } catch (_) {
-          // ignore
-        }
-      }
+      await closeTunnelSafe(createdTunnel);
       const message = err && err.message ? err.message : 'Failed to connect.';
       return { ok: false, error: message };
     }
@@ -210,14 +301,9 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         connectHost = testTunnel.localHost;
         connectPort = testTunnel.localPort;
       }
-      connection = new Client({
-        host: connectHost,
-        port: connectPort,
-        user: cfg.user,
-        password: cfg.password,
-        database: databaseName,
-        connectionTimeoutMillis: timeouts.openMs > 0 ? timeouts.openMs : undefined
-      });
+      connection = new Client(
+        buildClientConfig(cfg, connectHost, connectPort, databaseName)
+      );
       await connection.connect();
       await validateConnection(connection, timeouts.validationMs);
       await closeConnection(connection, timeouts.closeMs);
@@ -232,18 +318,13 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
           await closeConnection(connection, timeouts.closeMs);
         } catch (_) {}
       }
-      if (testTunnel && closeTunnel) {
-        try {
-          await closeTunnel(testTunnel);
-        } catch (_) {
-          // ignore
-        }
-      }
+      await closeTunnelSafe(testTunnel);
     }
   };
 
   const listTables = async () => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const res = await client.query(
       "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_type IN ('BASE TABLE','VIEW') AND table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_type, table_name"
     );
@@ -251,7 +332,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listRoutines = async () => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const res = await client.query(
       "SELECT routine_schema, routine_name, routine_type FROM information_schema.routines WHERE routine_schema NOT IN ('pg_catalog','information_schema') ORDER BY routine_schema, routine_type, routine_name"
     );
@@ -259,7 +341,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listColumns = async (payload) => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const schema = payload && payload.schema ? payload.schema : 'public';
     const table = payload && payload.table ? payload.table : '';
     if (!table) return { ok: false, error: 'Invalid table.' };
@@ -271,7 +354,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listTableInfo = async (payload) => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const schema = payload && payload.schema ? payload.schema : 'public';
     const table = payload && payload.table ? payload.table : '';
     if (!table) return { ok: false, error: 'Invalid table.' };
@@ -317,7 +401,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const getViewDefinition = async (payload) => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const schema = payload && payload.schema ? payload.schema : '';
     const view = payload && (payload.view || payload.name || payload.table) ? (payload.view || payload.name || payload.table) : '';
     const targetSchema = schema || 'public';
@@ -340,7 +425,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const getTableDefinition = async (payload) => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const schema = payload && payload.schema ? payload.schema : 'public';
     const table = payload && (payload.table || payload.name) ? (payload.table || payload.name) : '';
     if (!table) return { ok: false, error: 'Invalid table.' };
@@ -384,7 +470,8 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const listDatabases = async () => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const res = await client.query(
       'SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname'
     );
@@ -393,18 +480,12 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const useDatabase = async (name) => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     if (!name) return { ok: false, error: 'Invalid database.' };
     const cfg = config || client.connectionParameters || {};
     const timeouts = resolveConnectionTimeouts(cfg);
-    const next = new Client({
-      host: cfg.host,
-      port: cfg.port,
-      user: cfg.user,
-      password: cfg.password,
-      database: name,
-      connectionTimeoutMillis: timeouts.openMs > 0 ? timeouts.openMs : undefined
-    });
+    const next = new Client(buildClientConfig(cfg, cfg.host, cfg.port, name));
     try {
       await next.connect();
       await validateConnection(next, timeouts.validationMs);
@@ -431,6 +512,9 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         connectionCloseTimeoutMs: timeouts.closeMs,
         connectionValidationTimeoutMs: timeouts.validationMs
       };
+      if (connectInput && connectInput.cfg) {
+        connectInput.cfg.database = name;
+      }
       return { ok: true };
     } catch (err) {
       try {
@@ -442,12 +526,16 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
   };
 
   const setSessionTimezone = async (payload) => {
-    if (!client) return { ok: false, error: 'Not connected.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     const source = payload && typeof payload === 'object' ? payload : { timezone: payload };
     const requested = source.timezone || source.sessionTimezone || source.value;
     try {
       const timezone = await applySessionTimezone(client, requested, { strict: true });
       if (config) config.sessionTimezone = timezone;
+      if (connectInput && connectInput.cfg) {
+        connectInput.cfg.sessionTimezone = timezone;
+      }
       return { ok: true, applied: true, timezone };
     } catch (err) {
       const message = err && err.message ? err.message : 'Failed to set session timezone.';
@@ -460,8 +548,9 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
     const sql = input.sql || '';
     const timeoutMs = Number(input.timeoutMs || 0);
     const applyTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
-    if (!client) return { ok: false, error: 'Not connected.' };
     if (!sql || !sql.trim()) return { ok: false, error: 'Empty query.' };
+    const ready = await ensureClientReady();
+    if (!ready.ok) return ready;
     currentQuery = { pid: client.processID };
     try {
       if (applyTimeout) {
@@ -518,7 +607,9 @@ function createPostgresDriver({ createTunnel, closeTunnel } = {}) {
         port: config.port,
         user: config.user,
         password: config.password,
-        database: config.database || undefined
+        database: config.database || undefined,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: DEFAULT_SOCKET_KEEP_ALIVE_INITIAL_DELAY_MS
       });
       await killer.connect();
       await killer.query('SELECT pg_cancel_backend($1)', [pid]);

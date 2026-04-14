@@ -2918,11 +2918,32 @@ body.theme-light .tab-bar {
   margin-top: 2px;
 }
 
+.sql-help-sidebar-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -4px 0 10px;
+}
+
 .sql-help-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px 16px;
+  overflow: auto;
+}
+
+#sqlHelpPanel .sql-help-list {
+  padding: 0;
+  gap: 8px;
+}
+
+#sqlHelpPanel .sql-help-item {
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+#sqlHelpPanel .sql-help-code {
+  max-height: 180px;
   overflow: auto;
 }
 

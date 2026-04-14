@@ -4,12 +4,14 @@ export function createSidebarMenu({
   onChange,
   onShowHistory,
   onShowSnippets,
+  onShowSqlHelp,
   initialView = "tree",
   panels = {},
 } = {}) {
   const treeBtn = document.getElementById("sidebarTreeBtn");
   const historyBtn = document.getElementById("sidebarHistoryBtn");
   const snippetsBtn = document.getElementById("sidebarSnippetsBtn");
+  const sqlHelpBtn = document.getElementById("sidebarSqlHelpBtn");
   const sidebar =
     panels.sidebar ||
     document.getElementById("sidebar") ||
@@ -21,9 +23,16 @@ export function createSidebarMenu({
     panels.historyPanel || document.getElementById("historyPanel");
   const snippetsPanel =
     panels.snippetsPanel || document.getElementById("snippetsPanel");
+  const sqlHelpPanel = panels.sqlHelpPanel || document.getElementById("sqlHelpPanel");
 
   const normalizeView = (view) =>
-    view === "history" ? "history" : view === "snippets" ? "snippets" : "tree";
+    view === "history"
+      ? "history"
+      : view === "snippets"
+        ? "snippets"
+        : view === "sqlhelp"
+          ? "sqlhelp"
+          : "tree";
 
   let activeView = normalizeView(initialView);
   let isCollapsed = false;
@@ -34,6 +43,8 @@ export function createSidebarMenu({
       historyBtn.classList.toggle("active", !isCollapsed && activeView === "history");
     if (snippetsBtn)
       snippetsBtn.classList.toggle("active", !isCollapsed && activeView === "snippets");
+    if (sqlHelpBtn)
+      sqlHelpBtn.classList.toggle("active", !isCollapsed && activeView === "sqlhelp");
   };
 
   const applyPanels = () => {
@@ -42,6 +53,8 @@ export function createSidebarMenu({
       historyPanel.classList.toggle("hidden", isCollapsed || activeView !== "history");
     if (snippetsPanel)
       snippetsPanel.classList.toggle("hidden", isCollapsed || activeView !== "snippets");
+    if (sqlHelpPanel)
+      sqlHelpPanel.classList.toggle("hidden", isCollapsed || activeView !== "sqlhelp");
     if (sidebar) sidebar.classList.toggle("hidden", isCollapsed);
     if (sidebarResizer) sidebarResizer.classList.toggle("hidden", isCollapsed);
   };
@@ -60,6 +73,7 @@ export function createSidebarMenu({
     applyPanels();
     if (activeView === "history" && onShowHistory) onShowHistory();
     if (activeView === "snippets" && onShowSnippets) onShowSnippets();
+    if (activeView === "sqlhelp" && onShowSqlHelp) onShowSqlHelp();
     if (notify && onChange) onChange(activeView);
     return activeView;
   };
@@ -83,6 +97,10 @@ export function createSidebarMenu({
 
   if (snippetsBtn) {
     snippetsBtn.addEventListener("click", () => toggleView("snippets"));
+  }
+
+  if (sqlHelpBtn) {
+    sqlHelpBtn.addEventListener("click", () => toggleView("sqlhelp"));
   }
 
   setView(activeView, { notify: false });

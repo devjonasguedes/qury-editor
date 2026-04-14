@@ -269,7 +269,7 @@ export function createSqlHelp({
   showToast,
   entries = DEFAULT_SQL_HELP_ENTRIES,
 } = {}) {
-  if (!sqlHelpBtn || !sqlHelpPanel || !sqlHelpList) {
+  if (!sqlHelpList) {
     return {
       open: () => {},
       close: () => {},
@@ -278,13 +278,17 @@ export function createSqlHelp({
     };
   }
 
+  const hasToggleControls = !!(sqlHelpBtn && sqlHelpPanel);
+
   const open = () => {
+    if (!hasToggleControls) return;
     sqlHelpPanel.classList.remove("hidden");
     sqlHelpBtn.classList.add("active");
     sqlHelpBtn.setAttribute("aria-expanded", "true");
   };
 
   const close = () => {
+    if (!hasToggleControls) return;
     sqlHelpPanel.classList.add("hidden");
     sqlHelpBtn.classList.remove("active");
     sqlHelpBtn.setAttribute("aria-expanded", "false");
@@ -373,26 +377,30 @@ export function createSqlHelp({
     });
   };
 
-  sqlHelpBtn.addEventListener("click", (event) => {
-    event.preventDefault();
-    toggle();
-  });
+  if (hasToggleControls) {
+    sqlHelpBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      toggle();
+    });
+  }
 
-  if (sqlHelpCloseBtn) {
+  if (hasToggleControls && sqlHelpCloseBtn) {
     sqlHelpCloseBtn.addEventListener("click", () => {
       close();
     });
   }
 
-  document.addEventListener("click", (event) => {
-    if (sqlHelpPanel.classList.contains("hidden")) return;
-    if (sqlHelpPanel.contains(event.target)) return;
-    if (sqlHelpBtn.contains(event.target)) return;
-    close();
-  });
+  if (hasToggleControls) {
+    document.addEventListener("click", (event) => {
+      if (sqlHelpPanel.classList.contains("hidden")) return;
+      if (sqlHelpPanel.contains(event.target)) return;
+      if (sqlHelpBtn.contains(event.target)) return;
+      close();
+    });
+  }
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") close();
+    if (event.key === "Escape" && hasToggleControls) close();
   });
 
   render();

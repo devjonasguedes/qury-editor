@@ -102,6 +102,14 @@
             >
               <i class="bi bi-bookmark-star"></i>
             </button>
+            <button
+              id="sidebarSqlHelpBtn"
+              class="sidebar-icon"
+              title="SQL Helper"
+              aria-controls="sqlHelpPanel"
+            >
+              <i class="bi bi-code-slash"></i>
+            </button>
           </div>
           <aside class="tables">
             <div id="tablePanel" class="sidebar-panel">
@@ -166,6 +174,13 @@
                 </button>
               </div>
               <div id="snippetsList" class="snippets-list"></div>
+            </div>
+            <div id="sqlHelpPanel" class="sidebar-panel hidden">
+              <div class="panel-title">SQL Helper</div>
+              <div class="sql-help-sidebar-subtitle">
+                Copy a template to use in your query.
+              </div>
+              <div id="sqlHelpList" class="sql-help-list"></div>
             </div>
           </aside>
         </div>
@@ -427,36 +442,6 @@
             </div>
             <div class="editor-body">
               <textarea id="query" placeholder="Type your SQL query"></textarea>
-            </div>
-            <button
-              id="sqlHelpBtn"
-              class="sql-help-fab"
-              title="SQL helper"
-              aria-label="SQL helper"
-              aria-controls="sqlHelpPanel"
-              aria-expanded="false"
-            >
-              <i class="bi bi-code-slash"></i>
-              SQL
-            </button>
-            <div
-              id="sqlHelpPanel"
-              class="sql-help-panel hidden"
-              role="dialog"
-              aria-label="SQL helper"
-            >
-              <div class="sql-help-header">
-                <div>
-                  <div class="sql-help-title">SQL Helper</div>
-                  <div class="sql-help-subtitle">
-                    Copy a template to use in your query.
-                  </div>
-                </div>
-                <button id="sqlHelpCloseBtn" class="icon-btn" title="Close">
-                  <i class="bi bi-x"></i>
-                </button>
-              </div>
-              <div id="sqlHelpList" class="sql-help-list"></div>
             </div>
           </div>
           <div id="editorResizer" class="editor-resizer hidden"></div>
